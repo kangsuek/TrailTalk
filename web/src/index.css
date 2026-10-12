@@ -1,0 +1,86 @@
+:root {
+  --text: #1f1d24;
+  --muted: #6b6375;
+  --bg: #fff;
+  --border: #e5e4e7;
+  --accent: #2f7d4f;
+  --ok: #2f7d4f;
+  --error: #b3261e;
+
+  font: 16px/1.5 system-ui, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --text: #ecebee;
+    --muted: #a39fab;
+    --bg: #16151a;
+    --border: #2e2c34;
+    --accent: #6fcf97;
+    --ok: #6fcf97;
+    --error: #f2b8b5;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+}
+
+.app {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.app header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.app h1 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.server-status {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.server-status[data-state='ok'] {
+  color: var(--ok);
+}
+
+.server-status[data-state='error'] {
+  color: var(--error);
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin: 16px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.tabs button {
+  flex: 1;
+  padding: 10px 4px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.tabs button[aria-selected='true'] {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}

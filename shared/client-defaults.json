@@ -1,0 +1,15 @@
+{
+  "vad": {
+    "end_of_speech_silence_ms": 1200,
+    "min_speech_ms": 300,
+    "playback_threshold_boost": true
+  },
+  "session": {
+    "idle_timeout_minutes": 30
+  },
+  "audio": {
+    "upload": { "codec": "opus", "sample_rate_hz": 16000, "channels": 1 },
+    "response": { "codec": "mp3" }
+  },
+  "offline_notice": "지금은 산이 깊어서 메모만 해둘게요!"
+}
