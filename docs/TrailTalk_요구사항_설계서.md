@@ -259,7 +259,7 @@ voice:
 | SSE 이벤트 | `transcript`(STT 결과), `sentence`(문장 텍스트 + 오디오), `tool`(저장·종료 알림), `done`, `error`. JSON 스키마로 고정 |
 | 오디오 형식 | 업로드 16kHz 모노 Opus, 응답 문장별 MP3. 두 클라이언트가 같은 형식 |
 | 세션 상태 머신 | 대기·듣기·처리 중·말하기·쉬기·오프라인 보관·정리(4.1 상태 흐름)와 전이 표. 상태 이름을 코드에서 그대로 사용 |
-| 클라이언트 설정값 | VAD 임계값, 무음 1.2초, 짧은 소음 0.3초 무시 등. 서버 `/profile`이 내려주어 두 클라이언트가 같은 값을 씁 |
+| 클라이언트 설정값 | VAD 임계값, 무음 1.2초, 짧은 소음 0.3초 무시 등. 서버 `/api/profile`이 내려주어 두 클라이언트가 같은 값을 쓴다 |
 | 알림음·안내 문구 | `shared/`의 효과음과 오프라인 안내 문구를 함께 사용 |
 
 웹 코드는 포팅을 전제로 다음 규칙을 지킨다.
@@ -330,10 +330,12 @@ trailtalk/
     src/platform/    # AudioInput, AudioOutput, LocalQueue 브라우저 구현
     src/screens/     # 대화, 일지 목록, 일지 상세, 설정
     src/api/         # OpenAPI에서 생성한 클라이언트
+    e2e/             # Playwright E2E
   android/           # 2차 클라이언트: Kotlin + Compose (web/src/core를 포팅)
   shared/            # 효과음, 안내 문구, VAD 모델, 클라이언트 설정 기본값
   docs/
     client-contract.md  # API·SSE·오디오·상태 머신 규약
+    spikes/             # 기술 검증 기록
   CLAUDE.md
 ```
 

@@ -11,6 +11,7 @@
 - 클라이언트는 얇게: 문장 분할·요약·중복 제거처럼 서버가 할 수 있는 일은 클라이언트에 넣지 않는다.
 - `web/src/core/`는 UI·브라우저 API에 의존하지 않는 순수 TypeScript로 작성한다(안드로이드 Kotlin 포팅 대상).
 - 서버 API는 모두 `/api` 아래에 둔다. 엔드포인트 목록은 설계서 4.6 표를 따른다.
+- 마일스톤을 끝내면 구현 계획서 1장의 진행 현황과 `docs/progress.md`(완료 기준 측정값)를 갱신한다.
 
 ## 폴더 구조
 
@@ -38,13 +39,15 @@ docs/              설계서, 계획서, 규약, 검증 기록(spikes/)
 
 ## 명령
 
+저장소 루트 기준이다. `npm run e2e`는 서버(8000)와 웹(5173)을 자동으로 띄우며, 이미 떠 있으면 그 서버를 재사용한다(CI 제외).
+
 ```bash
 # 서버
-cd server && uv run uvicorn app.main:app --reload    # http://127.0.0.1:8000
-cd server && uv run pytest && uv run ruff check . && uv run ruff format --check .
+(cd server && uv run uvicorn app.main:app --reload)    # http://127.0.0.1:8000
+(cd server && uv run pytest && uv run ruff check . && uv run ruff format --check .)
 
 # 웹
-cd web && npm run dev                                # http://127.0.0.1:5173, /api → 8000 프록시
-cd web && npm run test && npm run lint && npm run build
-cd web && npm run e2e                                # Playwright: 서버·웹 자동 기동 후 실제 구동 검증
+(cd web && npm run dev)                                # http://127.0.0.1:5173, /api → 8000 프록시
+(cd web && npm run test && npm run lint && npm run build)
+(cd web && npm run e2e)                                # Playwright: 서버·웹 자동 기동 후 실제 구동 검증
 ```
