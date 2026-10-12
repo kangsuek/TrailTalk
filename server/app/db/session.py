@@ -19,14 +19,16 @@ from sqlalchemy.ext.asyncio import (
 )
 
 
-def create_engine_for(url: str) -> AsyncEngine:
+def create_engine_for(url: str, *, foreign_keys: bool = True) -> AsyncEngine:
+    """foreign_keys=False는 마이그레이션 전용이다(SQLite batch가 테이블을 다시 만들 때
+    DROP TABLE이 ON DELETE CASCADE를 일으켜 자식 행이 지워지는 것을 막는다)."""
     parsed = make_url(url)
     is_sqlite = parsed.get_backend_name() == "sqlite"
     if is_sqlite and parsed.database and parsed.database != ":memory:":
         Path(parsed.database).parent.mkdir(parents=True, exist_ok=True)
 
     engine = create_async_engine(url)
-    if is_sqlite:
+    if is_sqlite and foreign_keys:
 
         @event.listens_for(engine.sync_engine, "connect")
         def _enable_foreign_keys(dbapi_connection, _record) -> None:

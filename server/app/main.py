@@ -8,6 +8,7 @@ from starlette.types import Scope
 
 from app.api import health
 from app.config import Settings, settings
+from app.db.migrate import upgrade_to_head
 from app.db.session import create_engine_for, create_session_factory
 from app.errors import install_error_handlers
 from app.request_context import RequestContextMiddleware, configure_logging
@@ -29,6 +30,8 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        if app_settings.auto_migrate:
+            await upgrade_to_head(app_settings.database_url)
         engine = create_engine_for(app_settings.database_url)
         app.state.engine = engine
         app.state.session_factory = create_session_factory(engine)

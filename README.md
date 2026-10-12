@@ -33,6 +33,8 @@ cp .env.example .env
 
 `npm run build`로 만든 `web/dist`가 있으면 서버가 `/`에서 웹 앱을 함께 서빙한다.
 
+서버는 시작할 때 DB 마이그레이션을 자동으로 적용한다. 모델을 바꾼 뒤에는 `(cd server && uv run alembic revision --autogenerate -m "설명")`으로 마이그레이션을 만들고 내용을 검토한다.
+
 ## 테스트
 
 ```bash

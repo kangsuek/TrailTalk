@@ -13,6 +13,8 @@ class Settings(BaseSettings):
 
     database_url: str = f"sqlite+aiosqlite:///{SERVER_DIR / 'trailtalk.db'}"
     log_level: str = "INFO"
+    # 앱 시작 때 Alembic 마이그레이션을 head까지 적용한다
+    auto_migrate: bool = True
     persona_dir: Path = SERVER_DIR / "personas"
     default_persona: str = "jenny"
     web_dist_dir: Path = REPO_DIR / "web" / "dist"

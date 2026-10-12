@@ -223,13 +223,15 @@ voice:
 
 | 테이블 | 주요 컬럼 |
 |---|---|
-| conversation_session | id, started_at, ended_at, status(active/paused/ended), title, summary, tags |
+| conversation_session | id, started_at, ended_at, status(active/paused/ended), title, summary, tags, cli_session_id(Claude CLI `--resume`용) |
 | turn | id, session_id, seq, role(user/assistant), text, audio_path(nullable), interrupted, created_at |
 | note | id, session_id, turn_id, kind(idea/todo/memo), content, starred, done, created_at |
 | pending_upload (기기 로컬) | id, session_id, audio_file, recorded_at, retry_count |
-| persona | id, yaml 경로, version |
-| user_profile | nickname, interests[], persona_id, voice, keep_audio |
+| persona | id(예: jenny), yaml 경로, version(YAML 내용 해시), updated_at |
+| user_profile | id(본인용 단일 행), nickname, interests[], persona_id, voice, keep_audio, updated_at |
 | briefing (확장) | id, week_start, script_text, audio_path, sources_json |
+
+ID는 UUID 문자열(`persona`는 이름 키, `user_profile`은 단일 행 1), 시각은 UTC로 저장한다. 열거값은 DB CHECK 제약으로 막고, 스키마 변경은 Alembic 마이그레이션(`server/migrations/`)으로 한다. `pending_upload`는 기기 로컬, `briefing`은 5단계에서 만든다.
 
 ### 4.6 서버 API
 
