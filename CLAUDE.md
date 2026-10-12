@@ -13,6 +13,8 @@
 - 클라이언트는 얇게: 문장 분할·요약·중복 제거처럼 서버가 할 수 있는 일은 클라이언트에 넣지 않는다.
 - `web/src/core/`는 UI·브라우저 API에 의존하지 않는 순수 TypeScript로 작성한다(안드로이드 Kotlin 포팅 대상).
 - 서버 API는 모두 `/api` 아래에 둔다. 엔드포인트 목록은 설계서 4.6 표를 따른다.
+- 서버 오류는 `AppError(code, message, status)`로 던진다. 응답 형식은 `server/app/errors.py`와 `docs/client-contract.md` 7절을 따른다.
+- DB는 비동기 SQLAlchemy다. 엔드포인트는 `db: DbSession`(`server/app/db/session.py`)으로 세션을 받고, commit은 명시적으로 한다. 앱은 `create_app(settings)`로 만들며 테스트는 `server/tests/conftest.py`의 `client` 픽스처(임시 SQLite)를 쓴다. 라우터는 `create_app` 안에서 웹 정적 마운트보다 먼저 등록한다(뒤에 붙이면 가려진다).
 - 진행 상태는 구현 계획서에서 관리한다: 작업 시작·완료 시 작업 상태·체크박스·커밋 해시를, 마일스톤 종료 시 완료 기준 측정값·진행 대시보드·추적표·변경 이력을 갱신한다(계획서 1장 갱신 규칙).
 
 ## 폴더 구조

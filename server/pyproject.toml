@@ -3,10 +3,11 @@ name = "trailtalk-server"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
+    "aiosqlite>=0.22.1",
     "fastapi>=0.143.0",
     "pydantic-settings>=2.15.0",
     "pyyaml>=6.0.3",
-    "sqlalchemy>=2.1.4",
+    "sqlalchemy[asyncio]>=2.1.4",
     "uvicorn[standard]>=0.54.0",
 ]
 

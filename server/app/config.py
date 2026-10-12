@@ -11,7 +11,8 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=REPO_DIR / ".env", extra="ignore")
 
-    database_url: str = f"sqlite:///{SERVER_DIR / 'trailtalk.db'}"
+    database_url: str = f"sqlite+aiosqlite:///{SERVER_DIR / 'trailtalk.db'}"
+    log_level: str = "INFO"
     persona_dir: Path = SERVER_DIR / "personas"
     default_persona: str = "jenny"
     web_dist_dir: Path = REPO_DIR / "web" / "dist"
