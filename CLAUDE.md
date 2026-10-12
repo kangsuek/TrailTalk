@@ -4,6 +4,8 @@
 - 구현 계획서: [docs/implementation-plan.md](docs/implementation-plan.md) — 작업은 계획서의 작업 ID(예: `S1-03`) 단위로 진행한다
 - 클라이언트 규약: [docs/client-contract.md](docs/client-contract.md)
 
+위 문서는 자동으로 불러오지 않는다(`@` import 금지). 필요한 절만 읽는다: 계획서는 진행 대시보드(2장)와 해당 작업이 속한 단계 절, 설계서는 관련 장만 `grep -n "^#"`으로 위치를 찾아 범위를 지정해 읽는다. 클라이언트 규약은 짧으므로 전체를 읽는다.
+
 ## 작업 규칙
 
 - 자동 커밋/푸시 허용 — 이 저장소에서는 매번 묻지 않고 커밋+푸시한다 (커밋 전 서브에이전트 diff 리뷰는 전역 규칙대로 수행)
