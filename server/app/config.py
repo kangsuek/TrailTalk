@@ -1,6 +1,7 @@
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import SecretStr
+from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 SERVER_DIR = Path(__file__).resolve().parent.parent
@@ -27,8 +28,19 @@ class Settings(BaseSettings):
     cli_turn_timeout_s: float = 120
     # 자식 CLI에 추가로 넘길 환경 변수 이름 패턴(기본 허용 목록 외). 테스트의 가짜 CLI용
     cli_env_passthrough: tuple[str, ...] = ()
+
+    @field_validator("timezone")
+    @classmethod
+    def _valid_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(f"알 수 없는 시간대: {value}") from exc
+        return value
+
     persona_dir: Path = SERVER_DIR / "personas"
     default_persona: str = "jenny"
+    timezone: str = "Asia/Seoul"
     web_dist_dir: Path = REPO_DIR / "web" / "dist"
 
 

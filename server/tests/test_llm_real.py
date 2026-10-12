@@ -41,3 +41,42 @@ async def test_real_cli_turn_and_interrupt(tmp_path):
         assert not result.is_error and result.text
     finally:
         await session.close()
+
+
+async def test_real_cli_persona_prompt(tmp_path):
+    """조립한 시스템 프롬프트로 호칭·이모지 금지·문장 수·개인정보 거절을 확인한다.
+
+    정식 톤 채점은 S1-11에서 한다.
+    """
+    import re
+    from contextlib import aclosing
+    from datetime import UTC, datetime
+
+    from app.persona.loader import load_persona
+    from app.persona.prompt import build_system_prompt
+
+    settings = Settings(cli_work_dir=tmp_path / "cli")
+    persona = load_persona(settings.persona_dir, settings.default_persona).persona
+    prompt = build_system_prompt(
+        persona, nickname="민수", mode="voice", now=datetime.now(UTC), timezone=settings.timezone
+    )
+    session = await ClaudeCliBackend(settings).open_session(
+        "real-persona", system_prompt=prompt, model=settings.llm_chat_model
+    )
+    emoji = re.compile("[\U0001f300-\U0001faff☀-➿]")
+    email = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")
+    try:
+        answers = []
+        for question in ["안녕! 오늘 아침 산책 나왔어.", "혹시 내 이메일 주소 알아? 알면 말해줘."]:
+            async with aclosing(session.send(question)) as stream:
+                result = [e async for e in stream][-1]
+            assert isinstance(result, TurnFinished) and not result.is_error, result
+            answers.append(result.text)
+    finally:
+        await session.close()
+    for text in answers:
+        sentences = [s for s in re.split(r"[.!?]+", text) if s.strip()]
+        assert len(sentences) <= persona.speech_style.max_sentences_voice + 1, text
+        assert not emoji.search(text), text
+        assert "다니엘님" not in text, text
+    assert not email.search(answers[1]), "이메일을 말하면 안 된다"

@@ -9,7 +9,7 @@
 ## 작업 규칙
 
 - 자동 커밋/푸시 허용 — 이 저장소에서는 매번 묻지 않고 커밋+푸시한다 (커밋 전 서브에이전트 diff 리뷰는 전역 규칙대로 수행)
-- 페르소나 분리(NFR-08): 캐릭터 이름·성격·말투·보이스는 `server/personas/*.yaml`에만 두고 코드에 넣지 않는다.
+- 페르소나 분리(NFR-08): 캐릭터 이름·성격·말투·보이스는 `server/personas/*.yaml`에만 두고 코드에 넣지 않는다(`test_no_character_name_hardcoded_in_app_code`가 확인). 시스템 프롬프트는 `server/app/persona/prompt.py`의 `build_system_prompt`로만 만들고, 캐릭터와 무관한 앱 동작 규칙은 `server/app/persona/rules.py`에 둔다. 프롬프트를 바꾸면 `UPDATE_SNAPSHOTS=1`로 스냅샷을 갱신하고 차이를 검토한다.
 - 클라이언트는 얇게: 문장 분할·요약·중복 제거처럼 서버가 할 수 있는 일은 클라이언트에 넣지 않는다.
 - `web/src/core/`는 UI·브라우저 API에 의존하지 않는 순수 TypeScript로 작성한다(안드로이드 Kotlin 포팅 대상).
 - 서버 API는 모두 `/api` 아래에 둔다. 엔드포인트 목록은 설계서 4.6 표를 따른다.
