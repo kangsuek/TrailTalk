@@ -2,13 +2,13 @@
 
 등산·산책 중 이어폰만으로 캐릭터 '제니'와 대화하며 브레인스토밍하고, 대화를 자동으로 일지로 정리하는 앱.
 
-- 설계서: [docs/TrailTalk_요구사항_설계서.md](docs/TrailTalk_요구사항_설계서.md)
-- 구현 계획서: [docs/구현_계획서.md](docs/구현_계획서.md)
+- 요구사항·설계서: [docs/requirements-design.md](docs/requirements-design.md)
+- 구현 계획서: [docs/implementation-plan.md](docs/implementation-plan.md)
 - 클라이언트 규약(초안): [docs/client-contract.md](docs/client-contract.md)
 
 ## 진행 상황
 
-0단계(준비·기술 검증) 진행 중: 저장소 골격 완료, Claude CLI 검증(S0-04) 예정. 단계별 상세는 [구현 계획서](docs/구현_계획서.md) 1장을 본다.
+0단계(준비·기술 검증) 진행 중이다. 단계별 상태와 현재 작업은 구현 계획서의 [진행 대시보드](docs/implementation-plan.md#2-진행-대시보드)에서 확인한다.
 
 ## 필요 도구
 

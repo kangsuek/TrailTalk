@@ -1,7 +1,7 @@
 # TrailTalk
 
-- 설계서: [docs/TrailTalk_요구사항_설계서.md](docs/TrailTalk_요구사항_설계서.md)
-- 구현 계획서: [docs/구현_계획서.md](docs/구현_계획서.md) — 작업은 계획서의 작업 ID(예: `S1-03`) 단위로 진행한다
+- 요구사항·설계서: [docs/requirements-design.md](docs/requirements-design.md)
+- 구현 계획서: [docs/implementation-plan.md](docs/implementation-plan.md) — 작업은 계획서의 작업 ID(예: `S1-03`) 단위로 진행한다
 - 클라이언트 규약: [docs/client-contract.md](docs/client-contract.md)
 
 ## 작업 규칙
@@ -11,7 +11,7 @@
 - 클라이언트는 얇게: 문장 분할·요약·중복 제거처럼 서버가 할 수 있는 일은 클라이언트에 넣지 않는다.
 - `web/src/core/`는 UI·브라우저 API에 의존하지 않는 순수 TypeScript로 작성한다(안드로이드 Kotlin 포팅 대상).
 - 서버 API는 모두 `/api` 아래에 둔다. 엔드포인트 목록은 설계서 4.6 표를 따른다.
-- 마일스톤을 끝내면 구현 계획서 1장의 진행 현황과 `docs/progress.md`(완료 기준 측정값)를 갱신한다.
+- 진행 상태는 구현 계획서에서 관리한다: 작업 시작·완료 시 작업 상태·체크박스·커밋 해시를, 마일스톤 종료 시 완료 기준 측정값·진행 대시보드·추적표·변경 이력을 갱신한다(계획서 1장 갱신 규칙).
 
 ## 폴더 구조
 
