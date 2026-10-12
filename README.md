@@ -15,6 +15,7 @@
 - [uv](https://docs.astral.sh/uv/) (Python 3.12는 uv가 자동으로 받는다)
 - Node.js 22.22.2 이상(22.x) 또는 24.15 이상 (테스트 의존성 jsdom·vitest 기준)
 - ffmpeg (3단계 음성 대화부터 필요)
+- Claude Code CLI 2.1.296 기준. 서버용 토큰은 `claude setup-token`으로 발급해 `.env`에 넣는다. 출력 형식이 바뀌지 않도록 자동 업데이트를 끈다(`DISABLE_AUTOUPDATER=1`). 검증 결과는 [docs/spikes/claude-cli.md](docs/spikes/claude-cli.md)
 
 ## 실행
 
