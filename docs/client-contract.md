@@ -9,7 +9,7 @@
 
 ## 2. SSE 이벤트
 
-`transcript`, `sentence`, `tool`, `done`, `error`. JSON 스키마는 1단계(S1-09)에서 초안, 3단계에서 확정.
+`transcript`, `sentence`, `tool`(저장·종료·웹 검색 시작/종료 알림), `done`, `error`. JSON 스키마는 1단계(S1-09)에서 초안, 3단계에서 확정.
 
 ## 3. 오디오 형식
 

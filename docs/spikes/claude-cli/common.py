@@ -47,6 +47,7 @@ class Turn:
     text: str = ""
     events: list[dict] = field(default_factory=list)
     first_delta_s: float | None = None
+    first_tool_s: float | None = None
     elapsed_s: float = 0.0
     result: dict | None = None
     tool_uses: list[dict] = field(default_factory=list)
@@ -162,6 +163,12 @@ class CliSession:
             turn.events.append(event)
             kind = event.get("type")
             if kind == "stream_event":
+                block = event["event"].get("content_block") or {}
+                if (
+                    block.get("type") in ("tool_use", "server_tool_use")
+                    and turn.first_tool_s is None
+                ):
+                    turn.first_tool_s = time.perf_counter() - sent_at
                 delta = event["event"].get("delta", {})
                 if delta.get("type") == "text_delta":
                     if turn.first_delta_s is None:

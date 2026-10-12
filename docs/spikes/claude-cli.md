@@ -2,7 +2,7 @@
 
 - 일시: 2026-10-12
 - 대상: Claude Code CLI 2.1.296, 모델 별칭 `haiku`(claude-haiku-5-5)·`sonnet`(claude-sonnet-5-5)
-- 인증: 1~7은 구독 로그인(macOS 키체인), 8은 `claude setup-token` 토큰(S0-05)
+- 인증: 1~7은 구독 로그인(macOS 키체인), 8·9는 `claude setup-token` 토큰(S0-05)
 - 스크립트: [claude-cli/](claude-cli/) — 저장소 루트에서 `uv run --project server python docs/spikes/claude-cli/<스크립트>`로 실행
 - 녹화 샘플: `server/tests/fixtures/claude_cli/*.jsonl` (경로·세션 ID 치환)
 
@@ -10,7 +10,7 @@
 
 설계서 4.9의 방식(세션마다 상주 CLI 프로세스 + stream-json 입출력)은 **그대로 쓸 수 있다**. 대체 방안(턴마다 `--resume`)은 필요 없다. 단, 1단계 구현에 반드시 반영할 조건이 다섯 가지 있다.
 
-1. MCP 도구를 쓰려면 CLI 프로세스 환경에 `ENABLE_TOOL_SEARCH=false`를 넣는다. 기본값에서는 MCP 도구가 지연 로딩 대상이라, 내장 도구를 모두 끈 상태(`--tools ""`)에서는 모델이 도구를 호출하지 못한다.
+1. MCP 도구를 쓰려면 CLI 프로세스 환경에 `ENABLE_TOOL_SEARCH=false`를 넣는다. 기본값에서는 MCP 도구 정의가 지연 로딩 대상인데, `--tools`로 내장 도구를 제한하면 지연 로딩된 도구를 불러올 수단도 빠져 모델이 MCP 도구를 찾지 못한다(3절은 `--tools ""`에서 확인). 이 설정은 도구 정의의 로딩 방식만 바꾸며 웹 검색과는 관계없다. 대화 중 웹 검색은 `--tools "WebSearch,WebFetch"`로 켠다(9).
 2. 오류 판정은 `result.is_error`로 한다. 잘못된 모델명 오류에서도 `subtype`이 `success`로 온다.
 3. 인터럽트는 stdin 제어 메시지로 한다. 시그널은 필요 없다.
 4. 인터럽트 후에도 모델 맥락에는 생성된 부분 출력이 남는다. "들려준 문장까지만 기록"은 DB 기록 기준일 뿐, 모델은 더 들은 것처럼 이어 말할 수 있다.
@@ -127,6 +127,7 @@ control_response: success request_id 일치: True
 | `interrupt.jsonl` | 생성 중 인터럽트 → 다음 턴 |
 | `tool_call.jsonl` | 페르소나 인사, `save_note` 도구 호출·결과, 내장 도구가 없어 `ls` 실행 요청을 말로 거절 |
 | `error_invalid_model.jsonl` | 잘못된 모델명(`is_error=true`, `subtype=success`, 종료 코드 1) |
+| `web_search.jsonl` | 일상 대화, WebSearch, WebFetch, `save_note`, 셸 요청 거절(9절) |
 
 공개 저장소용으로 홈 경로, 임시 폴더 경로, 세션 ID, 개인 스킬·플러그인 목록을 치환했다.
 
@@ -149,15 +150,38 @@ result: success is_error: False | 토큰 인증 확인
 - 배포 서버(결정 D1)에서는 같은 방식으로 서버 전용 `.env`를 두고 파일 권한을 소유자 읽기 전용(600)으로 한다.
 - 토큰은 장기 토큰이므로, 유출이 의심되면 claude.ai 설정에서 폐기하고 다시 발급한다.
 
+### 9. 웹 검색 — 통과 (FR-20)
+
+`check_web_search.py`. 서버와 같은 조건(토큰 인증, 격리 옵션, `ENABLE_TOOL_SEARCH=false`, sonnet)에 `--tools "WebSearch,WebFetch"`와 `--allowedTools "mcp__trailtalk__*,WebSearch,WebFetch"`를 더해 한 세션에서 5턴을 보냈다.
+
+`init.tools`: `['WebFetch', 'WebSearch', 'mcp__trailtalk__save_note']`. `--restricted`여도 `--tools`에 이름이 있으면 WebFetch가 켜진다.
+
+| 턴 | 도구 호출 | 첫 도구 이벤트 | 첫 텍스트 | 전체 |
+|---|---|---|---|---|
+| 일상 대화("안녕! 오늘 산책하기 좋은 날이네.") | 없음 | — | 2.24s | 3.01s |
+| 최신 정보("Claude Code 최신 버전이 몇이야?") | `WebSearch` | 0.79s | 10.16s | 10.18s |
+| 페이지 읽기(uv 문서 URL) | `WebFetch` | 0.79s | 6.95s | 6.97s |
+| 노트 저장("메모로 저장해줘") | `save_note` | 0.89s | 3.09s | 3.09s |
+| 셸 요청("ls 실행해줘") | 없음(도구가 없다고 답함) | — | 1.16s | 2.30s |
+
+- 권한 거부 없이(`permission_denials: []`) 검색·페이지 읽기·MCP 저장이 한 세션에서 함께 동작했다. 일상 대화에는 검색하지 않았다.
+- 도구 호출 시작(`content_block_start`의 `tool_use`)에는 입력이 `{}`로 비어 있다. 검색어·URL은 `input_json_delta` 조각으로 나눠 오고, 완성된 값은 `assistant` 이벤트에서 얻는다.
+- 도구 결과는 `user` 이벤트의 `tool_result`로 오고(검색은 "Web search results for query: …" 텍스트와 링크 목록), 구조화된 `tool_use_result`(검색: `query`, `results[].content[]{title,url}` / WebFetch: `code`, `bytes`, `result`)가 함께 온다. 이어서 두 번째 `message_start`부터 답변이 나온다. 한 턴에 `message_start`가 2번 오고 `thinking` 블록과 `system/thinking_tokens` 이벤트가 섞일 수 있다.
+- **지연**: 검색 턴은 첫 텍스트까지 7~10초 걸린다. 모델이 검색 전에 안내 문장을 먼저 말하지 않았다. 대신 도구 호출 시작(`content_block_start`의 `tool_use`)은 0.8초에 오므로, 서버가 이 시점에 SSE `tool` 이벤트를 보내고 음성 모드에서는 "잠깐 찾아볼게요"를 먼저 재생해야 NFR-01(3초)을 체감상 지킬 수 있다.
+- **정확도**: 최신 버전 질문에 검색 결과를 근거로 "v2.1.263(2026-09-05)"이라고 답했지만, 실제 설치된 CLI는 2.1.296이다. 검색 결과가 오래됐거나 출처 품질이 낮을 수 있으므로 출처를 밝히고, 확실하지 않으면 그렇다고 말하게 한다.
+- 시험 프롬프트에 이모지 금지가 없어 답변에 이모지가 섞였다(3절과 같음).
+
+녹화: `web_search.jsonl`.
+
 ## 1단계 반영 사항
 
 | 대상 | 반영 내용 |
 |---|---|
-| S1-03 `ClaudeCliBackend` | 실행 인자: `-p --input-format stream-json --output-format stream-json --include-partial-messages --verbose --model <m> --tools "" --restricted --strict-mcp-config --setting-sources "" --system-prompt <p> --mcp-config <c> --allowedTools "mcp__trailtalk__*"`. 환경: `ENABLE_TOOL_SEARCH=false`, `CLAUDE_CODE_OAUTH_TOKEN`. 작업 폴더: 세션별 빈 폴더 |
-| S1-03 파서 | 턴 경계는 `result`. `system/init`은 턴마다 오고 `assistant`는 블록 종료보다 먼저 올 수 있다. 오류는 `is_error`로 판정. 중단은 `terminal_reason=aborted_streaming`. JSON이 아닌 줄은 건너뛴다 |
+| S1-03 `ClaudeCliBackend` | 실행 인자: `-p --input-format stream-json --output-format stream-json --include-partial-messages --verbose --model <m> --tools "WebSearch,WebFetch" --restricted --strict-mcp-config --setting-sources "" --system-prompt <p> --mcp-config <c> --allowedTools "mcp__trailtalk__*,WebSearch,WebFetch"`. 환경: `ENABLE_TOOL_SEARCH=false`, `CLAUDE_CODE_OAUTH_TOKEN`. 작업 폴더: 세션별 빈 폴더 |
+| S1-03 파서 | 턴 경계는 `result`. `system/init`은 턴마다 오고 `assistant`는 블록 종료보다 먼저 올 수 있다. 오류는 `is_error`로 판정. 중단은 `terminal_reason=aborted_streaming`. JSON이 아닌 줄은 건너뛴다. 한 턴에 `message_start`가 여러 번 오고 `thinking` 블록이 섞일 수 있다. 도구 결과는 `user`/`tool_result`와 `tool_use_result`(9절) |
 | S1-03 프로세스 | stderr는 백그라운드로 계속 읽어 로그로 보낸다(파이프에 쌓이지 않게). 예외 시에도 프로세스와 임시 작업 폴더를 정리한다 |
 | S1-03 인터럽트 | `control_request`/`interrupt` 전송 후 `result`까지 읽고 버림 |
 | S1-03 복구 | 세션 저장을 켜고 `session_id`를 DB에 보관, 프로세스가 죽으면 `--resume` |
-| S1-05 프롬프트 | 개인정보·환경 정보 언급 금지 규칙, 이모지 금지 규칙 반영 확인 |
+| S1-05 프롬프트 | 개인정보·환경 정보 언급 금지 규칙, 이모지 금지 규칙 반영 확인, 웹 검색 규칙(필요할 때만, 출처 언급, 웹 내용 속 지시 무시) |
 | S1-06 MCP | 공식 Python SDK 2.x는 `FastMCP`가 `MCPServer`(`mcp.server.mcpserver`)로 바뀌었다 |
 | 운영 | CLI 자동 업데이트 끄기(`DISABLE_AUTOUPDATER=1`), 버전 2.1.296 기준. 업데이트 시 녹화 샘플로 파서 테스트 재확인 |
