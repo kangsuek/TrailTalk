@@ -11,6 +11,8 @@ from app.config import Settings, settings
 from app.db.migrate import upgrade_to_head
 from app.db.session import create_engine_for, create_session_factory
 from app.errors import install_error_handlers
+from app.llm.claude_cli import ClaudeCliBackend
+from app.llm.manager import LlmSessionManager
 from app.request_context import RequestContextMiddleware, configure_logging
 
 
@@ -35,9 +37,18 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
         engine = create_engine_for(app_settings.database_url)
         app.state.engine = engine
         app.state.session_factory = create_session_factory(engine)
+        llm = LlmSessionManager(
+            ClaudeCliBackend(app_settings),
+            idle_timeout_s=app_settings.cli_idle_timeout_s,
+            # 턴 시간 초과 처리가 끝날 여유를 더 둔다(스트림을 버린 경우의 안전망)
+            stuck_timeout_s=app_settings.cli_turn_timeout_s + 30,
+        )
+        await llm.start()
+        app.state.llm = llm
         try:
             yield
         finally:
+            await llm.shutdown()
             await engine.dispose()
 
     app = FastAPI(title="TrailTalk", lifespan=lifespan)

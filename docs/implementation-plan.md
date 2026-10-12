@@ -23,15 +23,15 @@
 | 단계 | 상태 | 작업 | 기간(예상) | 시작 | 완료 | 마일스톤 커밋 |
 |---|---|---|---|---|---|---|
 | [0. 준비·기술 검증](#3-0단계--준비와-기술-검증) | 완료 | 5/5 | 3~5일 | 2026-10-12 | 2026-10-12 | `a9b2970` |
-| [1. 제니 텍스트 대화](#4-1단계--제니-텍스트-대화) | 진행 중 | 2/11 | 1~2주 | 2026-10-12 | | |
+| [1. 제니 텍스트 대화](#4-1단계--제니-텍스트-대화) | 진행 중 | 3/11 | 1~2주 | 2026-10-12 | | |
 | [2. 대화 기록](#5-2단계--대화-기록) | 대기 | 0/9 | 1~2주 | | | |
 | [3. 웹 음성 대화](#6-3단계--웹-음성-대화) | 대기 | 0/16 | 2~3주 | | | |
 | [4. 안드로이드 포팅](#7-4단계--안드로이드-포팅) | 대기 | 0/9 | 3주 | | | |
 | [5. 다듬기·확장](#8-5단계--다듬기와-확장) | 대기 | 0/6 | 2주 | | | |
-| **전체** | | **7/56** | 약 10~13주 | | | |
+| **전체** | | **8/56** | 약 10~13주 | | | |
 
-- **현재 작업**: 없음 (S1-02 완료)
-- **다음 작업**: S1-03 LLM 백엔드와 Claude CLI 프로세스 관리
+- **현재 작업**: S1-04 진행 중(Playwright 가짜 CLI 지정은 S1-08에서)
+- **다음 작업**: S1-05 페르소나 스키마와 프롬프트 조립기
 
 ## 3. 0단계 — 준비와 기술 검증
 
@@ -124,9 +124,9 @@
 | ID | 작업 | 상태 | 산출물 | 커밋 |
 |---|---|---|---|---|
 | S1-01 | 공통 오류 응답·로깅·DB 세션 의존성 | 완료 | `server/app/errors.py`, `request_context.py`, `db/session.py` | `93f315d` |
-| S1-02 | DB 모델과 마이그레이션 | 완료 | `server/app/db/models.py`, `server/migrations/` | |
-| S1-03 | LLM 백엔드와 Claude CLI 프로세스 관리 | 대기 | `server/app/llm/` | |
-| S1-04 | 가짜 CLI와 파서 테스트 | 대기 | `server/tests/fakes/` | |
+| S1-02 | DB 모델과 마이그레이션 | 완료 | `server/app/db/models.py`, `server/migrations/` | `0169050` |
+| S1-03 | LLM 백엔드와 Claude CLI 프로세스 관리 | 완료 | `server/app/llm/` | |
+| S1-04 | 가짜 CLI와 파서 테스트 | 진행 중 | `server/tests/fakes/` | |
 | S1-05 | 페르소나 스키마와 프롬프트 조립기 | 대기 | `server/app/persona/` | |
 | S1-06 | 제니 도구 MCP 서버 | 대기 | `server/app/mcp/` | |
 | S1-07 | 한국어 문장 분할기 | 대기 | `server/app/voice/sentences.py` | |
@@ -148,17 +148,18 @@
 - [x] 테스트: 모델 생성·조회, 제약(유일·CHECK·FK·CASCADE·SET NULL), UTC, JSON 목록 제자리 수정, 단일 프로필 행, 마이그레이션과 모델·열거값 CHECK 일치, batch 재생성 시 자식 행 보존, downgrade(pytest 40개)
 
 #### S1-03 LLM 백엔드와 Claude CLI 프로세스 관리
-- [ ] `LlmBackend` 인터페이스(턴 전송, 부분 출력 이터레이터, 인터럽트, 종료)
-- [ ] `ClaudeCliBackend`: 세션별 상주 프로세스 생성·종료, 유휴 프로세스 정리. 실행 인자·환경(`ENABLE_TOOL_SEARCH=false`, 토큰 전달, 격리 옵션)은 [스파이크 보고서](spikes/claude-cli.md) "1단계 반영 사항"을 따른다. 내장 도구는 `--tools "WebSearch,WebFetch"`만, 허용 목록은 `mcp__trailtalk__*,WebSearch,WebFetch`
-- [ ] stream-json 파서(부분 텍스트, 도구 호출, 결과, 오류). 턴 경계는 `result`, 오류는 `is_error`로 판정
-- [ ] 인터럽트(`control_request`/`interrupt`, 중단 턴은 `terminal_reason=aborted_streaming`)와 `--resume` 복구(세션 저장 켜고 `session_id`를 DB에 보관)
-- [ ] CLI 실행 경로를 설정값(`CLAUDE_CLI_PATH`)으로 받기
+- [x] `LlmBackend` 인터페이스(턴 전송, 부분 출력 이터레이터, 인터럽트, 종료)
+- [x] `ClaudeCliBackend`: 세션별 상주 프로세스 생성·종료, 유휴 프로세스 정리. 실행 인자·환경(`ENABLE_TOOL_SEARCH=false`, 토큰 전달, 격리 옵션)은 [스파이크 보고서](spikes/claude-cli.md) "1단계 반영 사항"을 따른다. 내장 도구는 `--tools "WebSearch,WebFetch"`만, 허용 목록은 `mcp__trailtalk__*,WebSearch,WebFetch`
+- [x] stream-json 파서(부분 텍스트, 도구 호출, 결과, 오류). 턴 경계는 `result`, 오류는 `is_error`로 판정
+- [x] 인터럽트(`control_request`/`interrupt`, 중단 턴은 `terminal_reason=aborted_streaming`)와 `--resume` 복구(세션 저장 켜고 매니저가 마지막 `cli_session_id`로 재기동). DB 보관은 호출하는 S1-08에서
+- [x] 리뷰 반영: 취소(클라이언트 연결 끊김) 시 즉시 kill, 버려진 스트림은 멈춘 턴으로 강제 정리, 자식 환경 허용 목록, 세션 키 경로 검증, 시작 실패 처리, 키별 락
+- [x] CLI 실행 경로를 설정값(`CLAUDE_CLI_PATH`)으로 받기
 
 #### S1-04 가짜 CLI와 파서 테스트
-- [ ] S0-04 녹화 출력을 재생하는 가짜 CLI 실행 파일
-- [ ] 파서 단위 테스트(정상, 도구 호출, 웹 검색(`web_search.jsonl`), 오류, 중단)
-- [ ] 프로세스 관리 테스트(생성, 인터럽트, 재시작)
-- [ ] pytest와 Playwright webServer `env`에서 가짜 CLI를 지정
+- [x] S0-04 녹화 출력을 재생하는 가짜 CLI 실행 파일(`tests/fakes/fake_claude.py`: 턴별 재생, 지연·인터럽트·크래시·멈춤 흉내, 인자 기록)
+- [x] 파서 단위 테스트(정상, 도구 호출, 웹 검색(`web_search.jsonl`), 오류, 중단)
+- [x] 프로세스 관리 테스트(생성, 인터럽트, 재시작, 동시 턴 거부, 시간 초과, 유휴 정리, 토큰 비노출). 실제 CLI 통합 테스트는 `RUN_REAL_CLI=1`
+- [ ] pytest와 Playwright webServer `env`에서 가짜 CLI를 지정 — pytest는 완료(`fake_cli` 픽스처), Playwright는 CLI를 쓰는 API가 생기는 S1-08에서
 
 #### S1-05 페르소나 스키마와 프롬프트 조립기
 - [ ] `jenny.yaml` Pydantic 스키마와 로딩 검증
@@ -180,6 +181,8 @@
 
 #### S1-08 세션·턴·프로필 API
 - [ ] `POST /api/sessions`(인사말)
+- [ ] 턴 시작 시 `TurnStarted.cli_session_id`를 `conversation_session.cli_session_id`에 저장(프로세스 복구용)
+- [ ] 세션 종료 시 CLI 프로세스 닫기와 `~/.claude/projects/`에 쌓이는 CLI 세션 파일 정리 방식 결정
 - [ ] `POST /api/sessions/{id}/turns`(텍스트 입력, SSE 응답)
 - [ ] `POST /api/sessions/{id}/end`(요약은 2단계)
 - [ ] `GET/PUT /api/profile`
@@ -659,4 +662,5 @@
 | 2026-10-12 | 대화 중 웹 검색(FR-20, P1) 추가: 검증, 설계서·계획서 반영 | `a9b2970` |
 | 2026-10-12 | 0단계 마일스톤 종료(사용자 확인) | `76c2f53` |
 | 2026-10-12 | S1-01 공통 오류 응답·로깅·DB 세션 의존성 | `93f315d` |
-| 2026-10-12 | S1-02 DB 모델과 마이그레이션 | |
+| 2026-10-12 | S1-02 DB 모델과 마이그레이션 | `0169050` |
+| 2026-10-12 | S1-03 Claude CLI 백엔드, S1-04 가짜 CLI·파서 테스트(Playwright 항목 제외) | |

@@ -15,6 +15,7 @@
 - 서버 API는 모두 `/api` 아래에 둔다. 엔드포인트 목록은 설계서 4.6 표를 따른다.
 - 서버 오류는 `AppError(code, message, status)`로 던진다. 응답 형식은 `server/app/errors.py`와 `docs/client-contract.md` 7절을 따른다.
 - DB는 비동기 SQLAlchemy다. 엔드포인트는 `db: DbSession`(`server/app/db/session.py`)으로 세션을 받고, commit은 명시적으로 한다. 앱은 `create_app(settings)`로 만들며 테스트는 `server/tests/conftest.py`의 `client` 픽스처(임시 SQLite)를 쓴다. 라우터는 `create_app` 안에서 웹 정적 마운트보다 먼저 등록한다(뒤에 붙이면 가려진다).
+- LLM은 `app.state.llm`(`LlmSessionManager`, `server/app/llm/manager.py`)으로만 쓴다. 이벤트 형식은 `server/app/llm/events.py`. CLI 실행 인자·환경은 `server/app/llm/claude_cli.py`의 `build_command`/`build_env`가 유일한 출처다. `session.send()`는 반드시 `contextlib.aclosing(...)`으로 감싸 끝까지 읽거나 닫는다(버리면 매니저가 멈춘 턴으로 강제 정리). 자식 CLI 환경은 허용 목록(`ENV_ALLOWLIST`)만 넘긴다. 테스트는 녹화 재생 가짜 CLI(`fake_cli` 픽스처)를 쓴다.
 - 모델(`server/app/db/models.py`)을 바꾸면 같은 커밋에 Alembic 마이그레이션을 만든다. 앱은 시작할 때 head까지 자동 적용한다. 테스트 `test_migrations_match_models`가 모델과 마이그레이션의 차이를 잡는다. 열거값(StrEnum) 변경은 autogenerate가 못 잡으므로 batch로 CHECK 제약을 직접 교체한다(`test_enum_check_constraints_match_models`가 확인). JSON 목록 컬럼은 `MutableList`라 제자리 수정도 저장된다.
 - 진행 상태는 구현 계획서에서 관리한다: 작업 시작·완료 시 작업 상태·체크박스·커밋 해시를, 마일스톤 종료 시 완료 기준 측정값·진행 대시보드·추적표·변경 이력을 갱신한다(계획서 1장 갱신 규칙).
 
@@ -52,6 +53,7 @@ docs/              설계서, 계획서, 규약, 검증 기록(spikes/)
 (cd server && uv run pytest && uv run ruff check . && uv run ruff format --check .)
 (cd server && uv run alembic revision --autogenerate -m "설명")   # 모델 변경 후 마이그레이션 생성(검토 필수)
 (cd server && uv run alembic upgrade head)                      # 수동 적용(앱 시작 때도 자동 적용)
+(cd server && RUN_REAL_CLI=1 uv run pytest tests/test_llm_real.py -q)  # 실제 Claude CLI 통합 테스트(구독 사용량 소모)
 
 # 웹
 (cd web && npm run dev)                                # http://127.0.0.1:5173, /api → 8000 프록시

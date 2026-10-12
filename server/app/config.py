@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 SERVER_DIR = Path(__file__).resolve().parent.parent
@@ -15,6 +16,17 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     # 앱 시작 때 Alembic 마이그레이션을 head까지 적용한다
     auto_migrate: bool = True
+
+    # Claude CLI (설계서 4.9, docs/spikes/claude-cli.md)
+    claude_cli_path: str = "claude"
+    claude_code_oauth_token: SecretStr | None = None  # .env의 CLAUDE_CODE_OAUTH_TOKEN
+    llm_chat_model: str = "sonnet"
+    llm_light_model: str = "haiku"
+    cli_work_dir: Path = SERVER_DIR / "data" / "cli-sessions"
+    cli_idle_timeout_s: float = 600
+    cli_turn_timeout_s: float = 120
+    # 자식 CLI에 추가로 넘길 환경 변수 이름 패턴(기본 허용 목록 외). 테스트의 가짜 CLI용
+    cli_env_passthrough: tuple[str, ...] = ()
     persona_dir: Path = SERVER_DIR / "personas"
     default_persona: str = "jenny"
     web_dist_dir: Path = REPO_DIR / "web" / "dist"
