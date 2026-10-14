@@ -9,7 +9,20 @@
 
 ## 2. SSE 이벤트
 
-`transcript`, `sentence`, `tool`(저장·종료·웹 검색 시작/종료 알림), `done`, `error`. JSON 스키마는 1단계(S1-09)에서 초안, 3단계에서 확정.
+턴 요청(`POST /api/sessions/{id}/turns`)의 응답은 `text/event-stream`이다. 메시지마다 `event: <type>` 줄과 `data: <한 줄 JSON>` 줄, 빈 줄로 이뤄지고 JSON에도 `type`이 들어 있다. 스키마는 OpenAPI components(`StreamEvent`, 서버 `app/api/events.py`)가 기준이다. 1단계 초안이며 3단계(S3-15)에서 확정한다.
+
+| type | 필드 | 의미 |
+|---|---|---|
+| `turn` | `turn_id` | 스트림의 첫 이벤트. 이번 답변(assistant 턴)의 ID. 끼어들기 `POST /api/sessions/{id}/turns/{turn_id}/cancel`(3단계)에 쓴다 |
+| `sentence` | `index`, `text` | 답변 한 문장. `index`는 턴 안에서 0부터. 3단계에서 `audio`(문장 MP3) 추가 |
+| `tool` | `phase`(`start`/`call`/`end`), `tool_use_id`, `name`, `input`, `summary`, `is_error` | 도구 사용. `start`에는 이름만 온다(검색 중 표시용). `input`은 `call`에서만, `summary`·`is_error`는 `end`에서만 의미가 있고 나머지 단계에서는 `null`/`false` |
+| `done` | `turn_id`, `text`, `interrupted`, `session_status`(`active`/`paused`/`ended`) | 턴 끝. `turn_id`는 `turn` 이벤트와 같다. 전체 답변과 세션 상태 |
+| `error` | `code`, `message` | 스트림 도중 오류. 코드는 7절 공통 오류와 같다. 이 뒤에는 이벤트가 오지 않는다 |
+| `transcript` | `text` | 3단계에서 추가(현재 스키마에는 없음). 음성 업로드의 STT 결과 |
+
+**도구 이름(`name`)**: `save_note`, `search_notes`, `summarize_session`, `pause_session`, `end_session`, `web_search`, `web_fetch`. 결과 요약(`summary`)은 `web_search`면 `{query, links: [{title, url}]}`, `web_fetch`면 `{code, bytes}`, 앱 도구면 `{result}`다.
+
+**순서**: 한 턴은 `turn`으로 시작해 `sentence`·`tool`이 섞여 오다가 `done` 또는 `error` 하나로 끝난다. 모든 필드는 항상 실려 온다(스키마상 required). `summary`의 도구별 타입은 3단계 확정 때 스키마로 고정한다. 시작 전 오류(세션 없음, 진행 중인 턴 등)는 SSE가 아니라 7절의 JSON 오류 응답으로 온다.
 
 ## 3. 오디오 형식
 

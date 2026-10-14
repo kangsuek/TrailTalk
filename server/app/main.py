@@ -7,6 +7,7 @@ from starlette.routing import Match, Mount
 from starlette.types import Scope
 
 from app.api import health
+from app.api.events import register_event_schemas
 from app.config import Settings, settings
 from app.db.migrate import upgrade_to_head
 from app.db.session import create_engine_for, create_session_factory
@@ -55,6 +56,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     app.state.settings = app_settings
     app.add_middleware(RequestContextMiddleware)
     install_error_handlers(app)
+    register_event_schemas(app)
 
     api = APIRouter(prefix="/api")
     api.include_router(health.router)
