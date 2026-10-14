@@ -14,7 +14,9 @@ from app.db.session import create_engine_for, create_session_factory
 from app.errors import install_error_handlers
 from app.llm.claude_cli import ClaudeCliBackend
 from app.llm.manager import LlmSessionManager
+from app.mcp.server import mount_mcp
 from app.request_context import RequestContextMiddleware, configure_logging
+from app.services.runtime import RuntimeRegistry
 
 
 class WebMount(Mount):
@@ -47,13 +49,15 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
         await llm.start()
         app.state.llm = llm
         try:
-            yield
+            async with mcp.session_manager.run():
+                yield
         finally:
             await llm.shutdown()
             await engine.dispose()
 
     app = FastAPI(title="TrailTalk", lifespan=lifespan)
     app.state.settings = app_settings
+    app.state.runtimes = RuntimeRegistry()
     app.add_middleware(RequestContextMiddleware)
     install_error_handlers(app)
     register_event_schemas(app)
@@ -62,6 +66,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     api.include_router(health.router)
 
     app.include_router(api)
+    mcp = mount_mcp(app)  # /internal/mcp/ (웹 정적 마운트보다 먼저)
 
     # 빌드된 웹 앱이 있으면 같은 서버에서 정적 파일로 서빙한다(설계서 5장 배포).
     # 라우터는 모두 이 마운트보다 먼저 등록해야 한다(뒤에 붙인 라우트는 가려진다).

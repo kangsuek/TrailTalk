@@ -349,28 +349,61 @@ class ClaudeCliSession:
 
 
 class ClaudeCliBackend:
-    def __init__(self, settings: Settings, *, mcp_config_path: Path | None = None) -> None:
+    def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._mcp_config_path = mcp_config_path
 
     async def open_session(
-        self, key: str, *, system_prompt: str, model: str, resume_id: str | None = None
+        self,
+        key: str,
+        *,
+        system_prompt: str,
+        model: str,
+        resume_id: str | None = None,
+        mcp_config: dict | None = None,
     ) -> ClaudeCliSession:
+        """CLI 세션을 연다.
+
+        mcp_config가 있으면 작업 폴더에 mcp.json(소유자만 읽기)으로 쓰고 --mcp-config로 넘긴다.
+        """
         settings = self._settings
         token = settings.claude_code_oauth_token
-        session = ClaudeCliSession(
-            key,
-            build_command(
-                settings,
-                system_prompt=system_prompt,
-                model=model,
-                resume_id=resume_id,
-                mcp_config_path=self._mcp_config_path,
-            ),
-            build_env(settings),
-            session_work_dir(settings, key),
-            turn_timeout_s=settings.cli_turn_timeout_s,
-            secrets=(token.get_secret_value(),) if token else (),
-        )
+        cwd = session_work_dir(settings, key)
+        mcp_path = None
+        secrets = [token.get_secret_value()] if token else []
+        try:
+            if mcp_config is not None:
+                cwd.mkdir(parents=True, exist_ok=True)
+                mcp_path = cwd / "mcp.json"
+                fd = os.open(mcp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(mcp_config, f, ensure_ascii=False)
+                secrets += _header_secrets(mcp_config)
+            session = ClaudeCliSession(
+                key,
+                build_command(
+                    settings,
+                    system_prompt=system_prompt,
+                    model=model,
+                    resume_id=resume_id,
+                    mcp_config_path=mcp_path,
+                ),
+                build_env(settings),
+                cwd,
+                turn_timeout_s=settings.cli_turn_timeout_s,
+                secrets=tuple(secrets),
+            )
+        except BaseException:
+            shutil.rmtree(cwd, ignore_errors=True)  # 토큰이 든 mcp.json을 남기지 않는다
+            raise
         await session.start()
         return session
+
+
+def _header_secrets(mcp_config: dict) -> list[str]:
+    """MCP 설정 헤더의 토큰 값(로그에서 가린다)."""
+    values = []
+    for server in (mcp_config.get("mcpServers") or {}).values():
+        for name, value in (server.get("headers") or {}).items():
+            if name.lower() == "authorization" and isinstance(value, str):
+                values.append(value.split(" ", 1)[-1])
+    return values

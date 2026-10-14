@@ -59,5 +59,11 @@ class LlmSession(Protocol):
 
 class LlmBackend(Protocol):
     async def open_session(
-        self, key: str, *, system_prompt: str, model: str, resume_id: str | None = None
+        self,
+        key: str,
+        *,
+        system_prompt: str,
+        model: str,
+        resume_id: str | None = None,
+        mcp_config: dict | None = None,
     ) -> LlmSession: ...

@@ -1,7 +1,9 @@
 import asyncio
 import contextlib
+import json
 import logging
 from contextlib import aclosing
+from pathlib import Path
 
 import anyio
 import pytest
@@ -277,3 +279,45 @@ async def test_close_and_reopen_same_key_keeps_new_work_dir(fake_cli):
     finally:
         await manager.shutdown()
     assert not (fake_cli.settings.cli_work_dir / "k").exists()
+
+
+async def test_mcp_config_written_privately_and_passed(fake_cli):
+    backend = ClaudeCliBackend(fake_cli.settings)
+    config = {
+        "mcpServers": {
+            "trailtalk": {
+                "type": "http",
+                "url": "http://127.0.0.1:8000/internal/mcp/",
+                "headers": {
+                    "Authorization": "Bearer secret-mcp-token",
+                    "X-TrailTalk-Session": "s1",
+                },
+            }
+        }
+    }
+    session = await backend.open_session("s1", system_prompt="P", model="sonnet", mcp_config=config)
+    try:
+        await run_turn(session, "안녕")  # 가짜 CLI가 인자 로그를 남길 때까지 한 턴 돌린다
+        args = fake_cli.records()[-1]["args"]
+        path = Path(args[args.index("--mcp-config") + 1])
+        assert path.parent == session._cwd
+        assert json.loads(path.read_text()) == config
+        assert path.stat().st_mode & 0o777 == 0o600
+        assert "secret-mcp-token" not in session._redact("auth Bearer secret-mcp-token 실패")
+    finally:
+        await session.close()
+    assert not path.exists()
+
+
+async def test_mcp_config_removed_when_open_fails(fake_cli, monkeypatch):
+    import app.llm.claude_cli as claude_cli
+
+    def broken(*args, **kwargs):
+        raise ValueError("bad args")
+
+    monkeypatch.setattr(claude_cli, "build_command", broken)
+    backend = ClaudeCliBackend(fake_cli.settings)
+    config = {"mcpServers": {"trailtalk": {"headers": {"Authorization": "Bearer t"}}}}
+    with pytest.raises(ValueError):
+        await backend.open_session("s1", system_prompt="P", model="sonnet", mcp_config=config)
+    assert not list(fake_cli.settings.cli_work_dir.glob("**/mcp.json"))

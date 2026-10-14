@@ -80,3 +80,72 @@ async def test_real_cli_persona_prompt(tmp_path):
         assert not emoji.search(text), text
         assert "다니엘님" not in text, text
     assert not email.search(answers[1]), "이메일을 말하면 안 된다"
+
+
+async def test_real_cli_calls_app_mcp_tool(tmp_path):
+    """실제 CLI가 HTTP MCP(/internal/mcp/)로 save_note를 불러 DB에 노트가 생기는지 확인한다."""
+    import asyncio
+    import socket
+    from contextlib import aclosing
+    from datetime import UTC, datetime
+
+    import uvicorn
+    from sqlalchemy import select
+
+    from app.db.models import ConversationSession, Note
+    from app.llm.events import ToolCalled
+    from app.main import create_app
+    from app.mcp.server import mcp_client_config
+    from app.persona.loader import load_persona
+    from app.persona.prompt import build_system_prompt
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    settings = Settings(
+        database_url=f"sqlite+aiosqlite:///{tmp_path / 'real.db'}",
+        cli_work_dir=tmp_path / "cli",
+        internal_base_url=f"http://127.0.0.1:{port}",
+        web_dist_dir=tmp_path / "no-dist",
+    )
+    app = create_app(settings)
+    config = uvicorn.Config(
+        app, host="127.0.0.1", port=port, log_level="warning", timeout_graceful_shutdown=5
+    )
+    server = uvicorn.Server(config)
+    serving = asyncio.create_task(server.serve())
+    try:
+        while not server.started:
+            if serving.done():
+                serving.result()  # 기동 실패(포트 충돌 등)를 그대로 드러낸다
+                pytest.fail("서버가 시작하지 못했습니다.")
+            await asyncio.sleep(0.05)
+        async with app.state.session_factory() as db:
+            convo = ConversationSession()
+            db.add(convo)
+            await db.commit()
+        runtime = app.state.runtimes.ensure(convo.id)
+        persona = load_persona(settings.persona_dir, settings.default_persona).persona
+        prompt = build_system_prompt(
+            persona, nickname="민수", mode="text", now=datetime.now(UTC), timezone=settings.timezone
+        )
+        session = await app.state.llm.get(
+            convo.id,
+            system_prompt=prompt,
+            model=settings.llm_chat_model,
+            mcp_config=mcp_client_config(settings.internal_base_url, runtime),
+        )
+        async with aclosing(
+            session.send("등산로 쓰레기통 지도 아이디어, 이거 저장해줘.")
+        ) as stream:
+            events = [e async for e in stream]
+        assert not events[-1].is_error, events[-1]
+        called = [e.name for e in events if isinstance(e, ToolCalled)]
+        assert "mcp__trailtalk__save_note" in called, called
+        async with app.state.session_factory() as db:
+            notes = (await db.execute(select(Note))).scalars().all()
+        assert len(notes) == 1 and notes[0].session_id == convo.id
+        assert "쓰레기통" in notes[0].content
+    finally:
+        server.should_exit = True
+        await serving

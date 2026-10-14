@@ -32,7 +32,13 @@ class LlmSessionManager:
         return self._key_locks.setdefault(key, asyncio.Lock())
 
     async def get(
-        self, key: str, *, system_prompt: str, model: str, resume_id: str | None = None
+        self,
+        key: str,
+        *,
+        system_prompt: str,
+        model: str,
+        resume_id: str | None = None,
+        mcp_config: dict | None = None,
     ) -> LlmSession:
         async with self._key_lock(key):
             session = self._sessions.get(key)
@@ -48,7 +54,11 @@ class LlmSessionManager:
                 await session.close()
                 logger.info("CLI 프로세스 복구(session=%s, resume=%s)", key, bool(resume_id))
             session = await self._backend.open_session(
-                key, system_prompt=system_prompt, model=model, resume_id=resume_id
+                key,
+                system_prompt=system_prompt,
+                model=model,
+                resume_id=resume_id,
+                mcp_config=mcp_config,
             )
             self._sessions[key] = session
             return session
