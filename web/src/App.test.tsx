@@ -26,6 +26,31 @@ describe('App', () => {
     expect(await screen.findByText('서버 연결됨')).toBeInTheDocument()
   })
 
+  it('탭을 옮겼다 돌아와도 대화가 남아 있다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        url === '/api/sessions'
+          ? new Response(
+              JSON.stringify({
+                session: { id: 's1', mode: 'text', status: 'active', started_at: '', ended_at: null },
+                greeting: { turn_id: 'g1', text: '반가워요!' },
+                persona: { id: 'p1', name: '도우미' },
+              }),
+              { status: 201 },
+            )
+          : new Response(JSON.stringify({ status: 'ok' })),
+      ),
+    )
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: '대화 시작' }))
+    expect(await screen.findByText('반가워요!')).toBeVisible()
+    fireEvent.click(screen.getByRole('tab', { name: '설정' }))
+    expect(screen.getByText('반가워요!')).not.toBeVisible()
+    fireEvent.click(screen.getByRole('tab', { name: '대화' }))
+    expect(screen.getByText('반가워요!')).toBeVisible()
+  })
+
   it('서버 헬스체크 결과를 표시한다', async () => {
     stubHealth(true)
     render(<App />)

@@ -58,7 +58,11 @@ function App() {
         ))}
       </nav>
       <main>
-        <Current />
+        {/* 대화 화면은 탭을 옮겨도 언마운트하지 않는다(진행 중인 대화와 답변을 유지) */}
+        <div hidden={screen !== 'conversation'}>
+          <ConversationScreen visible={screen === 'conversation'} />
+        </div>
+        {screen !== 'conversation' && <Current />}
       </main>
     </div>
   )

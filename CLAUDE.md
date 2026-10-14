@@ -45,7 +45,7 @@ docs/              설계서, 계획서, 규약, 검증 기록(spikes/)
 
 ## 명령
 
-저장소 루트 기준이다. `npm run e2e`는 서버(8000)와 웹(5173)을 자동으로 띄우며, 이미 떠 있으면 그 서버를 재사용한다(CI 제외).
+저장소 루트 기준이다. `npm run e2e`는 개발 서버와 별개로 가짜 Claude CLI(`server/tests/fakes/fake-claude`, 녹화 `web_search`)를 쓰는 E2E 전용 서버(8100, 빈 임시 DB `web/.e2e/`)와 웹(5199)을 매번 새로 띄운다. 서버 API를 바꾸면 `npm run gen:api`로 `web/src/api/schema.d.ts`를 다시 만들어 함께 커밋한다(`npm run gen:api -- --check`는 어긋났는지만 확인).
 
 ```bash
 # 서버
@@ -58,5 +58,6 @@ docs/              설계서, 계획서, 규약, 검증 기록(spikes/)
 # 웹
 (cd web && npm run dev)                                # http://127.0.0.1:5173, /api → 8000 프록시
 (cd web && npm run test && npm run lint && npm run build)
-(cd web && npm run e2e)                                # Playwright: 서버·웹 자동 기동 후 실제 구동 검증
+(cd web && npm run e2e)                                # Playwright: 가짜 CLI 서버·웹 자동 기동 후 실제 구동 검증
+(cd web && npm run gen:api)                            # 서버 OpenAPI → src/api/schema.d.ts (-- --check: 차이만 확인)
 ```

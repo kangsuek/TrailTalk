@@ -23,15 +23,15 @@
 | 단계 | 상태 | 작업 | 기간(예상) | 시작 | 완료 | 마일스톤 커밋 |
 |---|---|---|---|---|---|---|
 | [0. 준비·기술 검증](#3-0단계--준비와-기술-검증) | 완료 | 5/5 | 3~5일 | 2026-10-12 | 2026-10-12 | `a9b2970` |
-| [1. 제니 텍스트 대화](#4-1단계--제니-텍스트-대화) | 진행 중 | 8/11 | 1~2주 | 2026-10-12 | | |
+| [1. 제니 텍스트 대화](#4-1단계--제니-텍스트-대화) | 진행 중 | 10/11 | 1~2주 | 2026-10-12 | | |
 | [2. 대화 기록](#5-2단계--대화-기록) | 대기 | 0/9 | 1~2주 | | | |
 | [3. 웹 음성 대화](#6-3단계--웹-음성-대화) | 대기 | 0/16 | 2~3주 | | | |
 | [4. 안드로이드 포팅](#7-4단계--안드로이드-포팅) | 대기 | 0/9 | 3주 | | | |
 | [5. 다듬기·확장](#8-5단계--다듬기와-확장) | 대기 | 0/6 | 2주 | | | |
-| **전체** | | **13/56** | 약 10~13주 | | | |
+| **전체** | | **15/56** | 약 10~13주 | | | |
 
-- **현재 작업**: S1-04 진행 중(Playwright 항목은 S1-10에서)
-- **다음 작업**: S1-10 → S1-11(1단계 남은 순서)
+- **현재 작업**: 없음
+- **다음 작업**: S1-11 → 1단계 측정·마감(사용자 확인)
 
 ## 3. 0단계 — 준비와 기술 검증
 
@@ -126,13 +126,13 @@
 | S1-01 | 공통 오류 응답·로깅·DB 세션 의존성 | 완료 | `server/app/errors.py`, `request_context.py`, `db/session.py` | `93f315d` |
 | S1-02 | DB 모델과 마이그레이션 | 완료 | `server/app/db/models.py`, `server/migrations/` | `0169050` |
 | S1-03 | LLM 백엔드와 Claude CLI 프로세스 관리 | 완료 | `server/app/llm/` | `19fb1ed` |
-| S1-04 | 가짜 CLI와 파서 테스트 | 진행 중 | `server/tests/fakes/` | |
+| S1-04 | 가짜 CLI와 파서 테스트 | 완료 | `server/tests/fakes/` | `19fb1ed`, S1-10 커밋 |
 | S1-05 | 페르소나 스키마와 프롬프트 조립기 | 완료 | `server/app/persona/` | `9e7ff4e` |
 | S1-06 | 제니 도구 MCP 서버 | 완료 | `server/app/mcp/`, `server/app/services/runtime.py` | `03bf1c8` |
 | S1-07 | 한국어 문장 분할기 | 완료 | `server/app/voice/sentences.py` | `010bf5b` |
-| S1-08 | 세션·턴·프로필 API | 완료 | `server/app/api/`, `server/app/services/conversation.py` | |
+| S1-08 | 세션·턴·프로필 API | 완료 | `server/app/api/`, `server/app/services/conversation.py` | `e4e9a7d` |
 | S1-09 | SSE 이벤트 스키마 초안 | 완료 | `server/app/api/events.py` | `231fdb4` |
-| S1-10 | 웹 텍스트 대화 화면 | 대기 | `web/src/screens/`, `web/src/api/` | |
+| S1-10 | 웹 텍스트 대화 화면 | 완료 | `web/src/screens/`, `web/src/api/` | |
 | S1-11 | 페르소나 톤 평가 | 대기 | `server/tests/persona_eval/` | |
 
 #### S1-01 공통 오류 응답·로깅·DB 세션 의존성
@@ -159,7 +159,7 @@
 - [x] S0-04 녹화 출력을 재생하는 가짜 CLI 실행 파일(`tests/fakes/fake_claude.py`: 턴별 재생, 지연·인터럽트·크래시·멈춤 흉내, 인자 기록)
 - [x] 파서 단위 테스트(정상, 도구 호출, 웹 검색(`web_search.jsonl`), 오류, 중단)
 - [x] 프로세스 관리 테스트(생성, 인터럽트, 재시작, 동시 턴 거부, 시간 초과, 유휴 정리, 토큰 비노출). 실제 CLI 통합 테스트는 `RUN_REAL_CLI=1`
-- [ ] pytest와 Playwright webServer `env`에서 가짜 CLI를 지정 — pytest는 완료(`fake_cli` 픽스처), Playwright는 CLI를 쓰는 API가 생기는 S1-08에서
+- [x] pytest와 Playwright webServer `env`에서 가짜 CLI를 지정 — pytest는 `fake_cli` 픽스처, Playwright는 E2E 전용 서버(8100)의 `CLAUDE_CLI_PATH=server/tests/fakes/fake-claude`(S1-10)
 
 #### S1-05 페르소나 스키마와 프롬프트 조립기
 - [x] `jenny.yaml` Pydantic 스키마와 로딩 검증(키 오타 거부, 내용 해시 version·캐시, `{호칭}` 자리표시자는 examples에서만)
@@ -197,11 +197,13 @@
 - [x] `docs/client-contract.md` 2절에 초안 반영
 
 #### S1-10 웹 텍스트 대화 화면
-- [ ] OpenAPI 타입 생성 스크립트(openapi-typescript)
-- [ ] `fetch` + 스트림 파서로 SSE 수신(POST라 `EventSource` 대신)
-- [ ] 대화 화면: 텍스트 입력, 문장 단위로 말풍선 채우기, 도구 알림 표시("검색 중…" 포함)
-- [ ] Vitest: SSE 파서, 화면 상태
-- [ ] Playwright: 가짜 CLI로 텍스트 대화 1턴
+- [x] OpenAPI 타입 생성 스크립트(openapi-typescript): `npm run gen:api`(서버 `python -m app.openapi` → `src/api/schema.d.ts`). openapi-typescript 7은 TypeScript 5만 피어로 받아 `overrides`로 프로젝트 TypeScript 6을 쓰게 함
+- [x] `fetch` + 스트림 파서로 SSE 수신(POST라 `EventSource` 대신): 파서 `src/core/sse.ts`, 클라이언트 `src/api/conversation.ts`(시작 전 오류는 `ApiError`, done 없이 끊기면 `stream_closed`)
+- [x] 대화 화면: 텍스트 입력(한글 조합 중 Enter 무시), 문장 단위로 말풍선 채우기, 도구 알림 표시("검색 중…", "출처: 사이트", "메모 저장: …"), 쉬기·끝내기. 상태는 순수 TS 리듀서 `src/core/conversation.ts`. 캐릭터 이름은 시작 응답의 `persona.name`(서버에 추가)
+- [x] Vitest: SSE 파서(조각 경계·CRLF·U+2028), 리듀서·도구 알림, API 클라이언트(UTF-8 조각 경계·오류), 화면(45개)
+- [x] Playwright: 가짜 CLI로 텍스트 대화(인사말 → 웹 검색 → 페이지 읽기 → 메모 저장 → 끝내기), 스크린샷 `web/test-results/conversation*.png`
+- [x] 리뷰 반영: 리듀서가 모르는 이벤트를 무시, 깨진 이벤트·처리 예외 때 스트림 취소(서버 턴 정리), 탭을 옮겨도 대화 화면 유지(언마운트 안 함), Safari 한글 IME(keyCode 229), 전송 실패 시 입력 복구, 바닥 근처일 때만 자동 스크롤, SSE BOM, 시작 응답의 페르소나를 인사말을 만든 페르소나로, `gen:api -- --check`
+- 참고(후속): 답변의 마크다운(`**굵게**`, 링크)이 그대로 보인다(3단계 TTS 전처리와 함께 서버에서 정리). 도구 알림의 출처 호스트 추출·중복 제거는 지금 클라이언트(`toolNotice`)가 한다. 3단계 summary 스키마 확정(S3-15) 때 서버가 `sources`를 주게 옮긴다. `web/src/core`의 브라우저 API 비의존은 아직 린트로 막지 않는다(tsconfig lib에 DOM)
 
 #### S1-11 페르소나 톤 평가
 - [ ] 고정 질문 20개와 톤 체크리스트(말투, 길이, 금지 표현, 질문 1개 규칙)
@@ -670,4 +672,5 @@
 | 2026-10-14 | S1-07 한국어 문장 분할기 | `010bf5b` |
 | 2026-10-14 | S1-09 SSE 이벤트 스키마 초안 | `231fdb4` |
 | 2026-10-14 | S1-06 앱 도구 MCP 서버(FastAPI 내부 HTTP 엔드포인트) | `03bf1c8` |
-| 2026-10-14 | S1-08 세션·턴·프로필 API | |
+| 2026-10-14 | S1-08 세션·턴·프로필 API | `e4e9a7d` |
+| 2026-10-14 | S1-10 웹 텍스트 대화 화면, S1-04 Playwright 가짜 CLI | |

@@ -23,6 +23,7 @@ from app.db.models import (
 )
 from app.llm.events import TurnStarted
 from app.main import create_app
+from app.persona.loader import load_persona
 
 FAKE_CLI_SESSION_ID = "00000000-0000-4000-8000-00000000fake"
 
@@ -41,6 +42,9 @@ def api(fake_cli, home, monkeypatch):
     app = create_app(fake_cli.settings)
     with TestClient(app) as client:
         client.fake_cli = fake_cli
+        client.persona_name = load_persona(
+            fake_cli.settings.persona_dir, "jenny"
+        ).persona.name  # 이름은 YAML에서만 가져온다
         yield client
 
 
@@ -125,6 +129,7 @@ def test_start_session_saves_greeting(api):
     body = start(api)
     session = body["session"]
     assert session["mode"] == "text" and session["status"] == "active"
+    assert body["persona"] == {"id": "jenny", "name": api.persona_name}
     assert (
         body["greeting"]["text"]
         == "사과는 보통 빨간색이지만 품종에 따라 초록색이나 노란색도 있습니다."

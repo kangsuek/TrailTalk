@@ -7,7 +7,8 @@ export default defineConfig({
   plugins: [react()],
   server: {
     // 개발 중 /api 요청은 FastAPI(uvicorn, 기본 8000번)로 넘긴다.
-    proxy: { '/api': 'http://127.0.0.1:8000' },
+    // E2E는 가짜 CLI를 쓰는 전용 서버로 넘기도록 VITE_API_TARGET을 준다(playwright.config.ts).
+    proxy: { '/api': process.env.VITE_API_TARGET ?? 'http://127.0.0.1:8000' },
   },
   test: {
     environment: 'jsdom',

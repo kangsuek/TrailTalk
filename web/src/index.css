@@ -84,3 +84,169 @@ body {
   border-bottom-color: var(--accent);
   font-weight: 600;
 }
+
+.conversation h2 {
+  margin: 0 0 12px;
+  font-size: 1.1rem;
+}
+
+.conversation button {
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--bg);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.conversation button.secondary {
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text);
+  font-weight: 400;
+}
+
+.conversation button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.conversation-start {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.messages {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.message {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 85%;
+}
+
+.message.user {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.message .speaker {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.message .bubble {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.message.assistant .bubble {
+  border: 1px solid var(--border);
+  border-top-left-radius: 4px;
+}
+
+.message.user .bubble {
+  background: var(--accent);
+  color: var(--bg);
+  border-top-right-radius: 4px;
+}
+
+.message[data-status='error'] .bubble {
+  border-color: var(--error);
+}
+
+.bubble.typing {
+  color: var(--muted);
+}
+
+.notices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.notice {
+  display: -webkit-box;
+  max-width: 100%;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.notice[data-done='false'] {
+  color: var(--text);
+}
+
+.list-end {
+  height: 0;
+  /* 아래 고정 입력창에 마지막 말풍선이 가리지 않게 */
+  scroll-margin-bottom: 160px;
+}
+
+.conversation-error {
+  color: var(--error);
+}
+
+.conversation-note {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.composer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0;
+  background: var(--bg);
+}
+
+.composer textarea {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  resize: vertical;
+}
+
+.composer-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

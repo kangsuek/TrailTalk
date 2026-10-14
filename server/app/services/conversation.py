@@ -42,6 +42,7 @@ from app.llm.events import (
     TurnStarted,
 )
 from app.mcp.server import mcp_client_config
+from app.persona.loader import LoadedPersona
 from app.persona.prompt import build_system_prompt
 from app.persona.rules import GREETING_INSTRUCTION
 from app.services.profile import profile_with_persona
@@ -105,8 +106,10 @@ async def get_session(db: AsyncSession, session_id: str) -> ConversationSession:
     return convo
 
 
-async def open_llm(app: FastAPI, db: AsyncSession, convo: ConversationSession) -> LlmSession:
-    """대화의 CLI 세션을 돌려준다. 살아 있으면 재사용하고, 없으면 --resume으로 연다."""
+async def open_llm(
+    app: FastAPI, db: AsyncSession, convo: ConversationSession
+) -> tuple[LlmSession, LoadedPersona]:
+    """대화의 CLI 세션과 프롬프트에 쓴 페르소나. CLI가 살아 있으면 재사용하고 없으면 --resume."""
     settings = app.state.settings
     profile, loaded = await profile_with_persona(db, settings)
     # 프로필·페르소나 행을 만들거나 고쳤으면 바로 커밋한다. 턴 내내 쓰기 잠금을 쥐면
@@ -120,13 +123,14 @@ async def open_llm(app: FastAPI, db: AsyncSession, convo: ConversationSession) -
         timezone=settings.timezone,
     )
     runtime = app.state.runtimes.ensure(convo.id)
-    return await app.state.llm.get(
+    session = await app.state.llm.get(
         convo.id,
         system_prompt=prompt,
         model=settings.llm_chat_model,
         resume_id=convo.cli_session_id,
         mcp_config=mcp_client_config(settings.internal_base_url, runtime),
     )
+    return session, loaded
 
 
 async def teardown(app: FastAPI, session_id: str, cli_session_id: str | None) -> None:
@@ -139,7 +143,7 @@ async def teardown(app: FastAPI, session_id: str, cli_session_id: str | None) ->
 
 async def start_session(
     app: FastAPI, db: AsyncSession, mode: ConversationMode
-) -> tuple[ConversationSession, Turn]:
+) -> tuple[ConversationSession, Turn, LoadedPersona]:
     convo = ConversationSession(mode=mode)
     db.add(convo)
     await db.commit()
@@ -148,7 +152,7 @@ async def start_session(
     cli_session_id = None
     try:
         async with runtime.turn_lock:
-            session = await open_llm(app, db, convo)
+            session, persona = await open_llm(app, db, convo)
             parts: list[str] = []
             finished = None
             async with aclosing(session.send(GREETING_INSTRUCTION)) as stream:
@@ -185,7 +189,7 @@ async def start_session(
                 logger.warning("세션 시작 실패(code=%s): %s", exc.code, exc.message)
             raise public_error(exc) from exc
         raise
-    return convo, greeting
+    return convo, greeting, persona
 
 
 async def _discard_new_session(
@@ -289,7 +293,7 @@ async def _run_turn(
             await db.refresh(convo)  # 그사이 종료 API가 끝냈으면 CLI를 다시 띄우지 않는다
             if convo.status is SessionStatus.ENDED:
                 raise SessionEnded()
-            session = await open_llm(app, db, convo)
+            session, _ = await open_llm(app, db, convo)
         splitter = SentenceSplitter()
         index = 0
         parts: list[str] = []

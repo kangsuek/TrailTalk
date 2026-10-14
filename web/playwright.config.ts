@@ -1,21 +1,43 @@
+import { fileURLToPath } from 'node:url'
 import { defineConfig, devices } from '@playwright/test'
+
+// E2E는 개발 서버(8000·5173)를 쓰지 않고, 가짜 Claude CLI를 쓰는 전용 서버와 웹을 따로 띄운다.
+// 가짜 CLI는 녹화(server/tests/fixtures/claude_cli/web_search.jsonl)를 턴마다 차례로 재생한다:
+// 인사말 → 웹 검색 → 페이지 읽기 → 메모 저장 → 일반 답변.
+const API_PORT = 8100
+const WEB_PORT = 5199 // 개발용 vite가 5173이 차 있으면 5174로 넘어가므로 겹치지 않는 포트
+const E2E_DIR = fileURLToPath(new URL('./.e2e', import.meta.url))
+const FAKE_CLI = fileURLToPath(new URL('../server/tests/fakes/fake-claude', import.meta.url))
 
 export default defineConfig({
   testDir: './e2e',
   outputDir: './test-results',
-  use: { baseURL: 'http://127.0.0.1:5173', trace: 'retain-on-failure' },
+  use: { baseURL: `http://127.0.0.1:${WEB_PORT}`, trace: 'retain-on-failure' },
   projects: [{ name: 'mobile-chrome', use: { ...devices['Pixel 7'] } }],
+  // 서버 하나·가짜 CLI 녹화 순서를 함께 쓰므로 테스트를 순서대로 돌린다
+  workers: 1,
   webServer: [
     {
-      command: 'uv run uvicorn app.main:app --host 127.0.0.1 --port 8000',
+      // 실행할 때마다 빈 DB로 시작한다
+      command: `rm -rf "${E2E_DIR}" && mkdir -p "${E2E_DIR}" && uv run uvicorn app.main:app --host 127.0.0.1 --port ${API_PORT}`,
       cwd: '../server',
-      url: 'http://127.0.0.1:8000/api/health',
-      reuseExistingServer: !process.env.CI,
+      url: `http://127.0.0.1:${API_PORT}/api/health`,
+      reuseExistingServer: false,
+      env: {
+        CLAUDE_CLI_PATH: FAKE_CLI,
+        FAKE_CLAUDE_FIXTURE: 'web_search',
+        CLI_ENV_PASSTHROUGH: '["FAKE_CLAUDE_*"]',
+        DATABASE_URL: `sqlite+aiosqlite:///${E2E_DIR}/e2e.db`,
+        CLI_WORK_DIR: `${E2E_DIR}/cli`,
+        INTERNAL_BASE_URL: `http://127.0.0.1:${API_PORT}`,
+        WEB_DIST_DIR: `${E2E_DIR}/no-dist`,
+      },
     },
     {
-      command: 'npm run dev -- --host 127.0.0.1 --port 5173 --strictPort',
-      url: 'http://127.0.0.1:5173',
-      reuseExistingServer: !process.env.CI,
+      command: `npm run dev -- --host 127.0.0.1 --port ${WEB_PORT} --strictPort`,
+      url: `http://127.0.0.1:${WEB_PORT}`,
+      reuseExistingServer: false,
+      env: { VITE_API_TARGET: `http://127.0.0.1:${API_PORT}` },
     },
   ],
 })

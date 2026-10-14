@@ -5,7 +5,8 @@
 ## 1. API
 
 - 모든 서버 API는 `/api` 아래에 둔다(예: `/api/health`, `/api/sessions`).
-- 타입은 FastAPI OpenAPI 스키마에서 생성한다: 웹은 openapi-typescript, 안드로이드는 openapi-generator.
+- 타입은 FastAPI OpenAPI 스키마에서 생성한다: 웹은 openapi-typescript(`npm run gen:api` → `web/src/api/schema.d.ts`, 서버 `python -m app.openapi`), 안드로이드는 openapi-generator.
+- 턴 SSE는 POST 응답이라 `EventSource` 대신 스트림을 직접 읽는다. 파서는 `web/src/core/sse.ts`(줄 끝은 `\r\n`·`\r`·`\n`만, 빈 줄로 끝나지 않은 마지막 메시지는 버림).
 
 ## 2. SSE 이벤트
 
@@ -22,7 +23,7 @@
 
 **도구 이름(`name`)**: `save_note`, `search_notes`, `summarize_session`, `pause_session`, `end_session`, `web_search`, `web_fetch`. 결과 요약(`summary`)은 `web_search`면 `{query, links: [{title, url}]}`, `web_fetch`면 `{code, bytes}`, 앱 도구면 `{result}`다.
 
-**세션 API**: `POST /api/sessions` `{mode: "text"|"voice"}` → 201 `{session, greeting: {turn_id, text}}`. `POST /api/sessions/{id}/turns` `{text}`(1~4000자) → 위 SSE. `POST /api/sessions/{id}/end` → 세션(`status: ended`, 여러 번 불러도 같다). 쉬기(`paused`) 상태에서 턴을 보내면 다시 `active`가 된다. 턴 도중 연결을 끊으면 사용자 메시지만 기록된다.
+**세션 API**: `POST /api/sessions` `{mode: "text"|"voice"}` → 201 `{session, greeting: {turn_id, text}, persona: {id, name}}`. 화면의 캐릭터 이름은 `persona.name`을 쓰고 코드에 넣지 않는다(NFR-08). `POST /api/sessions/{id}/turns` `{text}`(1~4000자) → 위 SSE. `POST /api/sessions/{id}/end` → 세션(`status: ended`, 여러 번 불러도 같다). 쉬기(`paused`) 상태에서 턴을 보내면 다시 `active`가 된다. 턴 도중 연결을 끊으면 사용자 메시지만 기록된다.
 
 **순서**: 한 턴은 `turn`으로 시작해 `sentence`·`tool`이 섞여 오다가 `done` 또는 `error` 하나로 끝난다. 모든 필드는 항상 실려 온다(스키마상 required). `summary`의 도구별 타입은 3단계 확정 때 스키마로 고정한다. 시작 전 오류(세션 없음, 진행 중인 턴 등)는 SSE가 아니라 7절의 JSON 오류 응답으로 온다.
 

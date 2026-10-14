@@ -58,9 +58,17 @@ class GreetingOut(BaseModel):
     text: str
 
 
+class PersonaOut(BaseModel):
+    """화면에 보일 캐릭터 정보. 클라이언트는 캐릭터 이름을 코드에 두지 않고 이 값을 쓴다(NFR-08)."""
+
+    id: str
+    name: str
+
+
 class SessionStarted(BaseModel):
     session: SessionOut
     greeting: GreetingOut
+    persona: PersonaOut
 
 
 class TurnCreate(BaseModel):
@@ -69,9 +77,13 @@ class TurnCreate(BaseModel):
 
 @router.post("/sessions", status_code=201)
 async def create_session(body: SessionCreate, request: Request, db: DbSession) -> SessionStarted:
-    convo, greeting = await conversation.start_session(request.app, db, ConversationMode(body.mode))
+    convo, greeting, loaded = await conversation.start_session(
+        request.app, db, ConversationMode(body.mode)
+    )
     return SessionStarted(
-        session=SessionOut.of(convo), greeting=GreetingOut(turn_id=greeting.id, text=greeting.text)
+        session=SessionOut.of(convo),
+        greeting=GreetingOut(turn_id=greeting.id, text=greeting.text),
+        persona=PersonaOut(id=loaded.persona.id, name=loaded.persona.name),
     )
 
 

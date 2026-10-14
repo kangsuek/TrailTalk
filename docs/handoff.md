@@ -5,7 +5,7 @@
 ## 1. 지금 어디까지 왔나
 
 - **0단계 완료.** 저장소 골격, Claude CLI 검증 스파이크([spikes/claude-cli.md](spikes/claude-cli.md)), 서버용 토큰
-- **1단계(제니 텍스트 대화) 진행 중, 8/11(S1-04는 Playwright 항목만 남아 진행 중).** 완료한 작업과 커밋은 아래와 같다.
+- **1단계(제니 텍스트 대화) 진행 중, 10/11.** 완료한 작업과 커밋은 아래와 같다.
 
 | 작업 | 내용 | 커밋 |
 |---|---|---|
@@ -17,10 +17,11 @@
 | S1-07 | 한국어 문장 분할기 | `010bf5b` |
 | S1-09 | SSE 이벤트 스키마(`turn`·`sentence`·`tool`·`done`·`error`) | `231fdb4` |
 | S1-06 | 앱 도구 MCP 서버(FastAPI 내부 `/internal/mcp/`) | `03bf1c8` |
-| S1-08 | 세션·턴·프로필 API(`app/api/sessions.py`·`profile.py`, `app/services/conversation.py`) | 이 문서와 같은 커밋 |
+| S1-08 | 세션·턴·프로필 API(`app/api/sessions.py`·`profile.py`, `app/services/conversation.py`) | `e4e9a7d` |
+| S1-10 | 웹 텍스트 대화 화면(`web/src/core/sse.ts`·`conversation.ts`, `screens/ConversationScreen.tsx`), S1-04 Playwright 가짜 CLI | 이 문서와 같은 커밋 |
 
-- **다음 작업: S1-10 웹 텍스트 대화 화면(+S1-04 Playwright).** 서버 API는 [클라이언트 규약](client-contract.md) 2절 "세션 API"와 7절 오류 코드를 따른다.
-- **남은 순서:** S1-10 웹 텍스트 대화 화면(+S1-04 Playwright) → S1-11 페르소나 톤 평가 → 1단계 측정·마감(사용자 확인)
+- **다음 작업: S1-11 페르소나 톤 평가**, 그다음 1단계 측정·마감(사용자 확인).
+- E2E(`npm run e2e`)는 가짜 CLI 전용 서버(8100)·웹(5199)을 띄운다. 서버 API를 바꾸면 `npm run gen:api`로 웹 타입을 다시 만든다.
 - 1단계 남은 작업 전체 계획은 사용자 승인을 받았다. 요약은 아래 4절에 있고, 원본은 `~/.claude/plans/scalable-discovering-emerson.md`다.
 
 ## 2. MCP·대화 서버 구조(S1-06, S1-08)
