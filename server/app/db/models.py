@@ -31,6 +31,13 @@ class SessionStatus(StrEnum):
     ENDED = "ended"
 
 
+class ConversationMode(StrEnum):
+    """대화 방식. 프롬프트의 상황 블록이 달라진다(CLI 복구 때 같은 프롬프트를 다시 만든다)."""
+
+    TEXT = "text"
+    VOICE = "voice"
+
+
 class TurnRole(StrEnum):
     USER = "user"
     ASSISTANT = "assistant"
@@ -61,6 +68,11 @@ class ConversationSession(Base):
     ended_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     status: Mapped[SessionStatus] = mapped_column(
         _enum(SessionStatus, "session_status"), default=SessionStatus.ACTIVE
+    )
+    mode: Mapped[ConversationMode] = mapped_column(
+        _enum(ConversationMode, "conversation_mode"),
+        default=ConversationMode.TEXT,
+        server_default=ConversationMode.TEXT.value,
     )
     title: Mapped[str | None] = mapped_column(String(200))
     summary: Mapped[str | None] = mapped_column(Text)

@@ -84,6 +84,27 @@ def build_env(settings: Settings) -> dict[str, str]:
     return env
 
 
+_CLI_SESSION_ID = re.compile(r"[A-Za-z0-9-]{8,64}")
+
+
+def delete_cli_session_file(cli_session_id: str | None) -> bool:
+    """CLI가 남긴 대화 기록 파일(~/.claude/projects/<폴더>/<세션 ID>.jsonl)을 지운다.
+
+    자식 CLI는 서버와 같은 HOME을 쓴다(ENV_ALLOWLIST). 이름이 정확히 같은 파일만 지우고,
+    그 폴더가 비면 폴더도 지운다.
+    """
+    if not cli_session_id or not _CLI_SESSION_ID.fullmatch(cli_session_id):
+        return False
+    deleted = False
+    for path in (Path.home() / ".claude" / "projects").glob(f"*/{cli_session_id}.jsonl"):
+        with contextlib.suppress(FileNotFoundError):
+            path.unlink()
+            deleted = True
+        with contextlib.suppress(OSError):
+            path.parent.rmdir()  # 작업 폴더마다 생기는 프로젝트 폴더가 비었으면 함께 지운다
+    return deleted
+
+
 def session_work_dir(settings: Settings, key: str) -> Path:
     """프로세스마다 고유한 작업 폴더(cli_work_dir/<key>/<무작위>).
 

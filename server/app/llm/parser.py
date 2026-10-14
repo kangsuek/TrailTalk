@@ -40,7 +40,11 @@ def _tool_summary(raw: Any) -> dict[str, Any]:
     if "code" in raw and "bytes" in raw:  # WebFetch
         return {"code": raw.get("code"), "bytes": raw.get("bytes")}
     if "structuredContent" in raw:  # MCP 도구
-        return {"result": raw.get("structuredContent")}
+        content = raw.get("structuredContent")
+        # 문자열을 돌려주는 도구는 SDK가 {"result": 문자열}로 감싼다. 클라이언트에는 {result}만 준다
+        if isinstance(content, dict) and set(content) == {"result"}:
+            content = content["result"]
+        return {"result": content}
     return {}
 
 

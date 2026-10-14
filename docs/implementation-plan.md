@@ -23,15 +23,15 @@
 | 단계 | 상태 | 작업 | 기간(예상) | 시작 | 완료 | 마일스톤 커밋 |
 |---|---|---|---|---|---|---|
 | [0. 준비·기술 검증](#3-0단계--준비와-기술-검증) | 완료 | 5/5 | 3~5일 | 2026-10-12 | 2026-10-12 | `a9b2970` |
-| [1. 제니 텍스트 대화](#4-1단계--제니-텍스트-대화) | 진행 중 | 7/11 | 1~2주 | 2026-10-12 | | |
+| [1. 제니 텍스트 대화](#4-1단계--제니-텍스트-대화) | 진행 중 | 8/11 | 1~2주 | 2026-10-12 | | |
 | [2. 대화 기록](#5-2단계--대화-기록) | 대기 | 0/9 | 1~2주 | | | |
 | [3. 웹 음성 대화](#6-3단계--웹-음성-대화) | 대기 | 0/16 | 2~3주 | | | |
 | [4. 안드로이드 포팅](#7-4단계--안드로이드-포팅) | 대기 | 0/9 | 3주 | | | |
 | [5. 다듬기·확장](#8-5단계--다듬기와-확장) | 대기 | 0/6 | 2주 | | | |
-| **전체** | | **12/56** | 약 10~13주 | | | |
+| **전체** | | **13/56** | 약 10~13주 | | | |
 
-- **현재 작업**: S1-04 진행 중(Playwright 가짜 CLI 지정은 S1-08에서)
-- **다음 작업**: S1-08 → S1-10 → S1-11(1단계 남은 순서)
+- **현재 작업**: S1-04 진행 중(Playwright 항목은 S1-10에서)
+- **다음 작업**: S1-10 → S1-11(1단계 남은 순서)
 
 ## 3. 0단계 — 준비와 기술 검증
 
@@ -128,9 +128,9 @@
 | S1-03 | LLM 백엔드와 Claude CLI 프로세스 관리 | 완료 | `server/app/llm/` | `19fb1ed` |
 | S1-04 | 가짜 CLI와 파서 테스트 | 진행 중 | `server/tests/fakes/` | |
 | S1-05 | 페르소나 스키마와 프롬프트 조립기 | 완료 | `server/app/persona/` | `9e7ff4e` |
-| S1-06 | 제니 도구 MCP 서버 | 완료 | `server/app/mcp/`, `server/app/services/runtime.py` | |
+| S1-06 | 제니 도구 MCP 서버 | 완료 | `server/app/mcp/`, `server/app/services/runtime.py` | `03bf1c8` |
 | S1-07 | 한국어 문장 분할기 | 완료 | `server/app/voice/sentences.py` | `010bf5b` |
-| S1-08 | 세션·턴·프로필 API | 대기 | `server/app/api/` | |
+| S1-08 | 세션·턴·프로필 API | 완료 | `server/app/api/`, `server/app/services/conversation.py` | |
 | S1-09 | SSE 이벤트 스키마 초안 | 완료 | `server/app/api/events.py` | `231fdb4` |
 | S1-10 | 웹 텍스트 대화 화면 | 대기 | `web/src/screens/`, `web/src/api/` | |
 | S1-11 | 페르소나 톤 평가 | 대기 | `server/tests/persona_eval/` | |
@@ -181,13 +181,14 @@
 - [x] 테스트: 경계 사례 표 + 한 글자씩 넣어도 같은 결과(스트리밍 불변성), 실제 녹화 답변으로 확인. 마크다운 기호 정리는 3단계 TTS 전처리에서
 
 #### S1-08 세션·턴·프로필 API
-- [ ] `POST /api/sessions`(인사말)
-- [ ] 턴 시작 시 `TurnStarted.cli_session_id`를 `conversation_session.cli_session_id`에 저장(프로세스 복구용)
-- [ ] 세션 종료 시 CLI 프로세스 닫기와 `~/.claude/projects/`에 쌓이는 CLI 세션 파일 정리 방식 결정
-- [ ] `POST /api/sessions/{id}/turns`(텍스트 입력, SSE 응답)
-- [ ] `POST /api/sessions/{id}/end`(요약은 2단계)
-- [ ] `GET/PUT /api/profile`
-- [ ] 테스트: 가짜 CLI로 턴 스트리밍 전체 흐름
+- [x] `POST /api/sessions`(인사말): 숨은 첫 메시지(`rules.GREETING_INSTRUCTION`)로 받은 인사말을 assistant 턴 seq 0으로 저장. 실패하면 세션을 남기지 않음. 대화 모드는 `conversation_session.mode`(마이그레이션 `0002`)에 두고, 프롬프트는 세션 시작 시각·모드·프로필로 만들어 `--resume` 때도 같게 함
+- [x] 턴 시작 시 `TurnStarted.cli_session_id`를 `conversation_session.cli_session_id`에 저장(프로세스 복구용)
+- [x] 세션 종료 시 CLI 프로세스 닫기와 CLI 세션 파일 정리: `~/.claude/projects/*/<cli_session_id>.jsonl` 정확한 파일만 지우고 빈 폴더도 지움
+- [x] `POST /api/sessions/{id}/turns`(텍스트 입력, SSE 응답): 시작 전 오류(404·409·422)는 JSON. 도구 이벤트 → `tool`(S1-06에서 넘어옴), 도구 앞 말은 도구 시작 때 문장으로 내보냄. pause/end 도구 요청을 턴 끝에 반영
+- [x] `POST /api/sessions/{id}/end`(요약은 2단계): 멱등. CLI 닫기 → 런타임 폐기 순서
+- [x] `GET/PUT /api/profile`: 보낸 필드만 갱신, 호칭 1~20자 한 줄, 관심사 10개·각 30자, 기본 페르소나를 `persona` 테이블에 동기화
+- [x] 테스트: 가짜 CLI로 턴 스트리밍 전체 흐름(인사말, 3턴, 도구·웹 검색 변환, 404/409/422, 쉬기·종료 요청, CLI 죽음 → 오류 이벤트 → `--resume` 복구, 인사말 실패, 기록 파일 정리, OpenAPI), 프로필, 턴 중 다른 쓰기·턴 중 종료·동시 턴·오류 문구 비노출, 실제 uvicorn에서 연결 끊김(pytest 31개). 리뷰 반영: 턴 동안 트랜잭션을 열어 두지 않음, 종료와 턴 경합 시 ended 보존(조건부 UPDATE), 끊김 취소가 DB 작업을 끊어 죽은 커넥션이 풀에 남던 버그 수정(DB 구간 취소 보호, `pool_pre_ping`). 실제 CLI로 서버를 띄워 확인: 인사말 2.7초, 첫 sentence 2.8초(도구 없음), `save_note`가 사용자 턴에 연결됨, 연결 끊기 후 다음 턴 복구
+- 참고: 도구를 쓴 턴은 CLI가 도구 뒤 답변(thinking 뒤 text)을 한꺼번에 내보내 첫 문장이 늦다(실측 도구 끝 후 약 4.7초). CLI 단독 실행에서도 같고 `MAX_THINKING_TOKENS=0`으로 꺼지지 않는다. 3단계 음성 지연(S3) 때 다시 본다
 
 #### S1-09 SSE 이벤트 스키마 초안
 - [x] `turn`(첫 이벤트, 끼어들기용 `turn_id`), `sentence`, `tool`, `done`, `error` 이벤트 모델(이 단계는 텍스트만, 모든 필드 required), 도구 이름을 클라이언트용으로 변환(`public_tool_name`)
@@ -668,4 +669,5 @@
 | 2026-10-12 | S1-05 페르소나 스키마와 프롬프트 조립기 | `9e7ff4e` |
 | 2026-10-14 | S1-07 한국어 문장 분할기 | `010bf5b` |
 | 2026-10-14 | S1-09 SSE 이벤트 스키마 초안 | `231fdb4` |
-| 2026-10-14 | S1-06 앱 도구 MCP 서버(FastAPI 내부 HTTP 엔드포인트) | |
+| 2026-10-14 | S1-06 앱 도구 MCP 서버(FastAPI 내부 HTTP 엔드포인트) | `03bf1c8` |
+| 2026-10-14 | S1-08 세션·턴·프로필 API | |

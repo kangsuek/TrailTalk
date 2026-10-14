@@ -58,7 +58,7 @@ def test_tool_call_order_and_input():
     assert started.name == called.name == "mcp__trailtalk__save_note"
     assert started.tool_use_id == called.tool_use_id == finished.tool_use_id
     assert called.input["kind"] == "idea"
-    assert finished.summary == {"result": {"result": "저장 완료"}}
+    assert finished.summary == {"result": "저장 완료"}
     assert tool_turn[-1].text.endswith(text_of(tool_turn)[-10:])
 
 

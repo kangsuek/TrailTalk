@@ -11,6 +11,7 @@ DB에 남길 필요가 없는 값만 둔다. 서버가 재시작되면 세션을
   토큰을 계속 쓰므로, 토큰을 바꾸려면 CLI를 닫은 뒤 새로 ensure해야 한다.
 """
 
+import asyncio
 import secrets
 from dataclasses import dataclass, field
 
@@ -23,6 +24,8 @@ class ConversationRuntime:
     token: str = field(default_factory=lambda: secrets.token_urlsafe(32))
     current_user_turn_id: str | None = None  # save_note가 노트를 이 턴에 연결한다
     requested_status: SessionStatus | None = None  # pause_session/end_session이 남긴 요청
+    # 한 대화에서 턴은 하나씩만 처리한다(사용자 턴 seq 계산과 CLI 입력 순서)
+    turn_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False, compare=False)
 
     def pop_requested_status(self) -> SessionStatus | None:
         status, self.requested_status = self.requested_status, None

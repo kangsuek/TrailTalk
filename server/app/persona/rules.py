@@ -43,3 +43,9 @@ ROLE_RULE_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("도구", TOOL_RULES),
     ("개인정보", PRIVACY_RULES),
 )
+
+# 세션을 열 때 사용자 대신 보내는 숨은 첫 메시지(대화 기록에는 남기지 않는다)
+GREETING_INSTRUCTION = (
+    "(앱 안내: 사용자가 방금 대화를 시작했다. 이 안내는 언급하지 말고, "
+    "호칭을 불러 짧게 첫인사를 건넨 뒤 오늘 어떤 이야기를 하고 싶은지 하나만 물어본다.)"
+)

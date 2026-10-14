@@ -112,16 +112,19 @@ async def test_batch_recreate_keeps_child_rows(database_url, tmp_path):
     finally:
         await data_engine.dispose()
 
+    from alembic.script import ScriptDirectory
+
+    head = ScriptDirectory.from_config(alembic_config(database_url)).get_current_head()
     scripts = tmp_path / "migrations"
     shutil.copytree(
         SERVER_DIR / "migrations", scripts, ignore=shutil.ignore_patterns("__pycache__")
     )
     (scripts / "versions" / "9999_recreate.py").write_text(
-        """import sqlalchemy as sa
+        f"""import sqlalchemy as sa
 from alembic import op
 
 revision = "9999"
-down_revision = "0001"
+down_revision = "{head}"
 branch_labels = None
 depends_on = None
 

@@ -5,7 +5,7 @@
 ## 1. 지금 어디까지 왔나
 
 - **0단계 완료.** 저장소 골격, Claude CLI 검증 스파이크([spikes/claude-cli.md](spikes/claude-cli.md)), 서버용 토큰
-- **1단계(제니 텍스트 대화) 진행 중, 7/11(S1-04는 Playwright 항목만 남아 진행 중).** 완료한 작업과 커밋은 아래와 같다.
+- **1단계(제니 텍스트 대화) 진행 중, 8/11(S1-04는 Playwright 항목만 남아 진행 중).** 완료한 작업과 커밋은 아래와 같다.
 
 | 작업 | 내용 | 커밋 |
 |---|---|---|
@@ -16,24 +16,30 @@
 | S1-05 | 페르소나 스키마·시스템 프롬프트 조립기 | `9e7ff4e` |
 | S1-07 | 한국어 문장 분할기 | `010bf5b` |
 | S1-09 | SSE 이벤트 스키마(`turn`·`sentence`·`tool`·`done`·`error`) | `231fdb4` |
-| S1-06 | 앱 도구 MCP 서버(FastAPI 내부 `/internal/mcp/`) | 이 문서와 같은 커밋 |
+| S1-06 | 앱 도구 MCP 서버(FastAPI 내부 `/internal/mcp/`) | `03bf1c8` |
+| S1-08 | 세션·턴·프로필 API(`app/api/sessions.py`·`profile.py`, `app/services/conversation.py`) | 이 문서와 같은 커밋 |
 
-- **다음 작업: S1-08.** 시작 전에 아래 2절의 S1-08 연동 규칙을 읽는다.
-- **남은 순서:** S1-08 세션·턴·프로필 API → S1-10 웹 텍스트 대화 화면(+S1-04 Playwright) → S1-11 페르소나 톤 평가 → 1단계 측정·마감(사용자 확인)
+- **다음 작업: S1-10 웹 텍스트 대화 화면(+S1-04 Playwright).** 서버 API는 [클라이언트 규약](client-contract.md) 2절 "세션 API"와 7절 오류 코드를 따른다.
+- **남은 순서:** S1-10 웹 텍스트 대화 화면(+S1-04 Playwright) → S1-11 페르소나 톤 평가 → 1단계 측정·마감(사용자 확인)
 - 1단계 남은 작업 전체 계획은 사용자 승인을 받았다. 요약은 아래 4절에 있고, 원본은 `~/.claude/plans/scalable-discovering-emerson.md`다.
 
-## 2. S1-06 결과와 S1-08 연동 규칙
+## 2. MCP·대화 서버 구조(S1-06, S1-08)
 
 **설계:** MCP는 별도 프로세스가 아니라 FastAPI 안의 HTTP 엔드포인트 `/internal/mcp/`다(`app/mcp/server.py`).
 - Claude CLI는 세션마다 받은 `mcp.json`(`mcp_client_config`)으로 접속한다. 헤더는 `Authorization: Bearer <세션 토큰>`, `X-TrailTalk-Session: <세션 ID>`.
 - 대화별 메모리 상태는 `app/services/runtime.py`의 `ConversationRuntime`·`RuntimeRegistry`(`app.state.runtimes`).
 - 구독(`subscriptions/listen`)을 끈 이유: 켜 두면 CLI가 연결을 열어 둬 uvicorn 종료가 멈춘다. 끈 뒤 실제 CLI 테스트는 약 6초에 정상 종료한다.
 
-**S1-08이 지킬 것**(리뷰에서 나온 사항, `runtime.py` 모듈 주석에도 있다)
+**턴 처리 규칙**(S1-08에서 구현함, `runtime.py` 모듈 주석에도 있다)
 - 사용자 턴을 **커밋한 뒤** `current_user_turn_id`를 설정하고 `send()`를 시작한다(`note.turn_id` 외래 키). 턴이 끝나면 None으로 되돌린다.
 - 턴 시작 때 `requested_status`를 비우고, 턴이 끝나면 `pop_requested_status()`로 읽어 DB 상태와 `done` 이벤트에 반영한다.
 - 세션 종료 시 `llm.close(id)` → `runtimes.discard(id)` 순서. 살아 있는 CLI는 처음 받은 토큰을 계속 쓰므로 CLI를 닫기 전에 토큰을 바꾸면 도구 호출이 모두 401이 된다. 테스트로 고정한다.
-- 도구 이벤트 → SSE `tool` 변환(계획서 S1-06에서 S1-08로 넘김).
+- 도구 이벤트 → SSE `tool` 변환은 `services/conversation.py`의 `stream_turn`.
+
+**S1-08에서 알게 된 것**
+- 클라이언트가 턴 도중 연결을 끊으면 S1-03 설계대로 CLI 프로세스를 즉시 죽이고, 다음 턴에서 `--resume`으로 맥락을 잇는다(실측: 끊은 뒤 다음 턴 첫 문장 3.0초).
+- 도구를 쓴 턴은 CLI가 도구 뒤 답변을 thinking이 끝난 뒤 한꺼번에 내보낸다(첫 문장이 도구 끝 후 약 4.7초 늦음). CLI 단독 실행에서도 같고 `MAX_THINKING_TOKENS=0`으로 안 꺼진다. 3단계 음성 지연 때 다시 본다.
+- 실제 CLI 수동 확인 방법: 임시 DB·포트로 `DATABASE_URL=... CLI_WORK_DIR=... INTERNAL_BASE_URL=http://127.0.0.1:<포트> uv run uvicorn app.main:app --port <포트>`를 띄우고 httpx로 `/api/sessions`·`/turns`를 호출한다. 끝나면 `~/.claude/projects/`에 남은 임시 작업 폴더 이름의 폴더를 지운다.
 
 **배포 때 할 일(5장)**
 - `/internal/*`는 터널·리버스 프록시에서 막는다. 앱도 전달 헤더(`X-Forwarded-For`, `CF-Connecting-IP`, `Forwarded`, `X-Real-IP`)가 붙은 MCP 요청을 403으로 거부한다.

@@ -27,7 +27,8 @@ def create_engine_for(url: str, *, foreign_keys: bool = True) -> AsyncEngine:
     if is_sqlite and parsed.database and parsed.database != ":memory:":
         Path(parsed.database).parent.mkdir(parents=True, exist_ok=True)
 
-    engine = create_async_engine(url)
+    # 연결 끊김 등으로 취소된 작업이 죽은 커넥션을 풀에 남겨도 다음 요청이 새로 연결하도록
+    engine = create_async_engine(url, pool_pre_ping=True)
     if is_sqlite and foreign_keys:
 
         @event.listens_for(engine.sync_engine, "connect")

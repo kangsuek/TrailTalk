@@ -22,6 +22,8 @@
 
 **도구 이름(`name`)**: `save_note`, `search_notes`, `summarize_session`, `pause_session`, `end_session`, `web_search`, `web_fetch`. 결과 요약(`summary`)은 `web_search`면 `{query, links: [{title, url}]}`, `web_fetch`면 `{code, bytes}`, 앱 도구면 `{result}`다.
 
+**세션 API**: `POST /api/sessions` `{mode: "text"|"voice"}` → 201 `{session, greeting: {turn_id, text}}`. `POST /api/sessions/{id}/turns` `{text}`(1~4000자) → 위 SSE. `POST /api/sessions/{id}/end` → 세션(`status: ended`, 여러 번 불러도 같다). 쉬기(`paused`) 상태에서 턴을 보내면 다시 `active`가 된다. 턴 도중 연결을 끊으면 사용자 메시지만 기록된다.
+
 **순서**: 한 턴은 `turn`으로 시작해 `sentence`·`tool`이 섞여 오다가 `done` 또는 `error` 하나로 끝난다. 모든 필드는 항상 실려 온다(스키마상 required). `summary`의 도구별 타입은 3단계 확정 때 스키마로 고정한다. 시작 전 오류(세션 없음, 진행 중인 턴 등)는 SSE가 아니라 7절의 JSON 오류 응답으로 온다.
 
 ## 3. 오디오 형식
@@ -59,6 +61,13 @@
 | 422 | `validation_error` | 요청 형식 오류 |
 | 500 | `internal_error` | 서버 내부 오류(내부 정보는 응답에 넣지 않음) |
 | 503 | `db_unavailable` | 데이터베이스 연결 불가 |
+| 404 | `session_not_found` | 없는 대화 세션 |
+| 409 | `session_ended` | 이미 끝난 세션에 턴 요청 |
+| 409 | `turn_in_progress` | 같은 세션의 이전 답변이 아직 진행 중 |
+| 404 | `persona_not_found` | 없는 페르소나(`PUT /api/profile`) |
+| 502 | `llm_error` | 인사말·답변을 만들지 못함(SSE에서는 `error` 이벤트) |
+| 502 | `llm_process_exited` | Claude CLI 프로세스가 끝남. 다음 요청에서 맥락을 이어 다시 띄운다 |
+| 504 | `llm_timeout` | 답변 시간 초과 |
 
 기능별 코드(예: `session_not_found`)는 해당 API를 만들 때 이 표에 추가한다.
 
