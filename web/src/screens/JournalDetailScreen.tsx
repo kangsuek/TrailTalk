@@ -191,6 +191,9 @@ function Detail({
     <article className="journal-detail">
       <h3>{session.title ?? '제목 없는 대화'}</h3>
       <p className="journal-date">{dateLabel(session.date)}</p>
+      {session.status !== 'ended' && (
+        <p className="journal-note">아직 진행 중인 대화예요. 대화를 끝내면 일지로 정리돼요.</p>
+      )}
       {session.journal_status === 'pending' && (
         <div className="journal-note" aria-live="polite">
           <p>일지를 정리하는 중이에요. 끝나면 자동으로 보여 드려요.</p>
@@ -283,7 +286,7 @@ function Detail({
           </ul>
         </section>
       )}
-      {notes.length === 0 && session.journal_status !== 'pending' && (
+      {notes.length === 0 && session.status === 'ended' && session.journal_status !== 'pending' && (
         <p className="journal-note">저장한 아이디어·할 일·메모가 없어요.</p>
       )}
 

@@ -187,6 +187,13 @@ describe('conversationReducer', () => {
     const last = ended.messages.at(-1)
     expect(last).toMatchObject({ role: 'assistant', sentences: ['오늘 할 일 1개 저장했어요!'], status: 'done' })
     expect(ended.messages.filter((m) => m.id === 'closing')).toHaveLength(1)
+    expect(ended.journalPending).toBe(false)
+  })
+
+  it('끝내기 응답 때 일지 정리가 남았으면 journalPending이고, 새 대화를 시작하면 풀린다', () => {
+    const ended = reduce([...started, { type: 'ending' }, { type: 'ended', closing: '안녕!', journalPending: true }])
+    expect(ended.journalPending).toBe(true)
+    expect(conversationReducer(ended, { type: 'start' }).journalPending).toBe(false)
   })
 
   it('끝내기가 실패하면 ending을 푼다', () => {

@@ -130,6 +130,8 @@ describe('JournalDetailScreen', () => {
     render(<JournalDetailScreen sessionId="s1" />)
     await screen.findByRole('heading', { level: 3 })
     expect(screen.queryByRole('button', { name: '다시 정리' })).toBeNull()
+    expect(screen.getByText('아직 진행 중인 대화예요. 대화를 끝내면 일지로 정리돼요.')).toBeInTheDocument()
+    expect(screen.queryByText('저장한 아이디어·할 일·메모가 없어요.')).toBeNull()
   })
 
   it('저장에 실패하면 되돌리고 알린다', async () => {

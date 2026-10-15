@@ -42,6 +42,8 @@ export interface ConversationState {
   sending: boolean
   // 끝내기 요청 중(서버가 일지를 정리하는 동안 기다린다)
   ending: boolean
+  // 끝내기 응답 때 일지 정리가 아직 끝나지 않았다(마무리 멘트의 개수가 나중에 늘 수 있다)
+  journalPending: boolean
   error: string | null
 }
 
@@ -59,8 +61,8 @@ export type ConversationAction =
   // 입력창으로 되돌린 사용자 메시지(목록에서 뺀다)
   | { type: 'failed'; message: string; code?: string; unsentId?: string }
   | { type: 'ending' }
-  // closing: 서버가 준 마무리 멘트(캐릭터 말풍선으로 보인다)
-  | { type: 'ended'; closing?: string }
+  // closing: 서버가 준 마무리 멘트(캐릭터 말풍선으로 보인다), journalPending: 일지 정리가 아직 진행 중
+  | { type: 'ended'; closing?: string; journalPending?: boolean }
 
 const SESSION_GONE = new Set(['session_ended', 'session_not_found'])
 
@@ -71,6 +73,7 @@ export const initialConversation: ConversationState = {
   messages: [],
   sending: false,
   ending: false,
+  journalPending: false,
   error: null,
 }
 
@@ -236,6 +239,7 @@ export function conversationReducer(
         status: 'ended',
         sending: false,
         ending: false,
+        journalPending: action.journalPending ?? false,
         messages: [...state.messages.filter((m) => m.id !== 'closing'), ...closing],
       }
     }

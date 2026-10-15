@@ -136,6 +136,27 @@ describe('ConversationScreen', () => {
     expect(screen.getByRole('button', { name: '보내기' })).toBeEnabled()
   })
 
+  it('끝내기 응답 때 일지 정리가 남았으면 정리 중 안내를 보인다', async () => {
+    const fetchMock = stubServer()
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.endsWith('/end')) return new Response(JSON.stringify({ ...CLOSED, journal_status: 'pending' }))
+      if (url === '/api/sessions') return new Response(JSON.stringify(STARTED), { status: 201 })
+      return new Response(null, { status: 204 })
+    })
+    await startConversation()
+    fireEvent.click(screen.getByRole('button', { name: '대화 끝내기' }))
+    await screen.findByText('대화가 끝났어요.')
+    expect(screen.getByText('일지는 아직 정리 중이에요. 잠시 뒤 일지에서 볼 수 있어요.')).toBeInTheDocument()
+  })
+
+  it('일지 정리가 끝났으면 정리 중 안내를 보이지 않는다', async () => {
+    stubServer()
+    await startConversation()
+    fireEvent.click(screen.getByRole('button', { name: '대화 끝내기' }))
+    await screen.findByText('대화가 끝났어요.')
+    expect(screen.queryByText(/일지는 아직 정리 중이에요/)).toBeNull()
+  })
+
   it('시작 전과 대화가 끝난 뒤에 다음 대화를 미리 준비시킨다', async () => {
     const fetchMock = stubServer()
     await startConversation()

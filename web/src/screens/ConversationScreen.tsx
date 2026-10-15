@@ -233,7 +233,11 @@ export function ConversationScreen({
   const finish = async (sessionId: string, signal: AbortSignal) => {
     dispatch({ type: 'ending' })
     const closed = await endSession(sessionId, signal)
-    dispatch({ type: 'ended', closing: closed.closing })
+    dispatch({
+      type: 'ended',
+      closing: closed.closing,
+      journalPending: closed.journal_status === 'pending',
+    })
   }
 
   const end = () => {
@@ -311,6 +315,9 @@ export function ConversationScreen({
       {state.status === 'ended' && !state.ending && (
         <div className="conversation-start">
           <p className="conversation-note">대화가 끝났어요.</p>
+          {state.journalPending && (
+            <p className="conversation-note">일지는 아직 정리 중이에요. 잠시 뒤 일지에서 볼 수 있어요.</p>
+          )}
           <div className="composer-actions">
             {onOpenJournal && state.sessionId && (
               <button
