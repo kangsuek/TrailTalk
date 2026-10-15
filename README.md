@@ -24,6 +24,14 @@
 ```bash
 cp .env.example .env
 
+# 한 번에 실행: 서버와 웹을 함께 띄우고 브라우저를 연다(Ctrl+C로 종료)
+./run.sh            # 실제 Claude CLI(구독 사용량 사용)
+./run.sh --fake     # 가짜 CLI(녹화 재생)로 화면만 확인
+```
+
+따로 띄우려면:
+
+```bash
 # 서버 (http://127.0.0.1:8000)
 (cd server && uv sync && uv run uvicorn app.main:app --reload)
 

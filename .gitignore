@@ -22,3 +22,6 @@ server/data/
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# run.sh --fake 임시 DB·CLI 작업 폴더
+.run-fake/

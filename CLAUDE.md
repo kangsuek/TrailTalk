@@ -48,6 +48,10 @@ docs/              설계서, 계획서, 규약, 검증 기록(spikes/)
 저장소 루트 기준이다. `npm run e2e`는 개발 서버와 별개로 가짜 Claude CLI(`server/tests/fakes/fake-claude`, 녹화 `web_search`)를 쓰는 E2E 전용 서버(8100, 빈 임시 DB `web/.e2e/`)와 웹(5199)을 매번 새로 띄운다. 서버 API를 바꾸면 `npm run gen:api`로 `web/src/api/schema.d.ts`를 다시 만들어 함께 커밋한다(`npm run gen:api -- --check`는 어긋났는지만 확인).
 
 ```bash
+# 앱 실행(서버 8000 + 웹 5173, 브라우저 열기, Ctrl+C로 종료)
+./run.sh                 # 실제 Claude CLI(구독 사용량 사용)
+./run.sh --fake          # 가짜 CLI 녹화 재생, 임시 DB(.run-fake/). 화면 확인용
+
 # 서버
 (cd server && uv run uvicorn app.main:app --reload)    # http://127.0.0.1:8000
 (cd server && uv run pytest && uv run ruff check . && uv run ruff format --check .)
