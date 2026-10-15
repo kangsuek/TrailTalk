@@ -17,7 +17,7 @@
 - 테스트(현재): pytest 356, Vitest 137, E2E 3.
 - **결정(2026-10-16)**: D2 음성 인식은 OpenAI API, D3 목소리는 OpenAI TTS(인식과 같은 OpenAI 키, 보이스는 S3-02에서 샘플을 들어 고른다). D1(서버 위치)은 S3-14 전에 정한다.
 - **키**: `.env`의 `WHISPER_API_KEY`에 사용자가 값을 넣어 두었다(값은 확인하지 않음). `TTS_API_KEY`는 비어 있다. 같은 OpenAI 키를 쓰므로 S3-01·S3-02 계획 때 설정 이름(예: 하나로 합치기)을 정한다. 자동 모드는 `.env` 값 조회를 막는다.
-- **ffmpeg 미설치**(S3-01 선행 조건). 서버 PC는 Intel i9 Mac, 메모리 64GB.
+- **ffmpeg 7.1 설치됨**(2026-10-16, `~/.local/bin/ffmpeg`). Homebrew가 없고 MacPorts는 sudo가 필요해, PyPI `imageio-ffmpeg` 0.6.0 휠에 든 Intel macOS 정적 빌드를 꺼내 넣었다. Opus 인코딩·디코딩, MP3, 16kHz 모노 WAV 변환을 확인했다. 다른 서버로 옮길 때(D1)는 그곳에 ffmpeg를 따로 설치하거나, S3-01에서 `imageio-ffmpeg` 의존성으로 실행 파일 경로를 얻는 방식을 검토한다. 서버 PC는 Intel i9 Mac, 메모리 64GB.
 - **S3-08·S3-09 완료**(`9202e04`): `web/src/core/sessionMachine.ts`와 `shared/fixtures/transitions.json`. 아직 화면에 연결하지 않았다(S3-13). 플랫폼이 지킬 약속(인사말 `session_started`, 이벤트의 턴 ID, 요청은 반드시 성공·실패 이벤트로 끝냄 등)은 규약 4절.
 - **다음 작업**: 키가 필요 없는 S3-06(클라이언트 설정값), 또는 OpenAI 키와 ffmpeg가 준비되면 S3-01·S3-02. 작업마다 Plan Mode로 계획을 승인받는다.
 
