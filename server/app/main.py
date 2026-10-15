@@ -7,7 +7,7 @@ from starlette._utils import get_route_path
 from starlette.routing import Match, Mount
 from starlette.types import Scope
 
-from app.api import health, profile, sessions
+from app.api import health, journal, profile, sessions
 from app.api.events import register_event_schemas
 from app.config import Settings, settings
 from app.db.migrate import upgrade_to_head
@@ -80,6 +80,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     api.include_router(health.router)
     api.include_router(sessions.router)
     api.include_router(profile.router)
+    api.include_router(journal.router)
 
     app.include_router(api)
     mcp = mount_mcp(app)  # /internal/mcp/ (웹 정적 마운트보다 먼저)

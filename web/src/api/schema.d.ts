@@ -110,6 +110,62 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/journal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Journal
+         * @description 현지 날짜 범위(from~to, 둘 다 포함)의 일지. 기본은 최근 30일. 최신순.
+         *
+         *     사용자가 한마디도 하지 않은 대화(인사말만 있는 것)는 빼고 준다.
+         */
+        get: operations["list_journal_api_journal_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/journal/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Journal */
+        get: operations["get_journal_api_journal__session_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notes/{note_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Note */
+        patch: operations["update_note_api_notes__note_id__patch"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -125,6 +181,87 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** JournalDetail */
+        JournalDetail: {
+            session: components["schemas"]["JournalItem"];
+            /** Notes */
+            notes: components["schemas"]["NoteOut"][];
+            /** Turns */
+            turns: components["schemas"]["TurnOut"][];
+        };
+        /** JournalItem */
+        JournalItem: {
+            /** Id */
+            id: string;
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Ended At */
+            ended_at: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "active" | "paused" | "ended";
+            /** Title */
+            title: string | null;
+            /** Summary */
+            summary: string[];
+            /** Tags */
+            tags: string[];
+            /** Journal Status */
+            journal_status: ("pending" | "done" | "failed") | null;
+            counts: components["schemas"]["NoteCounts"];
+        };
+        /** NoteCounts */
+        NoteCounts: {
+            /** Idea */
+            idea: number;
+            /** Todo */
+            todo: number;
+            /** Memo */
+            memo: number;
+        };
+        /** NoteOut */
+        NoteOut: {
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "idea" | "todo" | "memo";
+            /** Content */
+            content: string;
+            /** Starred */
+            starred: boolean;
+            /** Done */
+            done: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /**
+         * NotePatch
+         * @description 보낸 필드만 바꾼다.
+         */
+        NotePatch: {
+            /** Starred */
+            starred?: boolean | null;
+            /** Done */
+            done?: boolean | null;
+            /** Content */
+            content?: string | null;
         };
         /**
          * PersonaOut
@@ -235,6 +372,27 @@ export interface components {
         TurnCreate: {
             /** Text */
             text: string;
+        };
+        /** TurnOut */
+        TurnOut: {
+            /** Id */
+            id: string;
+            /** Seq */
+            seq: number;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "user" | "assistant";
+            /** Text */
+            text: string;
+            /** Interrupted */
+            interrupted: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /** ValidationError */
         ValidationError: {
@@ -559,6 +717,104 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProfileOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_journal_api_journal_get: {
+        parameters: {
+            query?: {
+                from?: string | null;
+                to?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JournalItem"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_journal_api_journal__session_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JournalDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_note_api_notes__note_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                note_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotePatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteOut"];
                 };
             };
             /** @description Validation Error */
