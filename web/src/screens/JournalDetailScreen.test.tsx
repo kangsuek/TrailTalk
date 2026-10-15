@@ -88,6 +88,50 @@ describe('JournalDetailScreen', () => {
     ])
   })
 
+  it('아이디어도 완료로 닫을 수 있다(다음 대화의 기억에서 빠진다)', async () => {
+    const fetchMock = stub((body) => new Response(JSON.stringify({ ...DETAIL.notes[0], ...body })))
+    render(<JournalDetailScreen sessionId="s1" />)
+    const done = await screen.findByRole('button', { name: '완료: 쓰레기통 지도 앱' })
+    expect(done).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(done)
+    expect(done).toHaveAttribute('aria-pressed', 'true')
+    expect(done).toHaveTextContent('완료됨')
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]!.body))).toEqual({ done: true })
+  })
+
+  it.each([
+    ['failed', '일지 정리에 실패했어요. 대화 전문은 아래에서 볼 수 있어요.'],
+    [null, '아직 정리하지 않은 대화예요.'],
+  ])('정리 상태가 %s면 다시 정리하고 끝날 때까지 다시 불러온다', async (status, message) => {
+    let phase = 'before'
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/api/journal/s1/retry' && init?.method === 'POST') {
+        phase = 'pending'
+        return new Response(JSON.stringify({ ...DETAIL.session, journal_status: 'pending' }), { status: 202 })
+      }
+      const journal_status = phase === 'before' ? status : 'done'
+      return new Response(JSON.stringify({ ...DETAIL, session: { ...DETAIL.session, journal_status } }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<JournalDetailScreen sessionId="s1" pollMs={10} />)
+    expect(await screen.findByText(message)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '다시 정리' }))
+    expect(await screen.findByText('일지를 정리하는 중이에요. 끝나면 자동으로 보여 드려요.')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByText('일지를 정리하는 중이에요. 끝나면 자동으로 보여 드려요.')).toBeNull())
+    expect(screen.queryByRole('button', { name: '다시 정리' })).toBeNull()
+  })
+
+  it('끝나지 않은 대화에는 다시 정리를 보이지 않는다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ ...DETAIL, session: { ...DETAIL.session, status: 'active', journal_status: null } }))),
+    )
+    render(<JournalDetailScreen sessionId="s1" />)
+    await screen.findByRole('heading', { level: 3 })
+    expect(screen.queryByRole('button', { name: '다시 정리' })).toBeNull()
+  })
+
   it('저장에 실패하면 되돌리고 알린다', async () => {
     stub(() => new Response(JSON.stringify({ error: { code: 'note_not_found', message: '노트를 찾을 수 없습니다.' } }), { status: 404 }))
     render(<JournalDetailScreen sessionId="s1" />)

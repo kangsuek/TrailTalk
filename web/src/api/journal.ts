@@ -20,3 +20,8 @@ export async function getJournal(sessionId: string, signal?: AbortSignal): Promi
 export async function updateNote(noteId: string, patch: NotePatch, signal?: AbortSignal): Promise<NoteOut> {
   return (await request(`/api/notes/${encodeURIComponent(noteId)}`, 'PATCH', patch, signal)).json()
 }
+
+/** 정리에 실패한(또는 정리 기록이 없는) 끝난 대화를 다시 정리한다. 정리 중이면 pending 항목이 온다. */
+export async function retryJournal(sessionId: string, signal?: AbortSignal): Promise<JournalItem> {
+  return (await request(`/api/journal/${encodeURIComponent(sessionId)}/retry`, 'POST', undefined, signal)).json()
+}

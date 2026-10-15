@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 // 대화를 끝내면 서버가 일지를 정리한다(가짜 CLI 추출 픽스처 extract.jsonl: 아이디어·할 일·메모 1개씩)
-test('일지: 목록 → 상세, 별표·완료 표시가 저장된다', async ({ page }) => {
+test('일지: 목록 → 상세, 별표·완료(할 일·아이디어) 표시가 저장된다', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: '대화 시작' }).click()
   const log = page.getByRole('log', { name: '대화 내용' })
@@ -42,6 +42,10 @@ test('일지: 목록 → 상세, 별표·완료 표시가 저장된다', async (
   const done = page.waitForResponse((r) => r.url().includes('/api/notes/') && r.request().method() === 'PATCH')
   await todo.check()
   await done
+  const ideaDone = page.getByRole('button', { name: '완료: 산책하면서 개발 도구 소식을 음성으로 듣는 습관 만들기' })
+  const closedIdea = page.waitForResponse((r) => r.url().includes('/api/notes/') && r.request().method() === 'PATCH')
+  await ideaDone.click()
+  await closedIdea
 
   await page.getByText(/대화 전문 보기/).click()
   await expect(page.locator('.journal-transcript').getByText('Claude Code 최신 버전 알려줘')).toBeVisible()
@@ -52,6 +56,7 @@ test('일지: 목록 → 상세, 별표·완료 표시가 저장된다', async (
   await openLatest()
   await expect(star).toHaveAttribute('aria-pressed', 'true')
   await expect(todo).toBeChecked()
+  await expect(ideaDone).toHaveAttribute('aria-pressed', 'true')
 
   await page.getByRole('tab', { name: '일지 목록' }).click()
   await expect(page.getByText(/아이디어 1 · 할 일 1 · 메모 1/).first()).toBeVisible()

@@ -377,3 +377,77 @@ def test_saved_note_with_context_filters_same_kind_only(api, oneshot):
     # 같은 종류(할 일)의 "관리사무소에 문의하기"는 빠지고, 다른 종류(아이디어)는 남는다
     rows = [r for r in load(api, extracted) if "(" not in r[1]]
     assert rows == [(NoteKind.IDEA, "지도 앱 만들기")]
+
+
+def test_retry_failed_journal(api, oneshot):
+    oneshot('{"type": "result", "is_error": true, "result": "rate limited"}')
+    session_id = start(api)["session"]["id"]
+    turn(api, session_id, "바나나는?")
+    end(api, session_id)
+    assert session_row(api, session_id).extract_status is ExtractStatus.FAILED
+
+    oneshot(FIXTURE.read_text(encoding="utf-8").strip())  # 이번에는 성공한다
+    response = api.post(f"/api/journal/{session_id}/retry")
+    assert response.status_code == 202
+    assert response.json()["journal_status"] == "pending"
+    wait_extraction(api, session_id)
+    row = session_row(api, session_id)
+    assert row.extract_status is ExtractStatus.DONE and row.title
+    calls = len(oneshot_records(api.fake_cli))
+
+    again = api.post(f"/api/journal/{session_id}/retry")  # 정리가 끝났으면 다시 하지 않는다
+    assert again.status_code == 202 and again.json()["journal_status"] == "done"
+    wait_extraction(api, session_id)
+    assert len(oneshot_records(api.fake_cli)) == calls
+
+
+def test_retry_journal_of_session_without_extract_status(api):
+    """정리 기록이 없는 끝난 대화(2단계 전에 끝난 세션)도 다시 정리할 수 있다."""
+    session_id = start(api)["session"]["id"]
+    turn(api, session_id, "바나나는?")
+    end(api, session_id)
+
+    async def legacy(db):
+        convo = await db.get(ConversationSession, session_id)
+        convo.extract_status = None
+        await db.commit()
+
+    load(api, legacy)
+    assert api.post(f"/api/journal/{session_id}/retry").json()["journal_status"] == "pending"
+    wait_extraction(api, session_id)
+    assert session_row(api, session_id).extract_status is ExtractStatus.DONE
+
+
+def test_retry_journal_errors(api):
+    session_id = start(api)["session"]["id"]
+    active = api.post(f"/api/journal/{session_id}/retry")
+    assert active.status_code == 409 and active.json()["error"]["code"] == "session_not_ended"
+    missing = api.post("/api/journal/nope/retry")
+    assert missing.status_code == 404 and missing.json()["error"]["code"] == "session_not_found"
+
+
+def test_retry_while_extraction_is_finishing_runs_again(api, oneshot, monkeypatch):
+    """추출이 실패로 끝나는 사이 다시 정리 요청이 pending으로 바꾸면 같은 작업이 한 번 더 돈다."""
+    from app.jobs import extract
+
+    failure = '{"type": "result", "is_error": true, "result": "rate limited"}'
+    oneshot(failure, failure, FIXTURE.read_text(encoding="utf-8").strip())
+    original = extract.run_extraction
+    calls: list[str] = []
+
+    async def finishing_then_retried(app, sid):
+        calls.append(sid)
+        result = await original(app, sid)
+        if len(calls) == 1:  # FAILED를 쓴 직후 retry가 들어와 pending으로 바꾼 상황
+            async with app.state.session_factory() as db:
+                convo = await db.get(ConversationSession, sid)
+                convo.extract_status = ExtractStatus.PENDING
+                await db.commit()
+        return result
+
+    monkeypatch.setattr(extract, "run_extraction", finishing_then_retried)
+    session_id = start(api)["session"]["id"]
+    turn(api, session_id, "바나나는?")
+    end(api, session_id)
+    assert len(calls) == 2
+    assert session_row(api, session_id).extract_status is ExtractStatus.DONE

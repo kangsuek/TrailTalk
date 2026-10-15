@@ -235,9 +235,21 @@ async def wait_extraction(app: FastAPI, session_id: str, timeout_s: float) -> No
         logger.exception("추출 대기 중 예외(session=%s)", session_id)
 
 
+async def _status(app: FastAPI, session_id: str) -> ExtractStatus | None:
+    async with app.state.session_factory() as db:
+        return await db.scalar(
+            select(ConversationSession.extract_status).where(ConversationSession.id == session_id)
+        )
+
+
 async def _guarded(app: FastAPI, session_id: str) -> Extraction | None:
     try:
-        return await run_extraction(app, session_id)
+        result = await run_extraction(app, session_id)
+        # 이 작업이 끝나는 사이에 다시 정리 요청(retry)이 pending으로 바꿨으면 한 번 더 돈다
+        # (그 요청의 ensure_extraction은 끝나 가던 이 작업을 받아 새로 띄우지 않았다)
+        if await _status(app, session_id) is ExtractStatus.PENDING:
+            result = await run_extraction(app, session_id)
+        return result
     except asyncio.CancelledError:
         raise
     except Exception:

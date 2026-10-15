@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { ApiError } from '../api/http'
-import { getJournal, updateNote, type JournalDetail, type NoteOut, type NotePatch } from '../api/journal'
+import {
+  getJournal,
+  retryJournal,
+  updateNote,
+  type JournalDetail,
+  type NoteOut,
+  type NotePatch,
+} from '../api/journal'
 import { dateLabel, MAX_POLLS, POLL_MS } from '../core/journal'
 
 type DetailState =
@@ -101,6 +108,23 @@ export function JournalDetailScreen({
       })
   }
 
+  /** 정리 실패한 일지를 다시 정리한다. 정리 중으로 바뀌면 자동 새로고침이 끝을 본다. */
+  const [retrying, setRetrying] = useState(false)
+  const retry = () => {
+    if (sessionId === null || retrying) return
+    setSaveError(null)
+    setRetrying(true)
+    retryJournal(sessionId)
+      .finally(() => setRetrying(false))
+      .then((session) => {
+        polls.current = 0
+        setState((current) =>
+          current.kind === 'ready' ? { kind: 'ready', detail: { ...current.detail, session } } : current,
+        )
+      })
+      .catch((error) => setSaveError(errorMessage(error, '다시 정리하지 못했어요.')))
+  }
+
   if (sessionId === null) {
     return (
       <section className="journal">
@@ -129,7 +153,13 @@ export function JournalDetailScreen({
         </div>
       )}
       {state.kind === 'ready' && (
-        <Detail detail={state.detail} onChange={change} onReload={reload} />
+        <Detail
+          detail={state.detail}
+          onChange={change}
+          onReload={reload}
+          onRetry={retry}
+          retrying={retrying}
+        />
       )}
       {saveError && (
         <p className="journal-error" role="alert">
@@ -144,10 +174,14 @@ function Detail({
   detail,
   onChange,
   onReload,
+  onRetry,
+  retrying,
 }: {
   detail: JournalDetail
   onChange: (note: NoteOut, patch: NotePatch) => void
   onReload: () => void
+  onRetry: () => void
+  retrying: boolean
 }) {
   const { session, notes, turns } = detail
   const ideas = notes.filter((n) => n.kind === 'idea')
@@ -165,9 +199,19 @@ function Detail({
           </button>
         </div>
       )}
-      {session.journal_status === 'failed' && (
-        <p className="journal-note">일지 정리에 실패했어요. 대화 전문은 아래에서 볼 수 있어요.</p>
-      )}
+      {session.status === 'ended' &&
+        (session.journal_status === 'failed' || session.journal_status === null) && (
+          <div className="journal-note">
+            <p>
+              {session.journal_status === 'failed'
+                ? '일지 정리에 실패했어요. 대화 전문은 아래에서 볼 수 있어요.'
+                : '아직 정리하지 않은 대화예요.'}
+            </p>
+            <button type="button" className="secondary" onClick={onRetry} disabled={retrying}>
+              다시 정리
+            </button>
+          </div>
+        )}
       {session.summary.length > 0 && (
         <ul className="journal-summary-lines" aria-label="요약">
           {session.summary.map((line, i) => (
@@ -184,7 +228,7 @@ function Detail({
           <h4>아이디어</h4>
           <ul className="journal-notes">
             {ideas.map((note) => (
-              <li key={note.id}>
+              <li key={note.id} data-done={note.done}>
                 <button
                   type="button"
                   className="star"
@@ -195,6 +239,16 @@ function Detail({
                   {note.starred ? '★' : '☆'}
                 </button>
                 <span>{note.content}</span>
+                {/* 다 했거나 접은 아이디어는 닫는다(다음 대화의 기억에서 빠진다) */}
+                <button
+                  type="button"
+                  className="secondary idea-done"
+                  aria-pressed={note.done}
+                  aria-label={`완료: ${note.content}`}
+                  onClick={() => onChange(note, { done: !note.done })}
+                >
+                  {note.done ? '완료됨' : '완료'}
+                </button>
               </li>
             ))}
           </ul>
