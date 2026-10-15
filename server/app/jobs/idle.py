@@ -32,10 +32,10 @@ def _last_turn_at():
     )
 
 
-async def _idle_session_ids(
+async def _idle_sessions(
     app: FastAPI, cutoff: datetime, session_id: str | None = None
-) -> list[str]:
-    """끝나지 않았고 마지막 턴(없으면 시작 시각)이 cutoff보다 오래된 세션."""
+) -> dict[str, datetime]:
+    """끝나지 않았고 마지막 턴(없으면 시작 시각)이 cutoff보다 오래된 세션 → 마지막 활동 시각."""
     last_turn = _last_turn_at()
     query = (
         select(ConversationSession.id, ConversationSession.started_at, last_turn.c.last_at)
@@ -46,30 +46,34 @@ async def _idle_session_ids(
         query = query.where(ConversationSession.id == session_id)
     async with app.state.session_factory() as db:
         rows = await db.execute(query)
-        return [sid for sid, started_at, last_at in rows if (last_at or started_at) < cutoff]
+        last = {sid: last_at or started_at for sid, started_at, last_at in rows}
+        return {sid: at for sid, at in last.items() if at < cutoff}
 
 
 async def sweep_idle(app: FastAPI, now: datetime | None = None) -> list[str]:
     """마지막 턴(없으면 시작 시각)이 idle_timeout_s보다 오래된 세션을 끝낸다. 끝낸 세션 ID 목록.
+    끝난 시각(ended_at)은 그 마지막 활동 시각으로 남긴다.
 
     세션마다 DB 세션을 새로 열어, 한 세션의 실패가 다른 세션 정리를 막지 않게 한다.
     """
     settings = app.state.settings
     cutoff = (now or utcnow()) - timedelta(seconds=settings.idle_timeout_s)
     ended: list[str] = []
-    for session_id in await _idle_session_ids(app, cutoff):
+    for session_id in await _idle_sessions(app, cutoff):
         runtime = app.state.runtimes.get(session_id)
         if runtime is not None and runtime.turn_lock.locked():
             continue  # 답변 중이면 다음 차례에 다시 본다
         # 앞 세션을 끝내는 동안 말을 걸었을 수 있어 끝내기 직전에 다시 확인한다
-        if not await _idle_session_ids(app, cutoff, session_id):
+        idle = await _idle_sessions(app, cutoff, session_id)
+        if session_id not in idle:
             continue
         try:
             async with app.state.session_factory() as db:
                 convo = await db.get(ConversationSession, session_id)
                 if convo is None:
                     continue
-                await conversation.end_session(app, db, convo)
+                # 끝난 시각은 마지막 활동 시각이다(서버가 꺼져 있던 동안이 끼어들지 않게)
+                await conversation.end_session(app, db, convo, ended_at=idle[session_id])
         except Exception:
             logger.exception("무발화 세션 종료 실패(session=%s)", session_id)
             continue

@@ -111,6 +111,26 @@ def test_end_extracts_title_summary_tags(api):
     assert len(oneshot_records(api.fake_cli)) == 1
 
 
+def test_extracted_title_summary_tags_are_cleaned(api, oneshot):
+    """요약은 줄 목록으로 저장하므로 항목 안의 줄바꿈이 빈 줄·추가 줄이 되지 않게 한 줄로 줄인다.
+    화면이 태그 앞에 #을 붙이므로 모델이 붙인 #은 떼고 같은 태그는 하나만 남긴다."""
+    oneshot(
+        cli_output(
+            title="산책\n아이디어",
+            summary=["첫 줄\n\n이어지는 말", "둘째 줄"],
+            tags=["#산책", "산책", " ＃ 아이디어 ", "#"],
+        )
+    )
+    session_id = start(api)["session"]["id"]
+    turn(api, session_id, "바나나는?")
+    end(api, session_id)
+
+    row = session_row(api, session_id)
+    assert row.title == "산책 아이디어"
+    assert row.summary.splitlines() == ["첫 줄 이어지는 말", "둘째 줄"]
+    assert row.tags == ["산책", "아이디어"]
+
+
 def test_schema_error_is_retried_once(api, oneshot):
     oneshot(cli_output(summary=["1", "2", "3", "4"]), cli_output(title="다시 받은 제목"))
     session_id = start(api)["session"]["id"]

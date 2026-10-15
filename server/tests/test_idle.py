@@ -13,7 +13,7 @@ from app.db.types import utcnow
 from app.jobs.idle import sweep_idle
 from app.main import create_app
 from tests.test_extract import FIXTURE, oneshot_records, wait_extraction
-from tests.test_sessions import FAKE_CLI_SESSION_ID, load, session_row, start, turn
+from tests.test_sessions import FAKE_CLI_SESSION_ID, load, session_row, start, turn, turns_of
 
 
 @pytest.fixture
@@ -59,6 +59,16 @@ def test_ends_only_sessions_idle_for_30_minutes_and_extracts(make):
         assert api.app.state.llm.active_count == 0
         assert api.app.state.runtimes.get(session_id) is None
         assert sweep(api, 60) == []  # 이미 끝난 세션은 다시 보지 않는다
+
+
+def test_idle_end_time_is_last_activity(make):
+    """서버가 오래 꺼져 있다 켜져도 끝난 시각은 감시가 돈 때가 아니라 마지막 턴 시각이다."""
+    with make() as api:
+        session_id = start(api)["session"]["id"]
+        turn(api, session_id, "바나나는?")
+        last_turn_at = max(t.created_at for t in turns_of(api, session_id))
+        assert sweep(api, 3 * 24 * 60) == [session_id]  # 사흘 뒤
+        assert session_row(api, session_id).ended_at == last_turn_at
 
 
 def test_idle_is_measured_from_last_turn_and_includes_paused(make):
@@ -111,11 +121,11 @@ def test_one_failure_does_not_block_other_sessions(make, monkeypatch):
         second = start(api)["session"]["id"]
         original = conversation.end_session
 
-        async def flaky(app, db, convo):
+        async def flaky(app, db, convo, **kwargs):
             if convo.id == first:
                 await db.get(ConversationSession, convo.id)  # 쿼리 뒤 실패(세션 객체 만료 유발)
                 raise RuntimeError("일시 오류")
-            await original(app, db, convo)
+            await original(app, db, convo, **kwargs)
 
         monkeypatch.setattr(conversation, "end_session", flaky)
         assert sweep(api, 31) == [second]
@@ -127,16 +137,16 @@ def test_session_spoken_to_during_sweep_is_kept(make, monkeypatch):
 
     with make() as api:
         session_id = start(api)["session"]["id"]
-        original = idle._idle_session_ids
+        original = idle._idle_sessions
         calls = []
 
         async def spoken_after_listing(app, cutoff, sid=None):
             calls.append(sid)
             if sid is not None:
-                return []  # 다시 확인하니 그사이 말을 걸었다
+                return {}  # 다시 확인하니 그사이 말을 걸었다
             return await original(app, cutoff, sid)
 
-        monkeypatch.setattr(idle, "_idle_session_ids", spoken_after_listing)
+        monkeypatch.setattr(idle, "_idle_sessions", spoken_after_listing)
         assert sweep(api, 31) == []
         assert calls == [None, session_id]
         assert session_row(api, session_id).status is SessionStatus.ACTIVE

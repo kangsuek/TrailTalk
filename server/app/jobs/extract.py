@@ -46,6 +46,16 @@ class Extraction(BaseModel):
     tags: Annotated[list[Tag], Field(max_length=5)]
 
 
+def _one_line(text: str) -> str:
+    return " ".join(text.split())
+
+
+def _clean_tags(tags: Sequence[str]) -> list[str]:
+    """화면이 앞에 #을 붙이므로 모델이 붙인 #은 뗀다. 빈 값·중복은 뺀다(순서 유지)."""
+    cleaned = (_one_line(tag.lstrip("#＃ \t")) for tag in tags)
+    return list(dict.fromkeys(tag for tag in cleaned if tag))
+
+
 def _escape_tags(text: str) -> str:
     """글 안에서 프롬프트의 구분 태그(<대화>, <저장한 노트>)를 닫지 못하게 한다."""
     return text.replace("</대화>", "</ 대화>").replace("</저장한 노트>", "</ 저장한 노트>")
@@ -173,9 +183,11 @@ async def run_extraction(app: FastAPI, session_id: str) -> Extraction | None:
             convo = await db.get(ConversationSession, session_id)
             if convo is None:
                 return
-            convo.title = result.title
-            convo.summary = "\n".join(result.summary)
-            convo.tags = list(dict.fromkeys(result.tags))
+            # 요약은 줄 목록으로 저장하므로 항목 안의 줄바꿈은 한 칸으로 줄인다
+            # (빈 줄·줄 수 초과 방지)
+            convo.title = _one_line(result.title)
+            convo.summary = "\n".join(line for line in map(_one_line, result.summary) if line)
+            convo.tags = _clean_tags(result.tags)
             # 대화 중 save_note로 저장한 노트와 겹치지 않는 항목만 노트로 남긴다(S2-03).
             # 같은 종류의 저장 노트와는 괄호 설명을 뺀 글로도 비교한다(matches_saved)
             rows = await db.execute(

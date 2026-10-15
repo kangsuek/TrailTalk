@@ -114,11 +114,15 @@ def start_error(exc: AppError) -> AppError:
     return exc
 
 
-async def _set_status(db: AsyncSession, session_id: str, status: SessionStatus) -> None:
-    """상태를 바꾼다. 이미 끝난 세션은 건드리지 않는다(종료 요청과 턴이 겹쳐도 ended를 지킨다)."""
+async def _set_status(
+    db: AsyncSession, session_id: str, status: SessionStatus, ended_at: datetime | None = None
+) -> None:
+    """상태를 바꾼다. 이미 끝난 세션은 건드리지 않는다(종료 요청과 턴이 겹쳐도 ended를 지킨다).
+
+    ended_at: 끝난 시각(기본은 지금). 무발화 종료는 마지막 활동 시각을 넘긴다."""
     values: dict = {"status": status}
     if status is SessionStatus.ENDED:
-        values["ended_at"] = utcnow()
+        values["ended_at"] = ended_at or utcnow()
         # 끝낸 순간부터 정리 대기다. 추출 작업이 돌기 전에 서버가 꺼져도 다음 시작 때 다시 정리한다
         values["extract_status"] = ExtractStatus.PENDING
     await db.execute(
@@ -417,9 +421,14 @@ async def _discard_new_session(
     await db.commit()
 
 
-async def end_session(app: FastAPI, db: AsyncSession, convo: ConversationSession) -> None:
-    """세션을 끝낸다. 이미 끝났으면 정리만 다시 한다(멱등)."""
-    await _set_status(db, convo.id, SessionStatus.ENDED)
+async def end_session(
+    app: FastAPI,
+    db: AsyncSession,
+    convo: ConversationSession,
+    ended_at: datetime | None = None,
+) -> None:
+    """세션을 끝낸다. 이미 끝났으면 정리만 다시 한다(멱등). ended_at: 끝난 시각(기본은 지금)."""
+    await _set_status(db, convo.id, SessionStatus.ENDED, ended_at)
     await db.commit()
     runtime = app.state.runtimes.get(convo.id)
     await app.state.llm.close(convo.id)  # 진행 중인 턴이 있으면 여기서 끊긴다
@@ -597,7 +606,8 @@ async def _run_turn(
         if finished is None or (finished.is_error and not finished.interrupted):
             detail = finished.error_message if finished else "응답 없음"
             logger.warning("턴 실패(session=%s): %s", session_id, detail)
-            yield _error(LlmError("llm_error", "답변을 만들지 못했습니다."))
+            error = LlmError("llm_error", "답변을 만들지 못했습니다.")
+            yield _error(await _settle_after_error(app, db, runtime, session_id, error))
             return  # 보낸 문장은 끊긴 답변으로 남는다
         reply = "".join(parts).strip() or finished.text
         with anyio.CancelScope(shield=True):
@@ -675,16 +685,33 @@ async def _settle_after_error(
 ) -> AppError:
     """턴이 오류로 끝났을 때 도구가 남긴 쉬기·끝내기 요청을 반영하고 보낼 오류를 고른다.
 
-    끝내기 요청이었으면 세션이 끝났음을 알려 클라이언트가 끝난 화면으로 가게 한다.
+    끝내기 요청이었거나 그사이 다른 곳(끝내기 API·무발화 감시)이 세션을 끝냈으면 세션이 끝났음을
+    알려 클라이언트가 끝난 화면으로 가게 한다(CLI가 닫혀 난 오류를 "다시 말해 주세요"로
+    보내지 않게).
     """
     leftover = runtime.pop_requested_status()
-    if leftover is None:
-        return error
     with anyio.CancelScope(shield=True):
-        await _apply_leftover_status(app, db, session_id, leftover)
-    if leftover is SessionStatus.ENDED:
+        if leftover is not None:
+            await _apply_leftover_status(app, db, session_id, leftover)
+        ended = leftover is SessionStatus.ENDED or await _is_ended(db, session_id)
+    if ended:
         return AppError("session_ended", "대화를 마쳤어요.", 409)
     return error
+
+
+async def _is_ended(db: AsyncSession, session_id: str) -> bool:
+    """세션이 끝났는지 DB에서 다시 읽는다. rollback으로 세션의 객체(convo)를 만료시키므로
+    이 뒤에서 그 속성을 읽지 않는다."""
+    try:
+        await db.rollback()
+        status = await db.scalar(
+            select(ConversationSession.status).where(ConversationSession.id == session_id)
+        )
+        await db.commit()
+    except Exception:
+        logger.exception("세션 상태 확인 실패(session=%s)", session_id)
+        return False
+    return status is SessionStatus.ENDED
 
 
 async def _apply_leftover_status(

@@ -480,7 +480,9 @@ def test_end_during_turn_stops_it(api):
     worker.join(10)
     assert response.status_code == 200 and response.json()["session"]["status"] == "ended"
     assert time.monotonic() - started < 5
+    # 다른 곳에서 끝냈으면 "다시 말해 주세요" 대신 끝났다고 알린다(클라이언트가 끝난 화면으로 간다)
     assert result["events"][-1].type == "error"
+    assert result["events"][-1].code == "session_ended"
     assert session_row(api, session_id).status is SessionStatus.ENDED
     assert api.app.state.llm.active_count == 0
     assert api.app.state.runtimes.get(session_id) is None
@@ -789,6 +791,39 @@ def test_end_request_survives_turn_error(api):
     assert row.status is SessionStatus.ENDED and row.ended_at is not None
     assert api.app.state.llm.active_count == 0
     assert api.app.state.runtimes.get(session_id) is None
+
+
+def test_error_result_after_external_end_is_session_ended(api):
+    """CLI가 오류 결과로 턴을 끝냈는데 그사이 다른 곳(끝내기 API·무발화 감시)이 세션을 끝냈으면
+    "답변을 만들지 못했습니다" 대신 끝났다고 알린다."""
+    import dataclasses
+
+    from app.llm.events import TurnFinished
+    from app.services.conversation import _set_status
+
+    session_id = start(api)["session"]["id"]
+    manager = api.app.state.llm
+    original = manager.get
+
+    class EndedThenError(HookedSession):
+        async def send(self, text):
+            async with aclosing(self._inner.send(text)) as stream:
+                async for event in stream:
+                    if isinstance(event, TurnFinished):
+                        async with api.app.state.session_factory() as db:
+                            await _set_status(db, session_id, SessionStatus.ENDED)
+                            await db.commit()
+                        event = dataclasses.replace(
+                            event, is_error=True, text="", error_message="중단됨"
+                        )
+                    yield event
+
+    async def get(key, **kwargs):
+        return EndedThenError(await original(key, **kwargs), None)
+
+    manager.get = get
+    last = turn(api, session_id, "바나나는?")[-1]
+    assert last.type == "error" and last.code == "session_ended"
 
 
 def test_pause_request_survives_turn_error(api):
