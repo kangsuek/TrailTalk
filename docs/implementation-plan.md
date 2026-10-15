@@ -249,7 +249,7 @@
 | S2-04 | 마무리 멘트 | 완료 | `server/app/api/sessions.py` | `1a42c1a` |
 | S2-05 | 기억 블록 | 완료 | `server/app/persona/memory.py` | `8213178` |
 | S2-06 | 무발화 타임아웃 | 완료 | `server/app/jobs/idle.py` | `3ab4c1f` |
-| S2-07 | 일지·노트 API | 완료 | `server/app/api/journal.py` | |
+| S2-07 | 일지·노트 API | 완료 | `server/app/api/journal.py` | `601fc30` |
 | S2-08 | 웹 일지 화면 | 대기 | `web/src/screens/` | |
 | S2-09 | 추출 품질 평가 세트 | 대기 | `server/tests/extract_eval/` | |
 

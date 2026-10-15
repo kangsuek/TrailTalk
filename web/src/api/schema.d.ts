@@ -139,7 +139,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Journal */
+        /**
+         * Get Journal
+         * @description 일지 상세. 목록에서 빠지는 대화(사용자 발화 없음)도 ID로는 조회된다.
+         */
         get: operations["get_journal_api_journal__session_id__get"];
         put?: never;
         post?: never;
