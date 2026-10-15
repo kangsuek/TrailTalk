@@ -5,7 +5,8 @@
 - 턴: 사용자 턴을 먼저 저장하고 CLI 이벤트를 SSE 이벤트(app/api/events.py)로 바꿔 보낸다.
   답변은 문장을 보내기 전에 문장마다 커밋한다(계획서 S2-01). 끝나지 못한 답변(연결 끊김·오류·
   서버 강제 종료)은 보낸 문장까지 interrupted로 남는다.
-- 종료: CLI를 닫고 대화 런타임(MCP 토큰)을 버린 뒤 CLI 대화 기록 파일을 지운다.
+- 종료: CLI를 닫고 대화 런타임(MCP 토큰)을 버린 뒤 CLI 대화 기록 파일을 지운다. 그다음 일지
+  정리(추출, app/jobs/extract.py)를 백그라운드로 띄운다.
 
 프롬프트는 세션의 시작 시각·모드와 현재 프로필로 만든다. CLI가 죽어 --resume으로 다시 띄울 때도
 같은 값으로 다시 만든다.
@@ -41,6 +42,7 @@ from app.config import Settings
 from app.db.models import (
     ConversationMode,
     ConversationSession,
+    ExtractStatus,
     SessionStatus,
     Turn,
     TurnRole,
@@ -48,6 +50,7 @@ from app.db.models import (
 )
 from app.db.types import new_id, utcnow
 from app.errors import AppError
+from app.jobs import extract
 from app.llm.backend import LlmError, LlmSession
 from app.llm.claude_cli import delete_cli_session_file
 from app.llm.events import (
@@ -115,6 +118,8 @@ async def _set_status(db: AsyncSession, session_id: str, status: SessionStatus) 
     values: dict = {"status": status}
     if status is SessionStatus.ENDED:
         values["ended_at"] = utcnow()
+        # 끝낸 순간부터 정리 대기다. 추출 작업이 돌기 전에 서버가 꺼져도 다음 시작 때 다시 정리한다
+        values["extract_status"] = ExtractStatus.PENDING
     await db.execute(
         update(ConversationSession)
         .where(
@@ -402,6 +407,7 @@ async def end_session(app: FastAPI, db: AsyncSession, convo: ConversationSession
             logger.warning("종료 중 턴 정리 대기 시간 초과(session=%s)", convo.id)
     await db.refresh(convo)  # 턴 중에 바뀐 cli_session_id·상태를 다시 읽는다
     await teardown(app, convo.id, convo.cli_session_id)
+    extract.ensure_extraction(app, convo.id)
 
 
 _END_WAIT_S = 10.0
@@ -579,6 +585,7 @@ async def _run_turn(
             await db.refresh(convo)  # 같은 시간에 종료 API가 바꿨을 수 있다
             if requested is SessionStatus.ENDED:
                 await teardown(app, session_id, convo.cli_session_id)
+                extract.ensure_extraction(app, session_id)
         yield encode_sse(
             DoneEvent(
                 turn_id=assistant_id,
@@ -664,6 +671,7 @@ async def _apply_leftover_status(
         if status is SessionStatus.ENDED:
             convo = await db.get(ConversationSession, session_id)
             await teardown(app, session_id, convo.cli_session_id if convo else None)
+            extract.ensure_extraction(app, session_id)
         logger.info("턴이 끝나지 않았지만 상태 요청 반영(session=%s, %s)", session_id, status)
     except Exception:
         logger.exception("상태 요청 반영 실패(session=%s)", session_id)

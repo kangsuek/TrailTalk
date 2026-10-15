@@ -12,6 +12,11 @@
 "__say_then_crash__:<글>"은 글을 보낸 뒤 죽고, "__say_then_hang__:<글>"은 글을 보낸 뒤
 "__hang_until_interrupt__"처럼 멈춘다(답변 도중 끊김·서버 강제 종료 시험용).
 
+단발 모드: 인자에 --json-schema가 있으면(세션 종료 추출 등) stdin 전체를 프롬프트로 읽고
+FAKE_CLAUDE_ONESHOT 파일의 첫 줄(CLI JSON 출력)을 낸다. 줄이 여러 개면 첫 줄을 지워 다음 호출이
+다음 줄을 쓰게 하고, 마지막 줄은 계속 쓴다. 줄 내용이 "__hang__"이면 멈추고, "__crash__"이면
+출력 없이 죽는다. 기록 파일에는 받은 프롬프트도 남긴다(stdin).
+
 stdin은 파일 객체 버퍼를 쓰지 않고 fd에서 직접 줄 단위로 읽는다(select와 섞어도 줄을 놓치지 않게).
 """
 
@@ -130,8 +135,36 @@ def say(text: str, session_id: str, stdin: StdinLines, delay: float) -> bool:
 _SAY_CHUNK = 4
 
 
+def oneshot(args: list[str]) -> None:
+    prompt = sys.stdin.read()
+    log_path = os.environ.get("FAKE_CLAUDE_ARGS_LOG")
+    if log_path:
+        with open(log_path, "a", encoding="utf-8") as f:
+            record = {"args": args, "stdin": prompt, "cwd": os.getcwd()}
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    fixture = os.environ.get("FAKE_CLAUDE_ONESHOT")
+    if not fixture:
+        emit({"type": "result", "subtype": "success", "is_error": True, "result": "픽스처 없음"})
+        return
+    path = Path(fixture)
+    lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    line = lines[0]
+    if len(lines) > 1:
+        path.write_text("\n".join(lines[1:]) + "\n", encoding="utf-8")
+    if line == "__hang__":
+        time.sleep(3600)
+    if line == "__crash__":
+        print("fake crash", file=sys.stderr, flush=True)
+        sys.exit(3)
+    sys.stdout.write(line + "\n")
+    sys.stdout.flush()
+
+
 def main() -> None:
     args = sys.argv[1:]
+    if "--json-schema" in args:
+        oneshot(args)
+        return
     resume_id = args[args.index("--resume") + 1] if "--resume" in args else None
     session_id = resume_id or "00000000-0000-4000-8000-00000000fake"
     log_path = os.environ.get("FAKE_CLAUDE_ARGS_LOG")

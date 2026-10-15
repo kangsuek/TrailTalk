@@ -38,6 +38,14 @@ class ConversationMode(StrEnum):
     VOICE = "voice"
 
 
+class ExtractStatus(StrEnum):
+    """세션 종료 추출(일지 정리) 상태. 끝나지 않은 세션은 None이다."""
+
+    PENDING = "pending"
+    DONE = "done"
+    FAILED = "failed"
+
+
 class TurnRole(StrEnum):
     USER = "user"
     ASSISTANT = "assistant"
@@ -77,6 +85,9 @@ class ConversationSession(Base):
     title: Mapped[str | None] = mapped_column(String(200))
     summary: Mapped[str | None] = mapped_column(Text)
     tags: Mapped[list[str]] = mapped_column(MutableList.as_mutable(JSON), default=list)
+    extract_status: Mapped[ExtractStatus | None] = mapped_column(
+        _enum(ExtractStatus, "extract_status")
+    )
     # Claude CLI 프로세스가 죽었을 때 --resume으로 맥락을 잇는 값
     # (docs/spikes/claude-cli.md 5절)
     cli_session_id: Mapped[str | None] = mapped_column(String(64))

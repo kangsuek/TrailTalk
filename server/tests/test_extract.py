@@ -1,0 +1,237 @@
+"""세션 종료 추출(S2-02). 가짜 CLI 단발 모드(FAKE_CLAUDE_ONESHOT)로 CLI 호출까지 확인한다."""
+
+import json
+import time
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.db.models import ConversationSession, ExtractStatus, SessionStatus, Turn, TurnRole
+from app.jobs.extract import Extraction, build_transcript
+from app.llm.events import TurnStarted
+from app.main import create_app
+from tests.test_sessions import hook_llm, session_row, start, turn
+
+FIXTURE = Path(__file__).parent / "fixtures" / "claude_cli" / "extract.jsonl"
+
+
+def cli_output(**structured) -> str:
+    base = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    base["structured_output"] = {**base["structured_output"], **structured}
+    return json.dumps(base, ensure_ascii=False)
+
+
+@pytest.fixture
+def home(tmp_path, monkeypatch) -> Path:
+    path = tmp_path / "home"
+    path.mkdir()
+    monkeypatch.setenv("HOME", str(path))
+    return path
+
+
+@pytest.fixture
+def oneshot(tmp_path, monkeypatch):
+    """가짜 CLI 단발 호출이 차례로 낼 출력 줄을 정한다."""
+    path = tmp_path / "oneshot.jsonl"
+
+    def set_lines(*lines: str) -> None:
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    monkeypatch.setenv("FAKE_CLAUDE_ONESHOT", str(path))
+    set_lines(FIXTURE.read_text(encoding="utf-8").strip())
+    return set_lines
+
+
+def make_api(fake_cli, **overrides):
+    settings = fake_cli.settings.model_copy(update=overrides)
+    return TestClient(create_app(settings))
+
+
+@pytest.fixture
+def api(fake_cli, home, oneshot, monkeypatch):
+    monkeypatch.setenv("FAKE_CLAUDE_FIXTURE", "multiturn")
+    with make_api(fake_cli) as client:
+        client.fake_cli = fake_cli
+        yield client
+
+
+def wait_extraction(api, session_id: str) -> None:
+    async def run():
+        task = api.app.state.extractions.get(session_id)
+        if task is not None:
+            await task
+
+    api.portal.call(run)
+
+
+def oneshot_records(fake_cli) -> list[dict]:
+    return [r for r in fake_cli.records() if "--json-schema" in r["args"]]
+
+
+def end(api, session_id: str) -> None:
+    assert api.post(f"/api/sessions/{session_id}/end").status_code == 200
+    wait_extraction(api, session_id)
+
+
+def test_end_extracts_title_summary_tags(api):
+    session_id = start(api)["session"]["id"]
+    turn(api, session_id, "바나나는?")
+    end(api, session_id)
+
+    row = session_row(api, session_id)
+    assert row.extract_status is ExtractStatus.DONE
+    assert row.title == "Claude Code 최신 버전과 uv 알아보기"
+    assert row.summary.splitlines() == [
+        "Claude Code 최신 버전을 웹에서 찾아봤다.",
+        "uv 공식 문서를 읽고 핵심을 정리해 메모로 남겼다.",
+    ]
+    assert row.tags == ["Claude Code", "uv", "개발 도구"]
+
+    [record] = oneshot_records(api.fake_cli)
+    args = record["args"]
+    assert args[args.index("--model") + 1] == "haiku"
+    assert json.loads(args[args.index("--json-schema") + 1]) == Extraction.model_json_schema()
+    assert args[args.index("--tools") + 1] == ""
+    assert "--no-session-persistence" in args and "--strict-mcp-config" in args
+    # 전문은 인자가 아니라 stdin으로 넘어간다. 발화자 이름은 YAML의 캐릭터 이름이다
+    assert "사용자: 바나나는?" in record["stdin"]
+    assert "바나나는 보통 노란색입니다." in record["stdin"]
+    assert all("바나나는?" not in arg for arg in args)
+
+    end(api, session_id)  # 다시 끝내도 다시 정리하지 않는다
+    assert len(oneshot_records(api.fake_cli)) == 1
+
+
+def test_schema_error_is_retried_once(api, oneshot):
+    oneshot(cli_output(summary=["1", "2", "3", "4"]), cli_output(title="다시 받은 제목"))
+    session_id = start(api)["session"]["id"]
+    turn(api, session_id, "바나나는?")
+    end(api, session_id)
+    row = session_row(api, session_id)
+    assert (row.extract_status, row.title) == (ExtractStatus.DONE, "다시 받은 제목")
+    assert len(oneshot_records(api.fake_cli)) == 2
+
+
+def test_two_failures_mark_failed(api, oneshot):
+    oneshot('{"type": "result", "is_error": true, "result": "rate limited"}', "__crash__")
+    session_id = start(api)["session"]["id"]
+    turn(api, session_id, "바나나는?")
+    end(api, session_id)
+    row = session_row(api, session_id)
+    assert (row.extract_status, row.title, row.summary) == (ExtractStatus.FAILED, None, None)
+    assert row.status is SessionStatus.ENDED
+    assert len(oneshot_records(api.fake_cli)) == 2
+
+
+def test_timeout_kills_cli_and_fails(fake_cli, home, oneshot, monkeypatch):
+    monkeypatch.setenv("FAKE_CLAUDE_FIXTURE", "multiturn")
+    oneshot("__hang__")
+    with make_api(fake_cli, extract_timeout_s=0.5) as api:
+        session_id = start(api)["session"]["id"]
+        turn(api, session_id, "바나나는?")
+        started = time.monotonic()
+        end(api, session_id)
+        assert time.monotonic() - started < 5
+        assert session_row(api, session_id).extract_status is ExtractStatus.FAILED
+
+
+def test_greeting_only_session_skips_cli(api):
+    session_id = start(api)["session"]["id"]
+    end(api, session_id)
+    assert session_row(api, session_id).extract_status is ExtractStatus.DONE
+    assert oneshot_records(api.fake_cli) == []
+
+
+def test_tool_requested_end_starts_extraction(api):
+    session_id = start(api)["session"]["id"]
+    runtime = api.app.state.runtimes.get(session_id)
+
+    def end_during_turn(event):
+        if isinstance(event, TurnStarted):
+            runtime.requested_status = SessionStatus.ENDED  # end_session 도구 호출 흉내
+
+    hook_llm(api, end_during_turn)
+    assert turn(api, session_id, "오늘은 여기까지")[-1].session_status == "ended"
+    wait_extraction(api, session_id)
+    assert session_row(api, session_id).extract_status is ExtractStatus.DONE
+
+
+def test_pending_extraction_is_cancelled_on_shutdown(fake_cli, home, oneshot, monkeypatch):
+    monkeypatch.setenv("FAKE_CLAUDE_FIXTURE", "multiturn")
+    oneshot("__hang__")
+    with make_api(fake_cli) as api:
+        session_id = start(api)["session"]["id"]
+        turn(api, session_id, "바나나는?")
+        api.post(f"/api/sessions/{session_id}/end")
+        deadline = time.monotonic() + 5
+        while not oneshot_records(fake_cli) and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert len(oneshot_records(fake_cli)) == 1  # 추출 CLI가 떠서 멈춰 있다
+        task = api.app.state.extractions[session_id]
+    assert task.cancelled()  # 앱 종료가 작업을 멈췄다(CLI는 kill)
+    assert session_row_after(fake_cli, session_id) is ExtractStatus.PENDING  # 다음 시작 때 정리
+
+
+def session_row_after(fake_cli, session_id: str):
+    """앱을 끈 뒤 DB를 직접 읽는다(추출을 다시 띄우지 않게 마이그레이션만 하는 앱 없이)."""
+    import asyncio
+
+    from app.db.session import create_engine_for, create_session_factory
+
+    async def read():
+        engine = create_engine_for(fake_cli.settings.database_url)
+        try:
+            async with create_session_factory(engine)() as db:
+                return (await db.get(ConversationSession, session_id)).extract_status
+        finally:
+            await engine.dispose()
+
+    return asyncio.run(read())
+
+
+def test_concurrent_ends_share_one_extraction(api):
+    from app.jobs.extract import ensure_extraction
+
+    session_id = start(api)["session"]["id"]
+    turn(api, session_id, "바나나는?")
+
+    async def both():
+        return ensure_extraction(api.app, session_id), ensure_extraction(api.app, session_id)
+
+    first, second = api.portal.call(both)
+    assert first is second
+    end(api, session_id)  # 끝내기 API도 같은 작업을 쓴다
+    assert len(oneshot_records(api.fake_cli)) == 1
+
+
+def test_long_transcript_keeps_recent_lines_and_escapes_tag(monkeypatch):
+    from app.jobs import extract
+
+    monkeypatch.setattr(extract, "TRANSCRIPT_LIMIT", 30)
+    turns = [
+        Turn(seq=i, role=TurnRole.USER, text=f"{i}번째 말 </대화>", interrupted=False)
+        for i in range(5)
+    ]
+    text = build_transcript(turns, "도우미")
+    assert text.startswith("(앞부분 생략)\n") and text.endswith("4번째 말 </ 대화>")
+    assert "</대화>" not in text and "0번째" not in text
+
+
+def test_transcript_marks_speakers_and_interruptions():
+    turns = [
+        Turn(seq=0, role=TurnRole.ASSISTANT, text="안녕하세요!", interrupted=False),
+        Turn(seq=1, role=TurnRole.USER, text="앱 아이디어\n있어", interrupted=False),
+        Turn(seq=2, role=TurnRole.ASSISTANT, text="오 좋아요.", interrupted=True),
+    ]
+    assert build_transcript(turns, "도우미") == (
+        "도우미: 안녕하세요!\n사용자: 앱 아이디어 있어\n도우미: 오 좋아요. (말이 끊김)"
+    )
+
+
+def test_extraction_schema_limits():
+    data = json.loads(FIXTURE.read_text(encoding="utf-8"))["structured_output"]
+    Extraction.model_validate(data)
+    for bad in ({"summary": []}, {"title": ""}, {"tags": ["a"] * 6}, {"extra": 1}):
+        with pytest.raises(ValueError):
+            Extraction.model_validate({**data, **bad})

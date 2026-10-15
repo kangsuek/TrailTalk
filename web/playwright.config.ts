@@ -8,6 +8,9 @@ const API_PORT = 8100
 const WEB_PORT = 5199 // 개발용 vite가 5173이 차 있으면 5174로 넘어가므로 겹치지 않는 포트
 const E2E_DIR = fileURLToPath(new URL('./.e2e', import.meta.url))
 const FAKE_CLI = fileURLToPath(new URL('../server/tests/fakes/fake-claude', import.meta.url))
+const EXTRACT_FIXTURE = fileURLToPath(
+  new URL('../server/tests/fixtures/claude_cli/extract.jsonl', import.meta.url),
+)
 
 export default defineConfig({
   testDir: './e2e',
@@ -26,6 +29,8 @@ export default defineConfig({
       env: {
         CLAUDE_CLI_PATH: FAKE_CLI,
         FAKE_CLAUDE_FIXTURE: 'web_search',
+        // 세션 종료 추출(단발 호출)은 고정 결과를 낸다
+        FAKE_CLAUDE_ONESHOT: EXTRACT_FIXTURE,
         CLI_ENV_PASSTHROUGH: '["FAKE_CLAUDE_*"]',
         DATABASE_URL: `sqlite+aiosqlite:///${E2E_DIR}/e2e.db`,
         CLI_WORK_DIR: `${E2E_DIR}/cli`,

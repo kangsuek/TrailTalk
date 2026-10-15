@@ -54,6 +54,7 @@ if [ "$FAKE" = 1 ]; then
   rm -rf "$FAKE_DIR" && mkdir -p "$FAKE_DIR"
   export CLAUDE_CLI_PATH="$ROOT/server/tests/fakes/fake-claude"
   export FAKE_CLAUDE_FIXTURE="${FAKE_CLAUDE_FIXTURE:-web_search}"
+  export FAKE_CLAUDE_ONESHOT="$ROOT/server/tests/fixtures/claude_cli/extract.jsonl"  # 일지 정리 결과
   export CLI_ENV_PASSTHROUGH='["FAKE_CLAUDE_*"]'
   export DATABASE_URL="sqlite+aiosqlite:///$FAKE_DIR/fake.db"
   export CLI_WORK_DIR="$FAKE_DIR/cli"

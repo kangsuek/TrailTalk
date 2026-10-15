@@ -13,6 +13,7 @@ from app.config import Settings, settings
 from app.db.migrate import upgrade_to_head
 from app.db.session import create_engine_for, create_session_factory
 from app.errors import install_error_handlers
+from app.jobs import extract
 from app.llm.claude_cli import ClaudeCliBackend
 from app.llm.manager import LlmSessionManager
 from app.mcp.server import mount_mcp
@@ -56,6 +57,8 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
         finally:
             await conversation.cancel_prepared(app)
             await llm.shutdown()
+            # CLI를 닫으면서 끝난 턴이 추출을 띄울 수 있어 그 뒤에 멈춘다
+            await extract.cancel_all(app)
             await engine.dispose()
 
     app = FastAPI(title="TrailTalk", lifespan=lifespan)
@@ -63,6 +66,9 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     app.state.runtimes = RuntimeRegistry()
     app.state.prepared = None  # 미리 띄운 CLI(services/conversation.py PreparedSession)
     app.state.prepare_lock = asyncio.Lock()
+    app.state.extractions = {}  # 세션별 추출 작업(app/jobs/extract.py)
+    app.state.extract_writes = set()  # 취소에서 보호하는 추출 결과 쓰기
+    app.state.extract_closed = False
     app.add_middleware(RequestContextMiddleware)
     install_error_handlers(app)
     register_event_schemas(app)

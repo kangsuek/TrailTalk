@@ -23,7 +23,7 @@ from pathlib import Path
 
 from app.config import Settings
 from app.errors import AppError
-from app.llm.backend import LlmProcessError, LlmTimeoutError, TurnInProgressError
+from app.llm.backend import LlmError, LlmProcessError, LlmTimeoutError, TurnInProgressError
 from app.llm.events import LlmEvent, TurnFinished, TurnStarted
 from app.llm.parser import StreamJsonParser
 
@@ -82,6 +82,70 @@ def build_env(settings: Settings) -> dict[str, str]:
     if settings.claude_code_oauth_token is not None:
         env["CLAUDE_CODE_OAUTH_TOKEN"] = settings.claude_code_oauth_token.get_secret_value()
     return env
+
+
+def build_oneshot_command(settings: Settings, *, model: str, json_schema: dict) -> list[str]:
+    """단발 호출(세션 종료 추출 등) 인자. 프롬프트는 stdin으로 넘긴다(긴 전문이 ARG_MAX 회피).
+
+    도구·설정·MCP를 모두 끄고 기록 파일도 남기지 않는다. 결과는 JSON 한 개이고
+    structured_output에 스키마로 검증된 값이 온다.
+    """
+    return [
+        settings.claude_cli_path,
+        "-p",
+        "--model", model,
+        "--output-format", "json",
+        "--json-schema", json.dumps(json_schema, ensure_ascii=False),
+        "--tools", "",
+        "--setting-sources", "",
+        "--strict-mcp-config",
+        "--no-session-persistence",
+    ]  # fmt: skip
+
+
+async def run_oneshot(
+    settings: Settings, prompt: str, *, model: str, json_schema: dict, timeout_s: float
+) -> dict:
+    """CLI를 한 번 실행해 structured_output을 돌려준다. 실패는 LlmError 계열로 던진다.
+
+    시간 초과·취소 때는 프로세스를 kill한다(사용량이 계속 나가지 않게).
+    """
+    cwd = settings.cli_work_dir.resolve() / "oneshot" / uuid.uuid4().hex[:12]
+    cwd.mkdir(parents=True, exist_ok=True)
+    token = settings.claude_code_oauth_token
+    secrets = [token.get_secret_value()] if token else []
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *build_oneshot_command(settings, model=model, json_schema=json_schema),
+            cwd=cwd,
+            env=build_env(settings),
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(prompt.encode()), timeout_s)
+        except BaseException as exc:
+            with contextlib.suppress(ProcessLookupError):  # 그 사이 이미 끝났을 수 있다
+                proc.kill()
+            await proc.wait()
+            if isinstance(exc, TimeoutError):
+                raise LlmTimeoutError("CLI 단발 호출 시간 초과") from exc
+            raise
+    finally:
+        shutil.rmtree(cwd, ignore_errors=True)
+    try:
+        output = json.loads(stdout)
+    except ValueError:
+        tail = stderr.decode(errors="replace")[-500:]
+        for secret in secrets:
+            tail = tail.replace(secret, "***")
+        raise LlmProcessError(f"CLI 단발 호출 실패(종료 코드 {proc.returncode}): {tail}") from None
+    result = output.get("structured_output") if isinstance(output, dict) else None
+    if not isinstance(output, dict) or output.get("is_error") or not isinstance(result, dict):
+        detail = str(output.get("result") if isinstance(output, dict) else output)[:300]
+        raise LlmError("llm_error", f"CLI 단발 호출 오류: {detail}")
+    return result
 
 
 _CLI_SESSION_ID = re.compile(r"[A-Za-z0-9-]{8,64}")
