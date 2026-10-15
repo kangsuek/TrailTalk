@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.jobs.dedupe import is_duplicate, new_items, normalize
+from app.jobs.dedupe import is_duplicate, matches_saved, new_items, normalize
 
 
 def test_normalize_drops_case_space_punctuation_and_width():
@@ -38,6 +38,15 @@ def test_duplicates(a, b):
         ("내일 은행 가기", "내일 은행 가지 않기"),  # 부정
         ("서버 배포 자동화하기", "서버 배포 자동화 못 하기"),
         ("주말 등산 가기", "주말 등산 안 가기"),
+        ("산책 코스 추천 앱 만들기", "산책 메모 공유 앱 만들기"),
+        ("동네 빵집 지도 만들기", "동네 공원 지도 만들기"),
+        ("반려견 놀이터 지도 만들기", "반려견 산책 모임 만들기"),
+        # 공통 앞부분이 길어도 하는 일이 다르면 다른 항목(데이터를 잃지 않게)
+        ("동네 빵집 지도 앱 디자인하기", "동네 빵집 지도 앱 홍보하기"),
+        ("팟캐스트 대본 쓰기", "팟캐스트 대본 녹음하기"),
+        ("반려견 놀이터 지도 만들기", "반려견 놀이터 지도에 리뷰 기능 넣기"),
+        ("치과 예약하기 (3시)", "치과 예약하기 (5시)"),
+        ("발표 자료 만들기 [팀 회의]", "발표 자료 만들기 [고객 미팅]"),
     ],
 )
 def test_not_duplicates(a, b):
@@ -58,3 +67,37 @@ def test_new_items_filters_existing_and_repeats_in_order():
         "등산 코스를 지도에 정리하기",
         "친구에게 앱 아이디어 보여 주기",
     ]
+
+
+@pytest.mark.parametrize(
+    ("saved", "candidate"),
+    [
+        # 2단계 실제 대화: save_note가 끝에 괄호 맥락을 붙인 노트와 같은 일
+        (
+            "오늘 밤 영어 단어 목록 100개 정리하기 (걸으면서 영어 단어 외우는 오디오 앱용)",
+            "오늘 밤 영어 단어 목록 100개 정리하기",
+        ),
+        ("주말 등산 코스 정하기 [동네 모임 첫 단계]", "주말 등산 코스 정하기"),
+        ("책 읽기 (사피엔스)", "책 읽기"),  # 지워지는 후보가 저장 노트보다 정보가 적다
+        ("산책 앱에 음성 메모 기능 추가하기", "산책앱에 음성메모 기능을 추가"),  # 기존 규칙도 쓴다
+    ],
+)
+def test_matches_saved_ignores_bracket_context(saved, candidate):
+    assert matches_saved(saved, candidate)
+
+
+@pytest.mark.parametrize(
+    ("saved", "candidate"),
+    [
+        ("치과 예약하기 (3시)", "치과 예약하기"),  # 괄호 안 숫자가 다르면 같다고 하지 않는다
+        ("엄마한테 전화하기 (생일 선물 물어보기)", "엄마한테 전화하기 (병원 예약 확인)"),
+        ("등산 가기 (비 오면 안 가기)", "등산 가기"),  # 부정이 다르다
+        ("반려견 놀이터 지도 만들기 (첫 아이디어)", "반려견 놀이터 지도에 리뷰 기능 넣기"),
+        ("(급함)", "급함 아님"),
+        # 괄호를 뺀 짧은 글에는 유사도·포함 규칙을 쓰지 않는다
+        ("자료 조사하기 (지도 앱)", "여행 자료 조사하기"),
+        ("영어 단어 정리하기 (오디오 앱용)", "영어 단어 정리하기 앱 만들기"),
+    ],
+)
+def test_matches_saved_is_conservative(saved, candidate):
+    assert not matches_saved(saved, candidate)

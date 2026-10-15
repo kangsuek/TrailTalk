@@ -7,6 +7,8 @@
 - 재현율: 사람이 정한 정답 아이디어·할 일이 같은 종류의 추출 결과에 들어 있는지(분류가 틀리면
   못 찾은 것으로 센다. 할 일은 완료 체크 대상이라 분류가 중요하다)
 - 근거: 추출한 아이디어·할 일이 대화에서 사용자가 말했거나 받아들인 것인지(지어낸 항목 찾기)
+- 중복: 대화 중 이미 저장한 노트(cases.yaml의 saved)와 같은 항목을 다시 뽑았는지
+- 메모 품질: 메모가 대화 진행 기록(정하지 않음, 답하지 않음, 누가 저장했다 등)인지
 아이디어·할 일을 합친 재현율 80% 이상이면 기준 통과(첫 측정 후 조정). 리포트는
 docs/eval/extract-<날짜>.md에 쓴다. 캐릭터 이름은 YAML에서만 읽는다(NFR-08).
 """
@@ -24,8 +26,8 @@ from zoneinfo import ZoneInfo
 import yaml
 
 from app.config import REPO_DIR, Settings
-from app.db.models import Turn, TurnRole
-from app.jobs.extract import Extraction, build_prompt, build_transcript
+from app.db.models import NoteKind, Turn, TurnRole
+from app.jobs.extract import SAVED_LABELS, Extraction, build_prompt, build_transcript
 from app.llm.claude_cli import run_oneshot
 from app.persona.loader import load_persona
 
@@ -46,18 +48,21 @@ def case_turns(case: dict) -> list[Turn]:
     ]
 
 
-def judge_schema(gold: int, extracted: int) -> dict:
+FLAG_KEYS = ("gold_found", "extracted_supported", "extracted_duplicate", "memo_process")
+
+
+def judge_schema(gold: int, extracted: int, memos: int) -> dict:
     def flags(n: int) -> dict:
         return {"type": "array", "items": {"type": "boolean"}, "minItems": n, "maxItems": n}
 
+    sizes = dict(zip(FLAG_KEYS, (gold, extracted, extracted, memos), strict=True))
     return {
         "type": "object",
         "properties": {
-            "gold_found": flags(gold),
-            "extracted_supported": flags(extracted),
+            **{key: flags(n) for key, n in sizes.items()},
             "reason": {"type": "string"},
         },
-        "required": ["gold_found", "extracted_supported", "reason"],
+        "required": [*FLAG_KEYS, "reason"],
         "additionalProperties": False,
     }
 
@@ -72,6 +77,8 @@ def judge_prompt(
     gold_todos: list[str],
     ideas: list[str],
     todos: list[str],
+    memos: list[str],
+    saved: list[tuple[str, str]],
 ) -> str:
     gold = [f"[아이디어] {x}" for x in gold_ideas] + [f"[할 일] {x}" for x in gold_todos]
     extracted = [f"[아이디어] {x}" for x in ideas] + [f"[할 일] {x}" for x in todos]
@@ -83,17 +90,28 @@ def judge_prompt(
 2) extracted_supported: 추출 목록의 항목마다, 대화에서 사용자가 직접 말했거나 받아들인 내용이면
    true. 대화에 없는 내용을 지어냈거나, 사용자가 거절한 제안이거나, 사용자가 말한 것과 뜻이
    반대이거나 숫자·시간을 바꿨으면 false.
-reason에는 false인 항목의 이유를 한국어로 짧게 쓴다.
+3) extracted_duplicate: 추출 목록의 항목마다, 대화 중 이미 저장한 노트와 같은 일이면 true
+   (표현이 달라도 같은 일이면 true).
+4) memo_process: 메모 목록의 항목마다, 사용자에게 쓸모 있는 정보가 아니라 대화 진행 기록이면 true.
+   예: 아직 정하지 않았다, 질문에 답하지 않았다, 누가 무엇을 물었거나 저장했다,
+   지난 대화를 언급했다.
+reason에는 1·2번이 false이거나 3·4번이 true인 항목의 이유를 한국어로 짧게 쓴다.
 
 <대화>
 {transcript}
 </대화>
 
+대화 중 이미 저장한 노트:
+{numbered([f"[{SAVED_LABELS[NoteKind(k)]}] {c}" for k, c in saved])}
+
 정답 목록:
 {numbered(gold)}
 
 추출 목록:
-{numbered(extracted)}"""
+{numbered(extracted)}
+
+메모 목록:
+{numbered(memos)}"""
 
 
 @dataclass
@@ -103,8 +121,11 @@ class Result:
     gold_ideas: list[str]
     gold_todos: list[str]
     extraction: Extraction | None = None
+    saved: list[tuple[str, str]] = field(default_factory=list)
     gold_found: list[bool] = field(default_factory=list)
     supported: list[bool] = field(default_factory=list)
+    duplicate: list[bool] = field(default_factory=list)
+    memo_process: list[bool] = field(default_factory=list)
     reason: str = ""
     seconds: float = 0.0
     error: str = ""
@@ -129,7 +150,7 @@ async def evaluate_case(settings: Settings, assistant: str, case: dict, r: Resul
     turns = case_turns(case)
     raw = await run_oneshot(
         settings,
-        build_prompt(turns, assistant),
+        build_prompt(turns, assistant, r.saved),
         model=settings.llm_light_model,
         json_schema=Extraction.model_json_schema(),
         timeout_s=settings.extract_timeout_s,
@@ -143,16 +164,18 @@ async def evaluate_case(settings: Settings, assistant: str, case: dict, r: Resul
             r.gold_todos,
             r.extraction.ideas,
             r.extraction.todos,
+            r.extraction.memos,
+            r.saved,
         ),
         model=settings.llm_chat_model,  # 추출 모델보다 강한 모델이 채점한다(자기 채점 관대함 방지)
-        json_schema=judge_schema(len(r.gold), len(r.extracted)),
+        json_schema=judge_schema(len(r.gold), len(r.extracted), len(r.extraction.memos)),
         timeout_s=settings.extract_timeout_s,
     )
-    found, supported = verdict["gold_found"], verdict["extracted_supported"]
-    if len(found) != len(r.gold) or len(supported) != len(r.extracted):
+    sizes = (len(r.gold), len(r.extracted), len(r.extracted), len(r.extraction.memos))
+    flags = [[bool(x) for x in verdict[key]] for key in FLAG_KEYS]
+    if [len(f) for f in flags] != list(sizes):
         raise ValueError("채점 결과 개수가 맞지 않습니다")
-    r.gold_found = [bool(x) for x in found]
-    r.supported = [bool(x) for x in supported]
+    r.gold_found, r.supported, r.duplicate, r.memo_process = flags
     r.reason = str(verdict.get("reason", "")).strip()
     r.seconds = time.monotonic() - started
 
@@ -173,6 +196,10 @@ def report(results: list[Result], settings: Settings, minutes: float, full: bool
     recall = total_found / total if total else 0.0
     unsupported = sum(r.supported.count(False) for r in done)
     extracted = sum(len(r.extracted) for r in done)
+    duplicates = sum(r.duplicate.count(True) for r in done if r.saved)
+    with_saved = sum(len(r.extracted) for r in done if r.saved)
+    process = sum(r.memo_process.count(True) for r in done)
+    memos = sum(len(r.extraction.memos) for r in done)
     if not full:
         verdict = f"일부 실행({len(results)}개, 기준 판정 안 함)"
     elif len(done) < len(results):
@@ -187,6 +214,8 @@ def report(results: list[Result], settings: Settings, minutes: float, full: bool
         f"(기준 {RECALL_MIN:.0%}, 계획서 S2-09)",
         f"  - 아이디어 {pct(*idea)}, 할 일 {pct(*todo)}",
         f"  - 대화에 근거 없는 아이디어·할 일(지어냄·거절한 제안): {unsupported}/{extracted}",
+        f"  - 대화 중 저장한 노트와 중복된 추출 항목: {duplicates}/{with_saved}",
+        f"  - 대화 진행 기록 메모(쓸모없음): {process}/{memos}",
         f"- 추출 모델 `{settings.llm_light_model}`, 채점 모델 `{settings.llm_chat_model}`, "
         f"대화 {len(results)}개, "
         f"소요 {minutes:.1f}분, 실행 {now:%Y-%m-%d %H:%M}",
@@ -197,16 +226,18 @@ def report(results: list[Result], settings: Settings, minutes: float, full: bool
         "",
         "## 대화별 결과",
         "",
-        "| # | 대화 | 아이디어 | 할 일 | 근거 없음 | 메모 |",
-        "|---|---|---|---|---|---|",
+        "| # | 대화 | 아이디어 | 할 일 | 근거 없음 | 중복 | 진행 기록 메모 | 설명 |",
+        "|---|---|---|---|---|---|---|---|",
     ]
     for i, r in enumerate(results, 1):
         if r.error:
-            lines.append(f"| {i} | `{r.cid}` | 오류 | 오류 | - | {cell(r.error)} |")
+            lines.append(f"| {i} | `{r.cid}` | 오류 | 오류 | - | - | - | {cell(r.error)} |")
             continue
         lines.append(
             f"| {i} | `{r.cid}` | {pct(*r.found('idea'))} | {pct(*r.found('todo'))} | "
-            f"{r.supported.count(False)}/{len(r.extracted)} | {cell(r.note)} |"
+            f"{r.supported.count(False)}/{len(r.extracted)} | "
+            f"{f'{r.duplicate.count(True)}/{len(r.extracted)}' if r.saved else '-'} | "
+            f"{r.memo_process.count(True)}/{len(r.extraction.memos)} | {cell(r.note)} |"
         )
     lines += ["", "## 대화별 상세", ""]
     for i, r in enumerate(results, 1):
@@ -216,15 +247,21 @@ def report(results: list[Result], settings: Settings, minutes: float, full: bool
             continue
         ex = r.extraction
         lines.append(f"- 제목: {ex.title} / 요약: {cell(' '.join(ex.summary))}")
+        if r.saved:
+            notes = " / ".join(f"[{SAVED_LABELS[NoteKind(k)]}] {c}" for k, c in r.saved)
+            lines.append(f"- 대화 중 저장한 노트: {cell(notes)}")
         lines.append("- 정답")
         for item, ok in zip(r.gold, r.gold_found, strict=True):
             lines.append(f"  - {'O' if ok else 'X'} {item}")
         lines.append("- 추출(아이디어·할 일)")
         kinds = ["아이디어"] * len(ex.ideas) + ["할 일"] * len(ex.todos)
-        for kind, item, ok in zip(kinds, r.extracted, r.supported, strict=True):
-            lines.append(f"  - {'O' if ok else '**근거 없음**'} [{kind}] {item}")
+        for kind, item, ok, dup in zip(kinds, r.extracted, r.supported, r.duplicate, strict=True):
+            mark = ("O" if ok else "**근거 없음**") + (" **중복**" if dup else "")
+            lines.append(f"  - {mark} [{kind}] {item}")
         if ex.memos:
-            lines.append(f"- 메모: {cell(' / '.join(ex.memos))}")
+            lines.append("- 메모")
+            for item, noise in zip(ex.memos, r.memo_process, strict=True):
+                lines.append(f"  - {'**진행 기록**' if noise else 'O'} {item}")
         lines += [f"- 채점: {cell(r.reason) or '(없음)'}", ""]
     return "\n".join(lines)
 
@@ -249,7 +286,13 @@ async def evaluate(args: argparse.Namespace) -> int:
     if args.limit:
         cases = cases[: args.limit]
     results = [
-        Result(c["id"], c["note"], list(c["gold"]["ideas"]), list(c["gold"]["todos"]))
+        Result(
+            c["id"],
+            c["note"],
+            list(c["gold"]["ideas"]),
+            list(c["gold"]["todos"]),
+            saved=[(kind, content) for kind, content in c.get("saved", [])],
+        )
         for c in cases
     ]
     limit = asyncio.Semaphore(CONCURRENCY)

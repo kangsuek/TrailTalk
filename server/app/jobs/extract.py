@@ -9,6 +9,7 @@
 
 import asyncio
 import logging
+from collections.abc import Sequence
 from typing import Annotated
 
 from fastapi import FastAPI
@@ -16,10 +17,10 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, Validation
 from sqlalchemy import select
 
 from app.db.models import ConversationSession, ExtractStatus, Note, NoteKind, Turn, TurnRole
-from app.jobs.dedupe import new_items
+from app.jobs.dedupe import matches_saved, new_items
 from app.llm.backend import LlmError
 from app.llm.claude_cli import run_oneshot
-from app.persona.rules import EXTRACT_INSTRUCTION
+from app.persona.rules import EXTRACT_INSTRUCTION, EXTRACT_SAVED_SECTION
 from app.services.profile import profile_with_persona
 
 logger = logging.getLogger("trailtalk.extract")
@@ -45,12 +46,17 @@ class Extraction(BaseModel):
     tags: Annotated[list[Tag], Field(max_length=5)]
 
 
+def _escape_tags(text: str) -> str:
+    """글 안에서 프롬프트의 구분 태그(<대화>, <저장한 노트>)를 닫지 못하게 한다."""
+    return text.replace("</대화>", "</ 대화>").replace("</저장한 노트>", "</ 저장한 노트>")
+
+
 def build_transcript(turns: list[Turn], assistant: str) -> str:
     lines = []
     for t in turns:
         speaker = "사용자" if t.role is TurnRole.USER else assistant
         mark = " (말이 끊김)" if t.interrupted else ""
-        text = " ".join(t.text.split()).replace("</대화>", "</ 대화>")  # 구분 태그를 닫지 못하게
+        text = _escape_tags(" ".join(t.text.split()))
         lines.append(f"{speaker}: {text}{mark}")
     kept: list[str] = []
     size = 0
@@ -63,9 +69,23 @@ def build_transcript(turns: list[Turn], assistant: str) -> str:
     return "\n".join(reversed(kept))
 
 
-def build_prompt(turns: list[Turn], assistant: str) -> str:
+SAVED_LABELS = {NoteKind.IDEA: "아이디어", NoteKind.TODO: "할 일", NoteKind.MEMO: "메모"}
+
+
+def build_prompt(
+    turns: list[Turn], assistant: str, saved: Sequence[tuple[NoteKind, str]] = ()
+) -> str:
+    """saved: 대화 중 save_note로 이미 저장한 노트(종류, 내용). 추출이 같은 항목을 다시 뽑지 않게
+    알려 준다. 종류를 붙여 다른 종류의 항목까지 빼지 않게 한다. 노트는 모델이 만든 글이라
+    (웹 내용이 섞일 수 있다) 태그로 감싸 지시로 따르지 않게 한다."""
+    lines = [
+        f"- [{SAVED_LABELS[NoteKind(kind)]}] {_escape_tags(' '.join(content.split()))}"
+        for kind, content in saved
+        if content.strip()
+    ]
+    section = EXTRACT_SAVED_SECTION.format(items="\n".join(lines)) if lines else ""
     return EXTRACT_INSTRUCTION.format(
-        assistant=assistant, transcript=build_transcript(turns, assistant)
+        assistant=assistant, saved=section, transcript=build_transcript(turns, assistant)
     )
 
 
@@ -115,6 +135,12 @@ async def run_extraction(app: FastAPI, session_id: str) -> Extraction | None:
             select(Turn).where(Turn.session_id == session_id).order_by(Turn.seq)
         )
         turns = list(rows.scalars())
+        notes = await db.execute(
+            select(Note.kind, Note.content)
+            .where(Note.session_id == session_id)
+            .order_by(Note.created_at)
+        )
+        saved = [(kind, content) for kind, content in notes]  # 대화 중 save_note로 저장한 노트
         _, loaded = await profile_with_persona(db, settings)
         await db.commit()
     if not any(t.role is TurnRole.USER for t in turns):
@@ -122,7 +148,7 @@ async def run_extraction(app: FastAPI, session_id: str) -> Extraction | None:
         await _set_status(app, session_id, ExtractStatus.DONE)
         return None
 
-    prompt = build_prompt(turns, loaded.persona.name)
+    prompt = build_prompt(turns, loaded.persona.name, saved)
     result: Extraction | None = None
     for attempt in range(1, ATTEMPTS + 1):
         try:
@@ -150,15 +176,21 @@ async def run_extraction(app: FastAPI, session_id: str) -> Extraction | None:
             convo.title = result.title
             convo.summary = "\n".join(result.summary)
             convo.tags = list(dict.fromkeys(result.tags))
-            # 대화 중 save_note로 저장한 노트와 겹치지 않는 항목만 노트로 남긴다(S2-03)
-            rows = await db.execute(select(Note.content).where(Note.session_id == session_id))
-            existing = list(rows.scalars())
+            # 대화 중 save_note로 저장한 노트와 겹치지 않는 항목만 노트로 남긴다(S2-03).
+            # 같은 종류의 저장 노트와는 괄호 설명을 뺀 글로도 비교한다(matches_saved)
+            rows = await db.execute(
+                select(Note.kind, Note.content).where(Note.session_id == session_id)
+            )
+            saved_notes = [(kind, content) for kind, content in rows]
+            existing = [content for _, content in saved_notes]
             for kind, items in (
                 (NoteKind.IDEA, result.ideas),
                 (NoteKind.TODO, result.todos),
                 (NoteKind.MEMO, result.memos),
             ):
-                for content in new_items(existing, items):
+                same_kind = [content for k, content in saved_notes if k is kind]
+                fresh = [i for i in items if not any(matches_saved(s, i) for s in same_kind)]
+                for content in new_items(existing, fresh):
                     db.add(Note(session_id=session_id, kind=kind, content=content))
                     existing.append(content)
             convo.extract_status = ExtractStatus.DONE
