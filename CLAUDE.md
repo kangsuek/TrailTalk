@@ -30,12 +30,12 @@ server/            FastAPI (Python 3.12, uv)
   app/persona/     프롬프트 조립기
   app/llm/         Claude CLI 프로세스 관리, stream-json 파서
   app/mcp/         제니 도구 MCP 서버
-  app/jobs/        세션 종료 추출, 브리핑
+  app/jobs/        세션 종료 추출·중복 제거·마무리 멘트, 무발화 타임아웃, 브리핑(5단계)
   app/services/    대화 처리(conversation: 세션·턴 SSE), 대화별 런타임(runtime: MCP 토큰·턴 락), 프로필
   app/openapi.py   OpenAPI 내보내기(웹 타입 생성 gen:api)
   app/db/          SQLAlchemy 모델
   personas/        캐릭터 YAML
-  tests/           pytest. fakes/(가짜 CLI), fixtures/claude_cli/(녹화), persona_eval/(톤 평가, 실제 CLI)
+  tests/           pytest. fakes/(가짜 CLI), fixtures/claude_cli/(녹화), persona_eval/(톤 평가), extract_eval/(추출 평가). 평가는 실제 CLI
 web/               React + TypeScript + Vite
   src/core/        세션 상태 머신, 오프라인 큐 (브라우저 API 비의존)
   src/platform/    AudioInput, AudioOutput, LocalQueue 브라우저 구현
@@ -62,6 +62,7 @@ docs/              설계서, 계획서, 규약, 검증 기록(spikes/), 톤 평
 (cd server && uv run alembic revision --autogenerate -m "설명")   # 모델 변경 후 마이그레이션 생성(검토 필수)
 (cd server && uv run alembic upgrade head)                      # 수동 적용(앱 시작 때도 자동 적용)
 (cd server && RUN_REAL_CLI=1 uv run pytest tests/test_llm_real.py -q)  # 실제 Claude CLI 통합 테스트(구독 사용량 소모)
+(cd server && RUN_REAL_CLI=1 uv run python -m tests.extract_eval.run_eval)  # 일지 추출 평가(haiku 약 20회) → docs/eval/extract-<날짜>.md
 
 # 웹
 (cd web && npm run dev)                                # http://127.0.0.1:5173, /api → 8000 프록시
