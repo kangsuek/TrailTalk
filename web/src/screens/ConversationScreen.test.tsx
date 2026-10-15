@@ -80,7 +80,7 @@ describe('ConversationScreen', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: '보내기' }))
 
-    expect(await within(log).findByText('메모 저장: 쓰레기통 지도')).toBeInTheDocument()
+    expect(await within(log).findByText('아이디어 저장: 쓰레기통 지도')).toBeInTheDocument()
     expect(within(log).getByText('쓰레기통 지도 저장해줘')).toBeInTheDocument()
     expect(within(log).getByText(/저장했어요!/)).toBeInTheDocument()
     expect(within(log).getByText(/누가 쓰면 좋을까요\?/)).toBeInTheDocument()

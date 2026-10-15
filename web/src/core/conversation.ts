@@ -263,6 +263,13 @@ function sources(summary: Record<string, unknown> | null): string[] {
   return [...new Set(hosts.filter((h): h is string => h !== null))].slice(0, 3)
 }
 
+// 저장한 노트 종류의 이름과 목적격(을/를)
+const NOTE_LABELS: Record<string, [string, string]> = {
+  idea: ['아이디어', '아이디어를'],
+  todo: ['할 일', '할 일을'],
+  memo: ['메모', '메모를'],
+}
+
 /** 도구 상태를 한 줄 알림으로. 보여 줄 필요가 없는 도구(쉬기·끝내기)는 null. */
 export function toolNotice(tool: ToolState): string | null {
   const finished = tool.phase === 'end'
@@ -284,10 +291,13 @@ export function toolNotice(tool: ToolState): string | null {
       return host ? `출처: ${host}` : '페이지 읽기 완료'
     }
     case 'save_note': {
-      if (!finished) return '메모 저장 중…'
-      if (tool.isError) return '메모를 저장하지 못했어요'
+      // 도구 입력의 종류(idea·todo·memo)대로 부른다. start 단계에는 입력이 없어 종류를 모른다
+      const kind = String(tool.input?.kind)
+      const [label, object] = Object.hasOwn(NOTE_LABELS, kind) ? NOTE_LABELS[kind] : NOTE_LABELS.memo
+      if (!finished) return tool.input ? `${label} 저장 중…` : '저장 중…'
+      if (tool.isError) return `${object} 저장하지 못했어요`
       const content = text(tool.input?.content)
-      return content ? `메모 저장: ${content}` : '메모 저장 완료'
+      return content ? `${label} 저장: ${content}` : `${label} 저장 완료`
     }
     case 'search_notes': {
       const keyword = text(tool.input?.keyword)
