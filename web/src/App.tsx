@@ -132,7 +132,10 @@ function App() {
             {/* 대화 화면은 탭을 옮겨도 언마운트하지 않는다(진행 중인 대화와 답변을 유지).
                 나머지는 열 때마다 새로 그려 최신 내용을 불러온다 */}
             {s.id === 'conversation' ? (
-              <ConversationScreen visible={screen === 'conversation'} />
+              <ConversationScreen
+                visible={screen === 'conversation'}
+                onOpenJournal={openJournal}
+              />
             ) : (
               screen === s.id && panel(s.id)
             )}

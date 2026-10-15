@@ -1,7 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ApiError } from '../api/http'
 import { listJournal, type JournalItem } from '../api/journal'
-import { countsLabel, dateLabel, groupByDate, journalStatusLabel } from '../core/journal'
+import {
+  countsLabel,
+  dateLabel,
+  groupByDate,
+  journalStatusLabel,
+  MAX_POLLS,
+  POLL_MS,
+} from '../core/journal'
 
 type ListState =
   | { kind: 'loading' }
@@ -13,7 +20,14 @@ function errorMessage(error: unknown): string {
 }
 
 /** 날짜별 일지 목록(최근 30일). 항목을 누르면 onOpen으로 상세 화면을 연다. */
-export function JournalListScreen({ onOpen = () => {} }: { onOpen?: (sessionId: string) => void }) {
+/** pollMs: 정리 중인 일지를 다시 불러오는 간격(테스트에서 줄인다). */
+export function JournalListScreen({
+  onOpen = () => {},
+  pollMs = POLL_MS,
+}: {
+  onOpen?: (sessionId: string) => void
+  pollMs?: number
+}) {
   const [state, setState] = useState<ListState>({ kind: 'loading' })
   const [attempt, setAttempt] = useState(0)
 
@@ -27,7 +41,29 @@ export function JournalListScreen({ onOpen = () => {} }: { onOpen?: (sessionId: 
     return () => controller.abort()
   }, [attempt])
 
+  // 정리 중인 일지가 끝나면 목록에 반영한다(조용히 다시 불러오고, 실패해도 다음 차례에 다시 본다)
+  const polls = useRef(0)
+  const [failures, setFailures] = useState(0) // 실패해도 다음 차례에 다시 보도록 이펙트를 다시 돌린다
+  useEffect(() => {
+    if (state.kind !== 'ready' || !state.items.some((i) => i.journal_status === 'pending')) return
+    if (polls.current >= MAX_POLLS) return
+    const controller = new AbortController()
+    const timer = setTimeout(() => {
+      polls.current += 1
+      listJournal(controller.signal)
+        .then((items) => setState({ kind: 'ready', items }))
+        .catch(() => {
+          if (!controller.signal.aborted) setFailures((n) => n + 1)
+        })
+    }, pollMs)
+    return () => {
+      clearTimeout(timer)
+      controller.abort()
+    }
+  }, [state, pollMs, failures])
+
   const retry = () => {
+    polls.current = 0
     setState({ kind: 'loading' })
     setAttempt((n) => n + 1)
   }

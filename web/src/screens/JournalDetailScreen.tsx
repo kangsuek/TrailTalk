@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ApiError } from '../api/http'
 import { getJournal, updateNote, type JournalDetail, type NoteOut, type NotePatch } from '../api/journal'
-import { dateLabel } from '../core/journal'
+import { dateLabel, MAX_POLLS, POLL_MS } from '../core/journal'
 
 type DetailState =
   | { kind: 'loading' }
@@ -16,9 +16,11 @@ function errorMessage(error: unknown, fallback: string): string {
 export function JournalDetailScreen({
   sessionId = null,
   onBack = () => {},
+  pollMs = POLL_MS,
 }: {
   sessionId?: string | null
   onBack?: () => void
+  pollMs?: number
 }) {
   const [state, setState] = useState<DetailState>({ kind: 'loading' })
   const [attempt, setAttempt] = useState(0)
@@ -37,7 +39,29 @@ export function JournalDetailScreen({
     return () => controller.abort()
   }, [sessionId, attempt])
 
+  // 정리 중이면 끝날 때까지 다시 불러온다(목록과 같은 간격·한도)
+  const polls = useRef(0)
+  const [failures, setFailures] = useState(0) // 실패해도 다음 차례에 다시 보도록 이펙트를 다시 돌린다
+  useEffect(() => {
+    if (state.kind !== 'ready' || state.detail.session.journal_status !== 'pending') return
+    if (sessionId === null || polls.current >= MAX_POLLS) return
+    const controller = new AbortController()
+    const timer = setTimeout(() => {
+      polls.current += 1
+      getJournal(sessionId, controller.signal)
+        .then((detail) => setState({ kind: 'ready', detail }))
+        .catch(() => {
+          if (!controller.signal.aborted) setFailures((n) => n + 1)
+        })
+    }, pollMs)
+    return () => {
+      clearTimeout(timer)
+      controller.abort()
+    }
+  }, [state, sessionId, pollMs, failures])
+
   const reload = () => {
+    polls.current = 0
     setState({ kind: 'loading' })
     setSaveError(null)
     setAttempt((n) => n + 1)
@@ -134,8 +158,8 @@ function Detail({
       <h3>{session.title ?? '제목 없는 대화'}</h3>
       <p className="journal-date">{dateLabel(session.date)}</p>
       {session.journal_status === 'pending' && (
-        <div className="journal-note">
-          <p>일지를 정리하는 중이에요. 잠시 뒤 다시 불러와 주세요.</p>
+        <div className="journal-note" aria-live="polite">
+          <p>일지를 정리하는 중이에요. 끝나면 자동으로 보여 드려요.</p>
           <button type="button" className="secondary" onClick={onReload}>
             다시 불러오기
           </button>

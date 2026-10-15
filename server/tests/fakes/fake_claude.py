@@ -15,7 +15,8 @@
 단발 모드: 인자에 --json-schema가 있으면(세션 종료 추출 등) stdin 전체를 프롬프트로 읽고
 FAKE_CLAUDE_ONESHOT 파일의 첫 줄(CLI JSON 출력)을 낸다. 줄이 여러 개면 첫 줄을 지워 다음 호출이
 다음 줄을 쓰게 하고, 마지막 줄은 계속 쓴다. 줄 내용이 "__hang__"이면 멈추고, "__crash__"이면
-출력 없이 죽는다. 기록 파일에는 받은 프롬프트도 남긴다(stdin).
+출력 없이 죽는다. FAKE_CLAUDE_ONESHOT_DELAY(초)만큼 기다렸다 낸다. 기록 파일에는 받은 프롬프트도
+남긴다(stdin).
 
 stdin은 파일 객체 버퍼를 쓰지 않고 fd에서 직접 줄 단위로 읽는다(select와 섞어도 줄을 놓치지 않게).
 """
@@ -156,6 +157,7 @@ def oneshot(args: list[str]) -> None:
     if line == "__crash__":
         print("fake crash", file=sys.stderr, flush=True)
         sys.exit(3)
+    time.sleep(float(os.environ.get("FAKE_CLAUDE_ONESHOT_DELAY", "0")))  # 느린 일지 정리 흉내
     sys.stdout.write(line + "\n")
     sys.stdout.flush()
 

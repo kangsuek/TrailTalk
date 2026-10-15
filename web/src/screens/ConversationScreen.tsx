@@ -66,8 +66,15 @@ function AssistantBubble({ message, name }: { message: AssistantMessage; name: s
   )
 }
 
-/** visible: 탭에서 지금 보이는지. 숨겨져 있어도 대화를 유지하려고 언마운트하지 않는다(App). */
-export function ConversationScreen({ visible = true }: { visible?: boolean }) {
+/** visible: 탭에서 지금 보이는지. 숨겨져 있어도 대화를 유지하려고 언마운트하지 않는다(App).
+ * onOpenJournal: 끝난 대화의 일지 상세를 연다(App이 탭을 옮긴다). */
+export function ConversationScreen({
+  visible = true,
+  onOpenJournal,
+}: {
+  visible?: boolean
+  onOpenJournal?: (sessionId: string) => void
+}) {
   const [state, dispatch] = useReducer(conversationReducer, initialConversation)
   const [draft, setDraft] = useState('')
   const controller = useRef<AbortController | null>(null)
@@ -304,9 +311,20 @@ export function ConversationScreen({ visible = true }: { visible?: boolean }) {
       {state.status === 'ended' && !state.ending && (
         <div className="conversation-start">
           <p className="conversation-note">대화가 끝났어요.</p>
-          <button type="button" onClick={start}>
-            새 대화 시작
-          </button>
+          <div className="composer-actions">
+            {onOpenJournal && state.sessionId && (
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => onOpenJournal(state.sessionId!)}
+              >
+                일지 보기
+              </button>
+            )}
+            <button type="button" onClick={start}>
+              새 대화 시작
+            </button>
+          </div>
         </div>
       )}
     </section>

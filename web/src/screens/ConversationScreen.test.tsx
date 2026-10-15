@@ -319,6 +319,18 @@ describe('ConversationScreen', () => {
     expect(screen.getByRole('button', { name: '새 대화 시작' })).toBeInTheDocument()
   })
 
+  it('끝난 대화에서 일지 보기를 누르면 그 세션의 일지를 연다', async () => {
+    stubServer()
+    const onOpenJournal = vi.fn()
+    render(<ConversationScreen onOpenJournal={onOpenJournal} />)
+    fireEvent.click(screen.getByRole('button', { name: '대화 시작' }))
+    await screen.findByText('안녕하세요, 오늘 어떤 이야기를 할까요?')
+    expect(screen.queryByRole('button', { name: '일지 보기' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '대화 끝내기' }))
+    fireEvent.click(await screen.findByRole('button', { name: '일지 보기' }))
+    expect(onOpenJournal).toHaveBeenCalledWith('s1')
+  })
+
   it('시작에 실패하면 오류와 함께 다시 시작 버튼을 보여 준다', async () => {
     vi.stubGlobal(
       'fetch',

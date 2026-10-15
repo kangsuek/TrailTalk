@@ -3,6 +3,10 @@
 
 const WEEKDAYS = '일월화수목금토'
 
+// 정리 중(pending)인 일지가 있으면 이 간격으로 다시 불러온다(화면마다 최대 MAX_POLLS번, 약 2분)
+export const POLL_MS = 3_000
+export const MAX_POLLS = 40
+
 export interface DateGroup<T> {
   date: string
   items: T[]

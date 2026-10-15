@@ -120,6 +120,23 @@ describe('JournalDetailScreen', () => {
     expect(star).toHaveAttribute('aria-pressed', 'false')
   })
 
+  it('정리 중이면 끝날 때까지 자동으로 다시 불러온다', async () => {
+    let calls = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        calls += 1
+        const session = { ...DETAIL.session, journal_status: calls < 3 ? 'pending' : 'done' }
+        return new Response(JSON.stringify({ ...DETAIL, session, notes: calls < 3 ? [] : DETAIL.notes }))
+      }),
+    )
+    render(<JournalDetailScreen sessionId="s1" pollMs={10} />)
+    expect(await screen.findByText('일지를 정리하는 중이에요. 끝나면 자동으로 보여 드려요.')).toBeInTheDocument()
+    expect(await screen.findByText('쓰레기통 지도 앱')).toBeInTheDocument()
+    await new Promise((r) => setTimeout(r, 100))
+    expect(calls).toBe(3) // 끝나면 멈춘다
+  })
+
   it('정리 중이면 안내와 다시 불러오기를 보인다', async () => {
     let calls = 0
     vi.stubGlobal(
@@ -131,7 +148,7 @@ describe('JournalDetailScreen', () => {
       }),
     )
     render(<JournalDetailScreen sessionId="s1" />)
-    expect(await screen.findByText('일지를 정리하는 중이에요. 잠시 뒤 다시 불러와 주세요.')).toBeInTheDocument()
+    expect(await screen.findByText('일지를 정리하는 중이에요. 끝나면 자동으로 보여 드려요.')).toBeInTheDocument()
     expect(screen.queryByText('저장한 아이디어·할 일·메모가 없어요.')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '다시 불러오기' }))
     expect(await screen.findByText('쓰레기통 지도 앱')).toBeInTheDocument()

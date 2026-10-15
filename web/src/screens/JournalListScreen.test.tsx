@@ -1,5 +1,6 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { MAX_POLLS } from '../core/journal'
 import { JournalListScreen } from './JournalListScreen'
 
 afterEach(() => {
@@ -54,6 +55,46 @@ describe('JournalListScreen', () => {
 
     fireEvent.click(within(today).getByRole('button', { name: /a 제목/ }))
     expect(onOpen).toHaveBeenCalledWith('a')
+  })
+
+  it('정리 중인 일지가 있으면 끝날 때까지 다시 불러온다', async () => {
+    let calls = 0
+    const fetchMock = stub(() => {
+      calls += 1
+      const pending = calls < 3
+      return new Response(
+        JSON.stringify([item('a', '2026-10-15', pending ? { title: null, journal_status: 'pending' } : {})]),
+      )
+    })
+    render(<JournalListScreen pollMs={10} />)
+    expect(await screen.findByText('정리 중인 대화')).toBeInTheDocument()
+    expect(await screen.findByText('a 제목')).toBeInTheDocument() // 세 번째 응답에서 정리 끝
+    await new Promise((r) => setTimeout(r, 100))
+    expect(fetchMock).toHaveBeenCalledTimes(3) // 끝났으면 멈춘다
+  })
+
+  it('다시 불러오기가 한 번 실패해도 계속 확인한다', async () => {
+    let calls = 0
+    stub(() => {
+      calls += 1
+      if (calls === 2) return Promise.reject(new TypeError('순간 끊김'))
+      const pending = calls < 3
+      return new Response(
+        JSON.stringify([item('a', '2026-10-15', pending ? { title: null, journal_status: 'pending' } : {})]),
+      )
+    })
+    render(<JournalListScreen pollMs={10} />)
+    expect(await screen.findByText('정리 중인 대화')).toBeInTheDocument()
+    expect(await screen.findByText('a 제목')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument() // 조용히 다시 본다
+  })
+
+  it('계속 정리 중이어도 정해진 횟수까지만 다시 불러온다', async () => {
+    const fetchMock = stub(() => new Response(JSON.stringify([item('a', '2026-10-15', { journal_status: 'pending' })])))
+    render(<JournalListScreen pollMs={1} />)
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1 + MAX_POLLS))
+    await new Promise((r) => setTimeout(r, 100))
+    expect(fetchMock).toHaveBeenCalledTimes(1 + MAX_POLLS)
   })
 
   it('일지가 없으면 안내를 보인다', async () => {

@@ -24,7 +24,11 @@ test('일지: 목록 → 상세, 별표·완료 표시가 저장된다', async (
     await expect(page.getByRole('heading', { level: 3, name: 'Claude Code 최신 버전과 uv 알아보기' })).toBeVisible()
   }
 
-  await openLatest()
+  // 끝난 대화 화면의 "일지 보기"로 바로 그 대화의 일지를 연다
+  const detail = page.waitForResponse((r) => r.url().endsWith(`/api/journal/${closed.session.id}`))
+  await page.getByRole('button', { name: '일지 보기' }).click()
+  await detail
+  await expect(page.getByRole('heading', { level: 3, name: 'Claude Code 최신 버전과 uv 알아보기' })).toBeVisible()
   await expect(page.getByRole('tab', { name: '일지 상세' })).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByText('Claude Code 최신 버전을 웹에서 찾아봤다.')).toBeVisible()
 
