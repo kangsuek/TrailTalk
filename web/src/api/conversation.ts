@@ -50,6 +50,14 @@ async function errorOf(response: Response): Promise<ApiError> {
   return new ApiError('http_error', `요청이 실패했어요(${response.status}).`, response.status)
 }
 
+/** 다음 대화의 CLI를 서버에 미리 띄워 둔다(인사말 대기 단축). 응답 본문은 없다. */
+export async function prepareSession(
+  mode: 'text' | 'voice' = 'text',
+  signal?: AbortSignal,
+): Promise<void> {
+  await post('/api/sessions/prepare', { mode }, signal)
+}
+
 export async function startSession(
   mode: 'text' | 'voice' = 'text',
   signal?: AbortSignal,

@@ -35,6 +35,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sessions/prepare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Prepare Session
+         * @description 대화 화면이 열리면 부른다. 다음 대화의 CLI를 미리 띄워 인사말 대기를 줄인다(사용량 없음).
+         */
+        post: operations["prepare_session_api_sessions_prepare_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sessions/{session_id}/turns": {
         parameters: {
             query?: never;
@@ -364,6 +384,37 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SessionStarted"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    prepare_session_api_sessions_prepare_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

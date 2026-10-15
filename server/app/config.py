@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     cli_work_dir: Path = SERVER_DIR / "data" / "cli-sessions"
     cli_idle_timeout_s: float = 600
     cli_turn_timeout_s: float = 120
+    # 화면이 열릴 때 미리 띄운 CLI(대화 시작 대기 단축)를 쓰지 않으면 이 시간 뒤 닫는다
+    session_prepare_ttl_s: float = 300
     # CLI가 앱 도구 MCP 서버(/internal/mcp/)에 접속할 이 서버의 주소
     internal_base_url: str = "http://127.0.0.1:8000"
     # 자식 CLI에 추가로 넘길 환경 변수 이름 패턴(기본 허용 목록 외). 테스트의 가짜 CLI용

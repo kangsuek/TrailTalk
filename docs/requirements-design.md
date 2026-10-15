@@ -239,6 +239,7 @@ ID는 UUID 문자열(`persona`는 이름 키, `user_profile`은 단일 행 1), �
 
 | 메서드 | 경로 | 설명 |
 |---|---|---|
+| POST | /sessions/prepare | 대화 화면이 열릴 때 다음 세션의 CLI를 미리 띄움(인사말 대기 단축, 사용량 없음) |
 | POST | /sessions | 세션 시작, 제니 인사말(텍스트+오디오) 반환 |
 | POST | /sessions/{id}/turns | 발화 오디오 또는 텍스트 업로드 → STT 결과와 제니 답변(문장별 텍스트+오디오)을 SSE로 스트리밍 |
 | POST | /sessions/{id}/turns/{turn_id}/cancel | 끼어들기: 생성 중단, 들려준 문장까지만 기록 |

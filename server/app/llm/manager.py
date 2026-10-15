@@ -63,6 +63,10 @@ class LlmSessionManager:
             self._sessions[key] = session
             return session
 
+    def is_alive(self, key: str) -> bool:
+        session = self._sessions.get(key)
+        return session is not None and session.alive
+
     async def close(self, key: str) -> None:
         lock = self._key_lock(key)
         async with lock:

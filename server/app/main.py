@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI
@@ -16,6 +17,7 @@ from app.llm.claude_cli import ClaudeCliBackend
 from app.llm.manager import LlmSessionManager
 from app.mcp.server import mount_mcp
 from app.request_context import RequestContextMiddleware, configure_logging
+from app.services import conversation
 from app.services.runtime import RuntimeRegistry
 
 
@@ -52,12 +54,15 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
             async with mcp.session_manager.run():
                 yield
         finally:
+            await conversation.cancel_prepared(app)
             await llm.shutdown()
             await engine.dispose()
 
     app = FastAPI(title="TrailTalk", lifespan=lifespan)
     app.state.settings = app_settings
     app.state.runtimes = RuntimeRegistry()
+    app.state.prepared = None  # 미리 띄운 CLI(services/conversation.py PreparedSession)
+    app.state.prepare_lock = asyncio.Lock()
     app.add_middleware(RequestContextMiddleware)
     install_error_handlers(app)
     register_event_schemas(app)

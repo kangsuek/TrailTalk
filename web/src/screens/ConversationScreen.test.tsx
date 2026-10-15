@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { StreamEvent } from '../core/conversation'
 import { ConversationScreen } from './ConversationScreen'
@@ -40,6 +40,7 @@ const TURN: StreamEvent[] = [
 function stubServer(turn: () => Response = () => sseResponse(TURN)) {
   const fetchMock = vi.fn(async (url: string) => {
     if (url === '/api/sessions') return new Response(JSON.stringify(STARTED), { status: 201 })
+    if (url === '/api/sessions/prepare') return new Response(null, { status: 204 })
     if (url.endsWith('/turns')) return turn()
     if (url.endsWith('/end')) return new Response(JSON.stringify({ ...STARTED.session, status: 'ended' }))
     throw new Error(`unexpected ${url}`)
@@ -47,6 +48,12 @@ function stubServer(turn: () => Response = () => sseResponse(TURN)) {
   vi.stubGlobal('fetch', fetchMock)
   return fetchMock
 }
+
+function calls(fetchMock: ReturnType<typeof vi.fn>, suffix: string): number {
+  return fetchMock.mock.calls.filter(([url]) => String(url).endsWith(suffix)).length
+}
+
+const turnCalls = (fetchMock: ReturnType<typeof vi.fn>) => calls(fetchMock, '/turns')
 
 async function startConversation() {
   render(<ConversationScreen />)
@@ -79,11 +86,11 @@ describe('ConversationScreen', () => {
     const input = screen.getByRole('textbox', { name: '메시지' })
     fireEvent.change(input, { target: { value: '안녕' } })
     fireEvent.keyDown(input, { key: 'Enter', isComposing: true })
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(turnCalls(fetchMock)).toBe(0)
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(turnCalls(fetchMock)).toBe(0)
     fireEvent.keyDown(input, { key: 'Enter' })
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(turnCalls(fetchMock)).toBe(1)
     await screen.findByText(/누가 쓰면 좋을까요\?/)
   })
 
@@ -93,7 +100,7 @@ describe('ConversationScreen', () => {
     const input = screen.getByRole('textbox', { name: '메시지' })
     fireEvent.change(input, { target: { value: '안녕' } })
     fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 })
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(turnCalls(fetchMock)).toBe(0)
   })
 
   it('서버가 받기 전에 실패하면 쓴 글을 입력창에 되살린다', async () => {
@@ -120,6 +127,40 @@ describe('ConversationScreen', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('답변을 만들지 못했습니다.')
     fireEvent.change(screen.getByRole('textbox', { name: '메시지' }), { target: { value: '다시' } })
     expect(screen.getByRole('button', { name: '보내기' })).toBeEnabled()
+  })
+
+  it('시작 전과 대화가 끝난 뒤에 다음 대화를 미리 준비시킨다', async () => {
+    const fetchMock = stubServer()
+    await startConversation()
+    expect(calls(fetchMock, '/prepare')).toBe(1) // 화면이 열릴 때
+    fireEvent.click(screen.getByRole('button', { name: '대화 끝내기' }))
+    await screen.findByText('대화가 끝났어요.')
+    await waitFor(() => expect(calls(fetchMock, '/prepare')).toBe(2)) // 끝난 뒤
+  })
+
+  it('대화 탭이 숨겨져 있으면 준비하지 않고, 열려 있는 동안 주기적으로 다시 알린다', async () => {
+    vi.useFakeTimers()
+    try {
+      const fetchMock = stubServer()
+      const { rerender } = render(<ConversationScreen visible={false} />)
+      expect(calls(fetchMock, '/prepare')).toBe(0)
+      rerender(<ConversationScreen visible />)
+      expect(calls(fetchMock, '/prepare')).toBe(1)
+      vi.advanceTimersByTime(4 * 60 * 1000)
+      expect(calls(fetchMock, '/prepare')).toBe(2)
+      rerender(<ConversationScreen visible={false} />)
+      vi.advanceTimersByTime(4 * 60 * 1000)
+      expect(calls(fetchMock, '/prepare')).toBe(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('미리 준비 요청이 실패해도 대화는 시작된다', async () => {
+    const fetchMock = stubServer()
+    fetchMock.mockImplementationOnce(async () => Promise.reject(new TypeError('network')))
+    await startConversation()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('대화를 끝내면 입력창이 사라지고 새 대화를 시작할 수 있다', async () => {

@@ -1,11 +1,13 @@
 import { useEffect, useReducer, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
-import { ApiError, endSession, sendTurn, startSession } from '../api/conversation'
+import { ApiError, endSession, prepareSession, sendTurn, startSession } from '../api/conversation'
 import {
   conversationReducer,
   initialConversation,
   toolNotice,
   type AssistantMessage,
 } from '../core/conversation'
+
+const PREPARE_INTERVAL_MS = 4 * 60 * 1000 // 서버 준비분 만료(5분)보다 짧게
 
 function errorMessage(error: unknown): string {
   return error instanceof ApiError ? error.message : '알 수 없는 오류가 났어요.'
@@ -57,6 +59,22 @@ export function ConversationScreen({ visible = true }: { visible?: boolean }) {
 
   // 화면을 떠나면 진행 중인 요청을 멈춘다(서버는 연결이 끊기면 CLI 턴을 정리한다)
   useEffect(() => () => controller.current?.abort(), [])
+
+  // 대화 탭이 보이고 대화 시작 전·끝난 뒤이면 서버가 다음 대화의 CLI를 미리 띄워 두게 한다
+  // (인사말 대기 단축). 서버는 쓰지 않으면 5분 뒤 닫으므로, 화면이 열려 있는 동안 4분마다 다시
+  // 알린다(같은 조건이면 만료만 미룬다). 결과를 기다리지 않고 실패해도 무시한다
+  const waitingToStart = visible && (state.status === 'idle' || state.status === 'ended')
+  useEffect(() => {
+    if (!waitingToStart) return
+    const prepare = new AbortController()
+    const ping = () => prepareSession('text', prepare.signal).catch(() => {})
+    void ping()
+    const timer = setInterval(ping, PREPARE_INTERVAL_MS)
+    return () => {
+      clearInterval(timer)
+      prepare.abort()
+    }
+  }, [waitingToStart])
 
   // 새 말풍선·문장이 오면 아래로 내린다. 위로 올려 읽는 중이면 끌어내리지 않는다
   const stickToBottom = useRef(true)

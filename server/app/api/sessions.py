@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -85,6 +85,13 @@ async def create_session(body: SessionCreate, request: Request, db: DbSession) -
         greeting=GreetingOut(turn_id=greeting.id, text=greeting.text),
         persona=PersonaOut(id=loaded.persona.id, name=loaded.persona.name),
     )
+
+
+@router.post("/sessions/prepare", status_code=204)
+async def prepare_session(body: SessionCreate, request: Request, db: DbSession) -> Response:
+    """대화 화면이 열리면 부른다. 다음 대화의 CLI를 미리 띄워 인사말 대기를 줄인다(사용량 없음)."""
+    await conversation.prepare_session(request.app, db, ConversationMode(body.mode))
+    return Response(status_code=204)
 
 
 @router.post(

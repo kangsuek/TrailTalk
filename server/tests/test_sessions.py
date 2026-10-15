@@ -506,3 +506,124 @@ async def test_client_disconnect_releases_turn(fake_cli, home, monkeypatch):
     finally:
         server.should_exit = True
         await serving
+
+
+def wait_for_records(fake_cli, count: int) -> list[dict]:
+    """가짜 CLI는 기동 직후 인자를 기록한다. 프로세스가 기록을 남길 때까지 잠깐 기다린다."""
+    deadline = time.monotonic() + 5
+    while len(records := fake_cli.records()) < count and time.monotonic() < deadline:
+        time.sleep(0.02)
+    return records
+
+
+def test_prepare_then_start_reuses_cli(api):
+    """미리 띄운 CLI를 시작할 때 재사용한다(프로세스 기동·첫 요청 준비 시간을 인사말에서 뺀다)."""
+    from app.services.conversation import _session_prompt
+    from app.services.profile import profile_with_persona
+
+    assert api.post("/api/sessions/prepare", json={"mode": "text"}).status_code == 204
+    prepared = api.app.state.prepared
+    [record] = wait_for_records(api.fake_cli, 1)
+    assert api.post("/api/sessions/prepare", json={"mode": "text"}).status_code == 204  # 멱등
+    assert api.app.state.prepared is prepared
+
+    body = start(api)
+    assert body["session"]["id"] == prepared.id
+    assert body["greeting"]["text"]
+    assert len(api.fake_cli.records()) == 1  # 새 프로세스를 띄우지 않았다
+    assert api.app.state.prepared is None and api.app.state.llm.active_count == 1
+    row = session_row(api, prepared.id)
+    assert row.started_at == prepared.started_at
+
+    # CLI가 죽어 --resume으로 다시 띄울 때도 미리 띄울 때와 같은 프롬프트가 나온다
+    async def resume_prompt(db):
+        profile, loaded = await profile_with_persona(db, api.app.state.settings)
+        return _session_prompt(api.app.state.settings, profile, loaded, row.mode, row.started_at)
+
+    args = record["args"]
+    assert load(api, resume_prompt) == args[args.index("--system-prompt") + 1]
+
+
+def test_prepared_cli_is_dropped_when_profile_changes(api):
+    api.post("/api/sessions/prepare", json={"mode": "text"})
+    old = api.app.state.prepared
+    wait_for_records(api.fake_cli, 1)
+    api.put("/api/profile", json={"nickname": "민수"})  # 프롬프트가 달라진다
+    body = start(api)
+    assert body["session"]["id"] != old.id
+    records = wait_for_records(api.fake_cli, 2)
+    prompt = records[-1]["args"][records[-1]["args"].index("--system-prompt") + 1]
+    assert "민수" in prompt
+    assert api.app.state.llm.active_count == 1
+    assert api.app.state.runtimes.get(old.id) is None
+
+
+def test_prepared_cli_is_not_reused_across_morning_and_afternoon(api, monkeypatch):
+    """준비 시각을 시작 시각으로 쓰므로, 그 사이 오전·오후(또는 날짜)가 바뀌면 새로 띄운다."""
+    from datetime import timedelta
+
+    import app.services.conversation as conversation
+
+    api.post("/api/sessions/prepare", json={"mode": "text"})
+    old = api.app.state.prepared
+    wait_for_records(api.fake_cli, 1)
+    later = old.started_at + timedelta(hours=12)
+    monkeypatch.setattr(conversation, "utcnow", lambda: later)
+    body = start(api)
+    assert body["session"]["id"] != old.id
+    assert len(wait_for_records(api.fake_cli, 2)) == 2
+    assert api.app.state.runtimes.get(old.id) is None
+
+
+def test_stale_prepared_cli_is_replaced_by_next_prepare(api, monkeypatch):
+    """준비된 지 TTL(5분)이 지난 준비분은 다음 준비 요청 때 새 시각으로 갈아 끼운다."""
+    from datetime import timedelta
+
+    import app.services.conversation as conversation
+
+    api.post("/api/sessions/prepare", json={"mode": "text"})
+    old = api.app.state.prepared
+    later = old.started_at + timedelta(seconds=api.app.state.settings.session_prepare_ttl_s + 1)
+    monkeypatch.setattr(conversation, "utcnow", lambda: later)
+    api.post("/api/sessions/prepare", json={"mode": "text"})
+    new = api.app.state.prepared
+    assert new.id != old.id and new.started_at == later
+    assert api.app.state.llm.active_count == 1
+
+
+def test_prepare_again_extends_expiry(api):
+    api.post("/api/sessions/prepare", json={"mode": "text"})
+    prepared = api.app.state.prepared
+    first_timer = prepared.expiry
+    api.post("/api/sessions/prepare", json={"mode": "text"})
+    assert api.app.state.prepared is prepared and prepared.expiry is not first_timer
+    assert first_timer.cancelled() or first_timer.done()
+
+
+def test_prepare_with_other_mode_replaces_previous(api):
+    api.post("/api/sessions/prepare", json={"mode": "text"})
+    first = api.app.state.prepared
+    api.post("/api/sessions/prepare", json={"mode": "voice"})
+    assert api.app.state.prepared is not first and api.app.state.prepared.mode.value == "voice"
+    assert api.app.state.llm.active_count == 1
+    assert api.app.state.runtimes.get(first.id) is None
+
+
+def test_unused_prepared_cli_expires(fake_cli, home, monkeypatch):
+    monkeypatch.setenv("FAKE_CLAUDE_FIXTURE", "multiturn")
+    settings = fake_cli.settings.model_copy(update={"session_prepare_ttl_s": 0.2})
+    with TestClient(create_app(settings)) as client:
+        assert client.post("/api/sessions/prepare", json={"mode": "text"}).status_code == 204
+        prepared_id = client.app.state.prepared.id
+        deadline = time.monotonic() + 5
+        state = client.app.state
+        # 만료는 준비 해제 → CLI 닫기 → 런타임 폐기 순으로 진행되므로 정리가 끝날 때까지 기다린다
+        while time.monotonic() < deadline and (
+            state.prepared is not None or state.runtimes.get(prepared_id) is not None
+        ):
+            time.sleep(0.05)
+        assert client.app.state.prepared is None
+        assert client.app.state.llm.active_count == 0
+        assert client.app.state.runtimes.get(prepared_id) is None
+        # 만료 뒤에도 시작은 평소처럼 된다
+        assert client.post("/api/sessions", json={"mode": "text"}).status_code == 201

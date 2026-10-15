@@ -7,12 +7,19 @@
 
 프롬프트는 세션의 시작 시각·모드와 현재 프로필로 만든다. CLI가 죽어 --resume으로 다시 띄울 때도
 같은 값으로 다시 만든다.
+
+미리 띄우기: 화면이 열리면 세션 ID와 시작 시각을 먼저 정해 CLI만 띄워 둔다(prepare_session).
+시작할 때 같은 조건이면 그 ID·시각으로 세션 행을 만들어, 같은 프롬프트로 살아 있는 프로세스를
+재사용한다. 프로세스 기동·첫 요청 준비 시간(약 1.4초)을 인사말 대기에서 뺀다.
 """
 
 import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import aclosing
+from dataclasses import dataclass
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import anyio
 from fastapi import FastAPI
@@ -28,7 +35,15 @@ from app.api.events import (
     encode_sse,
     public_tool_name,
 )
-from app.db.models import ConversationMode, ConversationSession, SessionStatus, Turn, TurnRole
+from app.config import Settings
+from app.db.models import (
+    ConversationMode,
+    ConversationSession,
+    SessionStatus,
+    Turn,
+    TurnRole,
+    UserProfile,
+)
 from app.db.types import new_id, utcnow
 from app.errors import AppError
 from app.llm.backend import LlmError, LlmSession
@@ -106,31 +121,160 @@ async def get_session(db: AsyncSession, session_id: str) -> ConversationSession:
     return convo
 
 
+def _session_prompt(
+    settings: Settings,
+    profile: UserProfile,
+    loaded: LoadedPersona,
+    mode: ConversationMode,
+    started_at: datetime,
+) -> str:
+    """세션의 시스템 프롬프트. 미리 띄우기와 open_llm이 같은 글자를 만들도록 여기서만 조립한다."""
+    return build_system_prompt(
+        loaded.persona,
+        nickname=profile.nickname,
+        mode=mode.value,
+        now=started_at,
+        timezone=settings.timezone,
+    )
+
+
+async def _profile(app: FastAPI, db: AsyncSession) -> tuple[UserProfile, LoadedPersona]:
+    profile, loaded = await profile_with_persona(db, app.state.settings)
+    # 프로필·페르소나 행을 만들거나 고쳤으면 바로 커밋한다. 턴 내내 쓰기 잠금을 쥐면
+    # 같은 시간에 MCP save_note 같은 다른 쓰기가 SQLite 잠금 대기 끝에 실패한다
+    await db.commit()
+    return profile, loaded
+
+
+async def _get_cli(
+    app: FastAPI, session_id: str, prompt: str, resume_id: str | None = None
+) -> LlmSession:
+    settings = app.state.settings
+    runtime = app.state.runtimes.ensure(session_id)
+    return await app.state.llm.get(
+        session_id,
+        system_prompt=prompt,
+        model=settings.llm_chat_model,
+        resume_id=resume_id,
+        mcp_config=mcp_client_config(settings.internal_base_url, runtime),
+    )
+
+
 async def open_llm(
     app: FastAPI, db: AsyncSession, convo: ConversationSession
 ) -> tuple[LlmSession, LoadedPersona]:
     """대화의 CLI 세션과 프롬프트에 쓴 페르소나. CLI가 살아 있으면 재사용하고 없으면 --resume."""
-    settings = app.state.settings
-    profile, loaded = await profile_with_persona(db, settings)
-    # 프로필·페르소나 행을 만들거나 고쳤으면 바로 커밋한다. 턴 내내 쓰기 잠금을 쥐면
-    # 같은 시간에 MCP save_note 같은 다른 쓰기가 SQLite 잠금 대기 끝에 실패한다
-    await db.commit()
-    prompt = build_system_prompt(
-        loaded.persona,
-        nickname=profile.nickname,
-        mode=convo.mode.value,
-        now=convo.started_at,
-        timezone=settings.timezone,
-    )
-    runtime = app.state.runtimes.ensure(convo.id)
-    session = await app.state.llm.get(
-        convo.id,
-        system_prompt=prompt,
-        model=settings.llm_chat_model,
-        resume_id=convo.cli_session_id,
-        mcp_config=mcp_client_config(settings.internal_base_url, runtime),
-    )
+    profile, loaded = await _profile(app, db)
+    prompt = _session_prompt(app.state.settings, profile, loaded, convo.mode, convo.started_at)
+    session = await _get_cli(app, convo.id, prompt, convo.cli_session_id)
     return session, loaded
+
+
+@dataclass
+class PreparedSession:
+    """미리 띄운 CLI. 아직 DB 행이 없고, 시작할 때 이 ID·시작 시각으로 세션을 만든다."""
+
+    id: str
+    mode: ConversationMode
+    started_at: datetime
+    prompt: str
+    expiry: asyncio.Task | None = None
+
+    def matches(
+        self,
+        settings: Settings,
+        mode: ConversationMode,
+        profile: UserProfile,
+        loaded: LoadedPersona,
+    ) -> bool:
+        """재사용 조건: 지금 프로필로 다시 만든 프롬프트가 글자까지 같다(호칭·페르소나 등 프롬프트에
+        들어가는 값이 늘어나도 그대로 맞는다). 시작 시각은 준비 시각을 쓰므로, 준비된 지 TTL이
+        지났거나 그 사이 현지 날짜·오전/오후가 바뀌었으면 쓰지 않는다(일지 날짜·인사 톤 보호)."""
+        if self.mode is not mode:
+            return False
+        now_utc = utcnow()
+        # 너무 오래된 준비분은 새 시각으로 갈아 끼운다(시작 시각 오차를 TTL 안으로 묶는다)
+        if (now_utc - self.started_at).total_seconds() > settings.session_prepare_ttl_s:
+            return False
+        tz = ZoneInfo(settings.timezone)
+        then, now = self.started_at.astimezone(tz), now_utc.astimezone(tz)
+        if then.date() != now.date() or (then.hour < 12) != (now.hour < 12):
+            return False
+        return self.prompt == _session_prompt(settings, profile, loaded, mode, self.started_at)
+
+    def schedule_expiry(self, app: FastAPI) -> None:
+        if self.expiry is not None:
+            self.expiry.cancel()
+        self.expiry = asyncio.create_task(
+            _expire_prepared(app, self, app.state.settings.session_prepare_ttl_s)
+        )
+
+
+async def _drop_prepared(app: FastAPI, prepared: PreparedSession) -> None:
+    if prepared.expiry is not None and prepared.expiry is not asyncio.current_task():
+        prepared.expiry.cancel()
+    await teardown(app, prepared.id, None)
+
+
+async def _expire_prepared(app: FastAPI, prepared: PreparedSession, ttl_s: float) -> None:
+    await asyncio.sleep(ttl_s)
+    async with app.state.prepare_lock:
+        if app.state.prepared is prepared:
+            app.state.prepared = None
+            logger.info("미리 띄운 CLI 만료(session=%s)", prepared.id)
+            await _drop_prepared(app, prepared)
+
+
+async def prepare_session(app: FastAPI, db: AsyncSession, mode: ConversationMode) -> None:
+    """다음 대화에 쓸 CLI를 미리 띄운다. 같은 조건으로 이미 준비돼 있으면 아무것도 하지 않는다."""
+    settings = app.state.settings
+    async with app.state.prepare_lock:
+        profile, loaded = await _profile(app, db)
+        current: PreparedSession | None = app.state.prepared
+        if current is not None:
+            if current.matches(settings, mode, profile, loaded) and app.state.llm.is_alive(
+                current.id
+            ):
+                current.schedule_expiry(app)  # 화면이 아직 열려 있다: 만료를 미룬다
+                return
+            app.state.prepared = None
+            await _drop_prepared(app, current)
+        started_at = utcnow()
+        prompt = _session_prompt(settings, profile, loaded, mode, started_at)
+        prepared = PreparedSession(new_id(), mode, started_at, prompt)
+        try:
+            await _get_cli(app, prepared.id, prompt)
+        except BaseException:
+            app.state.runtimes.discard(prepared.id)
+            raise
+        prepared.schedule_expiry(app)
+        app.state.prepared = prepared
+        logger.info("CLI 미리 띄움(session=%s)", prepared.id)
+
+
+async def _take_prepared(
+    app: FastAPI, mode: ConversationMode, profile: UserProfile, loaded: LoadedPersona
+) -> PreparedSession | None:
+    """같은 조건으로 준비된 CLI를 꺼낸다. 조건이 다르면 정리한다. 준비 중이면 끝나길 기다린다."""
+    async with app.state.prepare_lock:
+        prepared: PreparedSession | None = app.state.prepared
+        if prepared is None:
+            return None
+        app.state.prepared = None
+        if prepared.expiry is not None:
+            prepared.expiry.cancel()
+        if prepared.matches(app.state.settings, mode, profile, loaded):
+            return prepared
+        await _drop_prepared(app, prepared)
+        return None
+
+
+async def cancel_prepared(app: FastAPI) -> None:
+    """앱 종료 때 만료 타이머를 멈추고 끝나길 기다린다. CLI는 매니저 종료가 닫는다."""
+    prepared: PreparedSession | None = getattr(app.state, "prepared", None)
+    if prepared is not None and prepared.expiry is not None:
+        prepared.expiry.cancel()
+        await asyncio.wait([prepared.expiry])
 
 
 async def teardown(app: FastAPI, session_id: str, cli_session_id: str | None) -> None:
@@ -144,9 +288,20 @@ async def teardown(app: FastAPI, session_id: str, cli_session_id: str | None) ->
 async def start_session(
     app: FastAPI, db: AsyncSession, mode: ConversationMode
 ) -> tuple[ConversationSession, Turn, LoadedPersona]:
-    convo = ConversationSession(mode=mode)
+    profile, loaded = await _profile(app, db)
+    prepared = await _take_prepared(app, mode, profile, loaded)
+    if prepared is not None:
+        convo = ConversationSession(id=prepared.id, mode=mode, started_at=prepared.started_at)
+    else:
+        convo = ConversationSession(mode=mode)
     db.add(convo)
-    await db.commit()
+    try:
+        await db.commit()
+    except BaseException:
+        if prepared is not None:  # 꺼낸 준비분(CLI·MCP 토큰)을 남기지 않는다
+            with anyio.CancelScope(shield=True):
+                await teardown(app, prepared.id, None)
+        raise
     session_id = convo.id
     runtime = app.state.runtimes.ensure(session_id)
     cli_session_id = None
