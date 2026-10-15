@@ -13,7 +13,7 @@ from app.config import Settings, settings
 from app.db.migrate import upgrade_to_head
 from app.db.session import create_engine_for, create_session_factory
 from app.errors import install_error_handlers
-from app.jobs import extract
+from app.jobs import extract, idle
 from app.llm.claude_cli import ClaudeCliBackend
 from app.llm.manager import LlmSessionManager
 from app.mcp.server import mount_mcp
@@ -51,10 +51,13 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
         )
         await llm.start()
         app.state.llm = llm
+        idle_watch = asyncio.create_task(idle.run(app), name="idle-watch")
         try:
             async with mcp.session_manager.run():
                 yield
         finally:
+            idle_watch.cancel()
+            await asyncio.wait([idle_watch])
             await conversation.cancel_prepared(app)
             await llm.shutdown()
             # CLI를 닫으면서 끝난 턴이 추출을 띄울 수 있어 그 뒤에 멈춘다
