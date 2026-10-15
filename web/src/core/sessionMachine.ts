@@ -3,6 +3,8 @@
 // 명령으로 내보내며, 화면·플랫폼 계층(AudioInput·AudioOutput·LocalQueue)이 실행한다.
 // UI·브라우저 API에 의존하지 않는다(안드로이드 Kotlin 포팅 대상). 전이 표는 shared/fixtures/transitions.json.
 
+import clientDefaults from '../../../shared/client-defaults.json'
+
 /** 대기·듣기·처리 중·말하기·쉬기·오프라인 보관·정리 */
 export type SessionStateName =
   | 'idle'
@@ -73,8 +75,10 @@ export interface SessionConfig {
   idleTimeoutMinutes: number
 }
 
-// shared/client-defaults.json의 session.idle_timeout_minutes와 같다(실제 값은 S3-06에서 서버가 준다)
-export const DEFAULT_SESSION_CONFIG: SessionConfig = { idleTimeoutMinutes: 30 }
+// 프로필을 받기 전 대체값(shared/client-defaults.json). 실제 값은 /api/profile의 client.session이다
+export const DEFAULT_SESSION_CONFIG: SessionConfig = {
+  idleTimeoutMinutes: clientDefaults.session.idle_timeout_minutes,
+}
 
 export interface Transition {
   state: SessionState

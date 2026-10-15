@@ -195,6 +195,24 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AudioConfig */
+        AudioConfig: {
+            upload: components["schemas"]["UploadAudioConfig"];
+            response: components["schemas"]["ResponseAudioConfig"];
+        };
+        /** ClientConfig */
+        ClientConfig: {
+            vad: components["schemas"]["VadConfig"];
+            session: components["schemas"]["ClientSessionConfig"];
+            audio: components["schemas"]["AudioConfig"];
+            /** Offline Notice */
+            offline_notice: string;
+        };
+        /** ClientSessionConfig */
+        ClientSessionConfig: {
+            /** Idle Timeout Minutes */
+            idle_timeout_minutes: number;
+        };
         /** GreetingOut */
         GreetingOut: {
             /** Turn Id */
@@ -312,6 +330,7 @@ export interface components {
             voice: string | null;
             /** Keep Audio */
             keep_audio: boolean;
+            client: components["schemas"]["ClientConfig"];
         };
         /**
          * ProfileUpdate
@@ -334,6 +353,14 @@ export interface components {
              * @default false
              */
             keep_audio: boolean;
+        };
+        /** ResponseAudioConfig */
+        ResponseAudioConfig: {
+            /**
+             * Codec
+             * @constant
+             */
+            codec: "mp3";
         };
         /** SavedCounts */
         SavedCounts: {
@@ -420,6 +447,42 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+        };
+        /** UploadAudioConfig */
+        UploadAudioConfig: {
+            /**
+             * Codec
+             * @constant
+             */
+            codec: "opus";
+            /**
+             * Sample Rate Hz
+             * @constant
+             */
+            sample_rate_hz: 16000;
+            /**
+             * Channels
+             * @constant
+             */
+            channels: 1;
+        };
+        /**
+         * VadConfig
+         * @description Silero VAD 확률 임계값과 발화 길이. 재생 중(setVadMode playback)에는 playback_* 값을 쓴다.
+         */
+        VadConfig: {
+            /** Speech Threshold */
+            speech_threshold: number;
+            /** Silence Threshold */
+            silence_threshold: number;
+            /** Playback Speech Threshold */
+            playback_speech_threshold: number;
+            /** Playback Silence Threshold */
+            playback_silence_threshold: number;
+            /** End Of Speech Silence Ms */
+            end_of_speech_silence_ms: number;
+            /** Min Speech Ms */
+            min_speech_ms: number;
         };
         /** ValidationError */
         ValidationError: {

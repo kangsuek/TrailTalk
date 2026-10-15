@@ -55,6 +55,8 @@ class Settings(BaseSettings):
     default_persona: str = "jenny"
     timezone: str = "Asia/Seoul"
     web_dist_dir: Path = REPO_DIR / "web" / "dist"
+    # 클라이언트 설정값 기본값(app/client_config.py, /api/profile의 client)
+    client_defaults_path: Path = REPO_DIR / "shared" / "client-defaults.json"
 
 
 settings = Settings()

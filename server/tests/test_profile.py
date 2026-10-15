@@ -1,11 +1,26 @@
 """GET/PUT /api/profile(S1-08)."""
 
+import json
+
 import pytest
+from fastapi.testclient import TestClient
 
+from app.config import REPO_DIR
 from app.db.models import Persona
+from app.main import create_app
 
 
-def test_get_creates_default_profile_and_syncs_persona(client):
+def _repo_client_defaults() -> dict:
+    return json.loads((REPO_DIR / "shared" / "client-defaults.json").read_text(encoding="utf-8"))
+
+
+def test_get_creates_default_profile_and_syncs_persona(make_settings):
+    # 셸의 IDLE_TIMEOUT_S에 흔들리지 않게 기본값을 명시한다
+    with TestClient(create_app(make_settings(idle_timeout_s=1800))) as client:
+        _check_default_profile(client)
+
+
+def _check_default_profile(client):
     response = client.get("/api/profile")
     assert response.status_code == 200
     assert response.json() == {
@@ -14,6 +29,7 @@ def test_get_creates_default_profile_and_syncs_persona(client):
         "persona_id": "jenny",
         "voice": None,
         "keep_audio": False,
+        "client": _repo_client_defaults(),
     }
 
     async def persona():
@@ -93,3 +109,17 @@ async def test_profile_created_concurrently_keeps_outer_transaction(db_session):
     assert profile.nickname == "먼저"
     await db_session.commit()
     assert convo.mode.value == "text"  # rollback으로 만료되지 않았다
+
+
+def test_client_config_follows_server_idle_timeout(make_settings):
+    with TestClient(create_app(make_settings(idle_timeout_s=600))) as client:
+        body = client.get("/api/profile").json()
+        assert body["client"]["session"] == {"idle_timeout_minutes": 10}
+        assert (
+            client.put("/api/profile", json={"keep_audio": True}).json()["client"] == body["client"]
+        )
+
+
+def test_client_config_is_read_only(client):
+    response = client.put("/api/profile", json={"client": {"vad": {}}})
+    assert response.status_code == 422

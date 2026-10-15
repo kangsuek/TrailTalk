@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import clientDefaults from '../../../shared/client-defaults.json'
 import fixture from '../../../shared/fixtures/transitions.json'
 import {
+  DEFAULT_SESSION_CONFIG,
   initialSession,
   transition,
   type SessionConfig,
@@ -84,5 +86,11 @@ describe('세션 상태 머신 성질', () => {
     const state = Object.freeze({ ...initialSession, name: 'speaking' as const, turnId: 't' })
     expect(() => transition(state, { type: 'tap' })).not.toThrow()
     expect(state.name).toBe('speaking')
+  })
+})
+
+describe('기본 설정', () => {
+  it('프로필을 받기 전 대체값은 shared/client-defaults.json에서 온다', () => {
+    expect(DEFAULT_SESSION_CONFIG.idleTimeoutMinutes).toBe(clientDefaults.session.idle_timeout_minutes)
   })
 })

@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Request
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
+from app.client_config import ClientConfig
 from app.db.session import DbSession
 from app.services.profile import persona_id_of, profile_with_persona, sync_persona
 
@@ -35,6 +36,8 @@ class ProfileOut(BaseModel):
     persona_id: str
     voice: str | None
     keep_audio: bool
+    # 클라이언트 설정값(읽기 전용, 규약 5절)
+    client: ClientConfig
 
 
 class ProfileUpdate(BaseModel):
@@ -49,13 +52,15 @@ class ProfileUpdate(BaseModel):
     keep_audio: bool = False
 
 
-def _out(profile, settings) -> ProfileOut:
+def _out(profile, request: Request) -> ProfileOut:
+    settings = request.app.state.settings
     return ProfileOut(
         nickname=profile.nickname,
         interests=list(profile.interests),
         persona_id=persona_id_of(profile, settings),
         voice=profile.voice,
         keep_audio=profile.keep_audio,
+        client=request.app.state.client_config,
     )
 
 
@@ -64,7 +69,7 @@ async def get_profile(request: Request, db: DbSession) -> ProfileOut:
     settings = request.app.state.settings
     profile, _ = await profile_with_persona(db, settings)
     await db.commit()
-    return _out(profile, settings)
+    return _out(profile, request)
 
 
 @router.put("/profile")
@@ -79,4 +84,4 @@ async def put_profile(body: ProfileUpdate, request: Request, db: DbSession) -> P
             value = list(dict.fromkeys(value))  # 순서를 지키며 중복 제거
         setattr(profile, name, value)
     await db.commit()
-    return _out(profile, settings)
+    return _out(profile, request)

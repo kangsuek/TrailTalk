@@ -9,6 +9,7 @@ from starlette.types import Scope
 
 from app.api import health, journal, profile, sessions
 from app.api.events import register_event_schemas
+from app.client_config import load_client_config
 from app.config import Settings, settings
 from app.db.migrate import upgrade_to_head
 from app.db.session import create_engine_for, create_session_factory
@@ -66,6 +67,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="TrailTalk", lifespan=lifespan)
     app.state.settings = app_settings
+    app.state.client_config = load_client_config(app_settings)  # 틀린 파일이면 시작하지 않는다
     app.state.runtimes = RuntimeRegistry()
     app.state.prepared = None  # 미리 띄운 CLI(services/conversation.py PreparedSession)
     app.state.prepare_lock = asyncio.Lock()

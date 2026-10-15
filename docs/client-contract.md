@@ -27,7 +27,7 @@
 
 **일지 API**: `GET /api/journal?from=YYYY-MM-DD&to=YYYY-MM-DD` → 일지 목록(최신순). 날짜는 서버 시간대의 현지 날짜이고 둘 다 포함하며, 생략하면 최근 30일이다(한 번에 366일까지, 2000-01-01~9998-12-31 밖이거나 범위가 틀리면 422 `invalid_range`). 사용자가 한마디도 하지 않은 대화는 빠진다. 항목은 `{id, date, started_at, ended_at, status, title, summary: [줄], tags, journal_status, counts: {idea, todo, memo}}`이고, 클라이언트는 `date`로 날짜별로 묶는다(시간대 계산을 하지 않는다). `journal_status`는 `pending`(정리 중)·`done`·`failed`(정리 실패)·`null`(정리 기록 없음: 아직 끝나지 않은 대화, 또는 일지 정리가 생기기 전에 끝난 대화)이다. `GET /api/journal/{id}` → `{session: 위 항목, persona_name, notes: [{id, kind, content, starred, done, created_at}], turns: [{id, seq, role, text, interrupted, created_at}]}`(없으면 404 `session_not_found`. 목록에서 빠지는 대화도 ID로는 조회된다). `turns`는 전문이고 `interrupted`는 끝까지 말하지 못한 답변이다. 전문의 캐릭터 화자 이름은 `persona_name`(현재 프로필의 페르소나 이름)을 쓴다(코드에 두지 않는다). `POST /api/journal/{id}/retry` → 202 일지 항목: 정리에 실패했거나(`failed`) 정리 기록이 없는(`null`) 끝난 대화를 다시 정리한다. 정리 중·완료면 아무것도 하지 않고 그대로 준다(끝나지 않은 대화는 409 `session_not_ended`). 클라이언트는 `journal_status`가 `pending`인 동안 목록·상세를 3초마다(최대 약 2분) 다시 불러와 정리가 끝난 것을 보여 준다. `PATCH /api/notes/{id}` `{starred?, done?, content?}` → 바뀐 노트. 아이디어의 `done`은 다 했거나 접은 아이디어를 닫는 데 쓴다(다음 대화의 기억에서 빠진다). 보낸 필드만 바꾸며 `content`는 앞뒤 공백을 빼고 1~500자이며 여러 줄도 된다(없으면 404 `note_not_found`).
 
-**프로필 API**: `GET /api/profile` → `{nickname, interests, persona_id, voice, keep_audio}`(처음 조회하면 기본값으로 만든다). `PUT /api/profile`은 보낸 필드만 바꾼다. `nickname`은 앞뒤 공백을 빼고 1~20자 한 줄이고, `null`이면 기본 호칭으로 돌아간다. `interests`는 최대 10개, 각 1~30자이며 중복은 제거한다. 없는 `persona_id`는 404 `persona_not_found`다. 프로필을 바꾸면 다음 세션부터 반영된다. 진행 중인 세션의 프롬프트는 시작 때 고정돼(서버 `conversation_session.system_prompt`) CLI를 다시 띄우거나 서버를 재시작해도 그대로다.
+**프로필 API**: `GET /api/profile` → `{nickname, interests, persona_id, voice, keep_audio, client}`(처음 조회하면 기본값으로 만든다). `client`는 5절의 클라이언트 설정값이고 읽기 전용이다(`PUT`에 보내면 422). `PUT /api/profile`은 보낸 필드만 바꾼다. `nickname`은 앞뒤 공백을 빼고 1~20자 한 줄이고, `null`이면 기본 호칭으로 돌아간다. `interests`는 최대 10개, 각 1~30자이며 중복은 제거한다. 없는 `persona_id`는 404 `persona_not_found`다. 프로필을 바꾸면 다음 세션부터 반영된다. 진행 중인 세션의 프롬프트는 시작 때 고정돼(서버 `conversation_session.system_prompt`) CLI를 다시 띄우거나 서버를 재시작해도 그대로다.
 
 **순서**: 한 턴은 `turn`으로 시작해 `sentence`·`tool`이 섞여 오다가 `done` 또는 `error` 하나로 끝난다. 모든 필드는 항상 실려 온다(스키마상 required). `summary`의 도구별 타입은 3단계 확정 때 스키마로 고정한다. 시작 전 오류(세션 없음, 진행 중인 턴 등)는 SSE가 아니라 7절의 JSON 오류 응답으로 온다.
 
@@ -59,7 +59,22 @@
 
 ## 5. 클라이언트 설정값
 
-기본값은 `shared/client-defaults.json`, 실제 값은 서버 `/api/profile`이 내려준다(3단계 S3-06에서 추가, 지금 응답에는 없다).
+클라이언트는 `GET /api/profile`의 `client`를 받아 쓴다. 받기 전(또는 받지 못했을 때)에는 같은 형식의 `shared/client-defaults.json`을 대체값으로 쓴다. 서버는 시작할 때 이 파일을 읽어 검증하며(서버 `app/client_config.py`), 틀리면 서버가 시작하지 않는다. 다만 `session.idle_timeout_minutes`는 서버의 무발화 종료 기준(`IDLE_TIMEOUT_S`)으로 덮어써 서버 안전망과 늘 같다(0 이하면 서버가 시작하지 않는다). 서버만 따로 배포할 때는 `shared/`를 함께 두거나 `CLIENT_DEFAULTS_PATH`로 파일 위치를 준다.
+
+| 필드 | 기본값 | 의미 |
+|---|---|---|
+| `vad.speech_threshold` | 0.5 | Silero VAD 음성 확률이 이 값 이상이면 말 시작으로 본다(평상시) |
+| `vad.silence_threshold` | 0.35 | 이 값 아래면 무음으로 본다. `speech_threshold`보다 작다 |
+| `vad.playback_speech_threshold` | 0.8 | 캐릭터 음성 재생 중(`setVadMode playback`)의 말 시작 기준. 제니 목소리를 사용자 발화로 잘못 듣지 않게 올린다. 평상시 값 이상 |
+| `vad.playback_silence_threshold` | 0.65 | 재생 중 무음 기준. 평상시 값 이상, 재생 중 말 시작 기준보다 작다 |
+| `vad.end_of_speech_silence_ms` | 1200 | 무음이 이만큼 이어지면 발화 끝(`speech_end`) |
+| `vad.min_speech_ms` | 300 | 이보다 짧은 소리는 발화로 보지 않고 버린다 |
+| `session.idle_timeout_minutes` | 30 | 듣기·쉬기에서 이 시간 동안 말이 없으면 정리로 간다(4절). 소수일 수 있다 |
+| `audio.upload` | `{codec: "opus", sample_rate_hz: 16000, channels: 1}` | 발화 업로드 형식(3절) |
+| `audio.response` | `{codec: "mp3"}` | 답변 문장 오디오 형식(3절) |
+| `offline_notice` | "지금은 산이 깊어서 메모만 해둘게요!" | 오프라인 보관 때 기기 TTS로 읽는 안내 문구 |
+
+VAD 수치는 시작값이며 S3-10과 실제 산책 측정에서 조정한다.
 
 ## 6. 알림음·안내 문구
 
