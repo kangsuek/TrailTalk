@@ -1,4 +1,4 @@
-# 작업 인계 (2026-10-16, 3단계 진행 중: S3-06·S3-08·S3-09 완료 시점)
+# 작업 인계 (2026-10-16, 3단계 진행 중: S3-06·S3-08·S3-09 완료, S3-01·S3-02 코드 완료)
 
 새 세션은 이 문서부터 읽는다. 작업 규칙과 명령은 [CLAUDE.md](../CLAUDE.md)에 있다. 진행 상태의 기준은 [구현 계획서](implementation-plan.md)의 진행 대시보드(2장)다. 이 문서에는 계획서·설계서에 없는 맥락만 둔다. 상태가 바뀌면 이 문서도 갱신하거나 지운다.
 
@@ -8,7 +8,7 @@
 
 ```text
 TrailTalk 작업을 이어서 진행합니다. 먼저 docs/handoff.md를 읽고, 구현 계획서(docs/implementation-plan.md)의 진행 대시보드(2장)와 3단계 절(6장)을 확인하세요.
-지금은 3단계(웹 음성 대화) 진행 중이고 S3-06·S3-08·S3-09가 끝났습니다. 다음 작업 후보는 handoff 1장 "다음 작업"에 있습니다.
+지금은 3단계(웹 음성 대화) 진행 중이고 S3-06·S3-08·S3-09가 끝났고, S3-01·S3-02는 코드만 끝났습니다(실제 OpenAI 확인·보이스 선택 남음). 다음 작업 후보는 handoff 1장 "다음 작업"에 있습니다.
 작업 규칙: 응답은 한글, 소스 수정 전 Plan Mode로 계획 승인, 유닛 테스트에 더해 Playwright 실제 구동 검증, 커밋 전 서브에이전트 diff 리뷰, 이 저장소는 자동 커밋·push 허용, 작업 시작·끝에 계획서 상태 갱신.
 주의: .env 값은 열어 보지 마세요. 포트 8000에 떠 있는 사용자 서버(실제 DB)는 건드리지 말고, 실제 구동 검증은 handoff 2장의 방법대로 다른 포트에서 하세요. 실제 Claude CLI(구독 사용량)와 OpenAI API(과금)는 필요할 때만 쓰고 쓸 때 알려 주세요.
 다음 작업을 무엇으로 할지 제게 먼저 확인한 뒤 계획을 세우세요.
@@ -22,13 +22,18 @@ TrailTalk 작업을 이어서 진행합니다. 먼저 docs/handoff.md를 읽고,
   - `web/src/core/sessionMachine.ts`: 이벤트 → 다음 상태 + 명령을 내는 순수 함수다. 마이크·재생·서버 호출은 하지 않는다.
   - `shared/fixtures/transitions.json`: 사례 22개. 안드로이드 테스트도 이 파일을 읽는다.
   - 아직 화면에 연결하지 않았다(S3-13에서 연결). 플랫폼이 지킬 약속은 규약 4절에 있다(인사말은 `session_started {turnId}`, `sentence`·`turn_done`에 턴 ID, 모든 요청은 성공·실패 이벤트로 끝냄, 큐 비우기 결과는 `queue_flushed {remaining}`).
+- **S3-01·S3-02(`f89057b`, 진행 중)**: `app/voice/stt.py`·`tts.py`·`audio.py`·`openai_http.py`. 앱에서 `app.state.stt`·`app.state.tts`로 쓴다(S3-03에서 연결).
+  - 남은 것: OpenAI 계정 크레딧이 없어(429 `insufficient_quota`) 실제 호출을 못 했다. 충전 뒤 `RUN_REAL_OPENAI=1 uv run pytest tests/test_voice_real.py -q -s`(TTS 1회·STT 2회)로 확인한다. 특히 `gpt-transcribe`의 multipart `languages` 필드 이름이 맞는지(SDK식 `languages[]`일 수도 있음) 본다.
+  - 그 다음 `uv run python -m tests.voice_samples`로 보이스 6종 샘플(`server/data/voice-samples/`)을 만들어 사용자가 고르게 하고 `jenny.yaml`의 `tts_voice`·`instructions`를 확정한다(지금 임시 `coral`).
+  - OpenAI TTS에는 피치가 없어 페르소나 `voice.pitch`를 지우고 `instructions`(말투 지시)를 넣었다. `gpt-4o-mini-tts`는 `speed`를 무시한다는 보고가 있어, 빠르기는 `instructions`에도 적었다.
+  - TTS 전처리 `speech_text`는 음성에만 쓰고 화면 문장(`sentence.text`)은 그대로 둔다.
 - **결정(2026-10-16)**
   - D2 음성 인식은 OpenAI API다. 서버 PC가 Intel CPU라 로컬 큰 모델로는 3초 목표가 어렵다.
   - D3 목소리는 OpenAI TTS다. 인식과 같은 OpenAI 키를 쓰고, 보이스는 S3-02에서 같은 문장으로 샘플을 만들어 사용자가 듣고 고른다.
   - 쉬는 중에도 30분 동안 말이 없으면 대화를 끝낸다(서버와 같음). 상태 머신과 쉬기 문구에 반영했다.
   - D1(서버 위치)은 아직 정하지 않았다. S3-14 전에 정한다.
 - **환경**
-  - OpenAI 키: `.env`의 `WHISPER_API_KEY`에 사용자가 값을 넣어 두었고, `TTS_API_KEY`는 비어 있다. 같은 키를 쓰므로 S3-01·S3-02 계획 때 설정 이름(하나로 합칠지)을 정한다. 자동 모드는 `.env` 값 조회를 막으니 값은 보지 않는다.
+  - OpenAI 키: 설정 이름은 `OPENAI_API_KEY` 하나로 합쳤고 예전 이름 `WHISPER_API_KEY`도 받는다(사용자 `.env`는 `WHISPER_API_KEY`에 값이 있음). 키가 없어도 서버는 시작하고 음성 호출만 `voice_unavailable`(503)이 된다. `.env` 값은 보지 않는다.
   - ffmpeg 7.1을 `~/.local/bin/ffmpeg`에 설치했다(2026-10-16). Homebrew가 없고 MacPorts는 sudo가 필요해서, PyPI `imageio-ffmpeg` 0.6.0 휠에 든 Intel macOS 정적 빌드를 꺼내 넣었다(코드 서명 없음). Opus 인코딩·디코딩, MP3, 16kHz 모노 WAV 변환을 확인했다. 다른 서버로 옮길 때(D1)는 그곳에 따로 설치하거나 `imageio-ffmpeg` 의존성으로 경로를 얻는 방식을 검토한다.
   - 서버 PC는 Intel i9 Mac(x86_64), 메모리 64GB다.
 - **2단계 점검 결과**(사용자 요청 2회): 1차 오류 2건·개선 4건, 2차(10-16) 오류 3건·개선 2건(`a5719a3`·`ec34790`)을 고쳤다. 2차 내용은 다음과 같다.
@@ -37,9 +42,10 @@ TrailTalk 작업을 이어서 진행합니다. 먼저 docs/handoff.md를 읽고,
   - 무발화 종료의 `ended_at`을 마지막 활동 시각으로 기록한다.
   - 끝내기 응답이 `pending`이면 정리 중 안내를 보인다.
   - 진행 중 대화의 일지 상세에 안내를 보인다.
-- **테스트(현재)**: pytest 373(3개는 실제 CLI라 건너뜀), Vitest 138, E2E 3.
+- **테스트(현재)**: pytest 440(4개는 실제 CLI·OpenAI라 건너뜀), Vitest 138, E2E 3.
 - **다음 작업**(사용자에게 먼저 고르게 한다)
-  - S3-01 STT·S3-02 TTS: OpenAI 키를 쓴다(실제 호출은 과금되므로 쓸 때 사용자에게 알린다). 테스트는 모의 응답으로 한다.
+  - S3-01·S3-02 마무리: OpenAI 크레딧을 충전하면 실제 확인과 보이스 선택을 한다(과금되므로 쓸 때 사용자에게 알린다).
+  - S3-03 음성 턴 스트리밍: S3-01·S3-02 provider를 턴 SSE에 연결한다. 테스트는 모의 provider로 할 수 있다.
   - 키가 필요 없는 것: S3-10 AudioInput(vad-web·녹음·Opus 인코딩, S3-06 설정값을 쓴다), S3-11 AudioOutput(이어 재생). 다만 실제 음성 턴(S3-03) 없이 만들면 끝까지 이어 보기 어렵다.
   - 작업마다 Plan Mode로 계획을 승인받는다.
 
@@ -99,10 +105,9 @@ TrailTalk 작업을 이어서 진행합니다. 먼저 docs/handoff.md를 읽고,
 
 | 과제 | 처리 시점 |
 |---|---|
-| 답변 속 마크다운(`**굵게**`, 링크)이 그대로 보임 | 3단계 TTS 전처리(서버) |
+| 답변 속 마크다운(`**굵게**`, 링크)이 화면에 그대로 보임(음성은 `speech_text`가 지움, `f89057b`) | 필요 시 화면 표시 정리 |
 | 도구 알림의 출처 호스트 추출을 서버로 옮기기(지금은 웹 `toolNotice`) | S3-15 summary 스키마 확정 때 |
 | 음성 답변 상한 5문장이 걸으며 듣기에 길지 않은지 | 3단계 완료 기준 표에 항목 있음 |
-| 문장 분할기가 인용 뒤에서 문장을 나눔(`"좋아요." 라고…`) | 3단계 TTS |
 | 끼어들기 때 "재생한 문장까지만" 기록(지금은 보낸 문장까지), 끝난 턴의 cancel 처리 | S3-04 |
 | 일지 상세의 화자 이름은 현재 페르소나(세션에 persona_id 없음) | 5단계 페르소나 전환(S5-01) |
 | 추출 재현율을 실제 일지로 다시 재기, 평가 정답 사용자 검토 | 실제 사용 일지가 쌓인 뒤 |

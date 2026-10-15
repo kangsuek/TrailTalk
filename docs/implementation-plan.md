@@ -30,7 +30,7 @@
 | [5. 다듬기·확장](#8-5단계--다듬기와-확장) | 대기 | 0/6 | 2주 | | | |
 | **전체** | | **28/56** | 약 10~13주 | | | |
 
-- **현재 작업**: 없음(S3-06·S3-08·S3-09 완료)
+- **현재 작업**: S3-01 STT·S3-02 TTS — 코드 완료(`f89057b`). 남은 것: 실제 OpenAI 호출 확인·보이스 선택(OpenAI 크레딧 충전 대기)
 - **다음 작업**: S3-01 STT·S3-02 TTS(OpenAI 키, ffmpeg 7.1 설치 완료). 결정 D1(서버 위치)은 S3-14 전에
 
 ## 3. 0단계 — 준비와 기술 검증
@@ -334,8 +334,8 @@
 
 | ID | 작업 | 상태 | 산출물 | 커밋 |
 |---|---|---|---|---|
-| S3-01 | STT(Whisper) | 대기 | `server/app/voice/stt.py` | |
-| S3-02 | TTS | 대기 | `server/app/voice/tts.py` | |
+| S3-01 | STT(Whisper) | 진행 중 | `server/app/voice/stt.py`, `server/app/voice/audio.py` | `f89057b` |
+| S3-02 | TTS | 진행 중 | `server/app/voice/tts.py` | `f89057b` |
 | S3-03 | 음성 턴 스트리밍 | 대기 | `server/app/api/turns.py` | |
 | S3-04 | 끼어들기 API | 대기 | `server/app/api/turns.py` | |
 | S3-05 | 음성 원본 보관 옵션 | 대기 | `server/app/jobs/` | |
@@ -357,17 +357,19 @@
 | S3-16 | 음성 흐름 E2E | 대기 | `web/e2e/` | |
 
 #### S3-01 STT(Whisper)
-- [ ] `SttProvider` 인터페이스
-- [ ] 결정 D2에 따라 OpenAI Whisper API 또는 faster-whisper 구현
-- [ ] Opus 업로드를 ffmpeg로 디코딩(WAV 대체 경로 수용)
-- [ ] 테스트: 모의 응답, 오류·시간 초과
+- [x] `SttProvider` 인터페이스
+- [x] 결정 D2에 따라 OpenAI Whisper API 또는 faster-whisper 구현(OpenAI `gpt-transcribe`, `languages=ko`. 설정 `STT_MODEL`로 변경 가능)
+- [x] Opus 업로드를 ffmpeg로 디코딩(WAV 대체 경로 수용). webm·wav·mp3·m4a는 그대로 보내고 그 밖(ogg/opus 등)만 16kHz 모노 WAV로 변환, 120초 상한
+- [x] 테스트: 모의 응답, 오류·시간 초과
+- [ ] 실제 API 확인(`RUN_REAL_OPENAI=1 uv run pytest tests/test_voice_real.py`). 2026-10-16 OpenAI 크레딧 소진(429 `insufficient_quota`)으로 미실행. multipart `languages` 필드 형식 확인 필요
 
 #### S3-02 TTS
-- [ ] `TtsProvider` 인터페이스
-- [ ] 결정 D3의 클라우드 TTS 구현, 문장별 MP3
-- [ ] 보이스·속도·피치는 `jenny.yaml`에서 읽기
-- [ ] 문장 분할기가 인용 뒤에서 문장을 나누는 문제(`"좋아요." 라고 했어요.`가 두 문장이 됨, 1단계 재검증에서 미룸)
-- [ ] 테스트: 모의 응답
+- [x] `TtsProvider` 인터페이스
+- [x] 결정 D3의 클라우드 TTS 구현, 문장별 MP3(`gpt-4o-mini-tts`). 마크다운·링크·URL·이모지는 읽기 전에 지움(`speech_text`)
+- [x] 보이스·속도·피치는 `jenny.yaml`에서 읽기. OpenAI TTS에 피치가 없어 `pitch`를 지우고 말투 지시 `instructions`로 대신함
+- [x] 문장 분할기가 인용 뒤에서 문장을 나누는 문제(`"좋아요." 라고 했어요.`가 두 문장이 됨, 1단계 재검증에서 미룸)
+- [x] 테스트: 모의 응답
+- [ ] 보이스 선택: `uv run python -m tests.voice_samples`로 6종 샘플을 만들어 사용자가 듣고 고름(지금은 임시 `coral`). OpenAI 크레딧 충전 대기
 
 #### S3-03 음성 턴 스트리밍
 - [ ] 오디오 업로드 → `transcript` 이벤트
@@ -712,3 +714,4 @@
 | 2026-10-16 | 2단계 마일스톤 종료(사용자 확인), 3단계 시작. 결정 D2 OpenAI 음성 인식 API, D3 OpenAI TTS | `8d65aa0` |
 | 2026-10-16 | S3-08 세션 상태 머신·S3-09 상태 전이 표 완료. 쉬기 중 30분 무발화 종료 유지(사용자 결정) | `9202e04` |
 | 2026-10-16 | S3-06 클라이언트 설정값: VAD 임계값 키 추가, `/api/profile`의 `client`로 제공, 규약 5절 | `2b643a9` |
+| 2026-10-16 | S3-01 STT·S3-02 TTS 코드 완료(OpenAI provider, ffmpeg 변환, TTS 전처리, 인용 조사 분할 수정, 페르소나 `pitch`→`instructions`). 실제 호출 확인·보이스 선택은 크레딧 충전 뒤 | `f89057b` |
