@@ -21,9 +21,11 @@
 | `error` | `code`, `message` | 스트림 도중 오류. 코드는 7절 공통 오류와 같다. 이 뒤에는 이벤트가 오지 않는다 |
 | `transcript` | `text` | 3단계에서 추가(현재 스키마에는 없음). 음성 업로드의 STT 결과 |
 
-**도구 이름(`name`)**: `save_note`, `search_notes`, `summarize_session`, `pause_session`, `end_session`, `web_search`, `web_fetch`. 결과 요약(`summary`)은 `web_search`면 `{query, links: [{title, url}]}`, `web_fetch`면 `{code, bytes}`, 앱 도구면 `{result}`다.
+**도구 이름(`name`)**: `save_note`, `search_notes`, `summarize_session`, `pause_session`, `end_session`, `web_search`, `web_fetch`. 결과 요약(`summary`)은 `web_search`면 `{query, links: [{title, url}]}`, `web_fetch`면 `{code, bytes}`, 앱 도구면 `{result}`다. 결과 형식을 알 수 없으면 `{}`가 온다.
 
 **세션 API**: `POST /api/sessions` `{mode: "text"|"voice"}` → 201 `{session, greeting: {turn_id, text}, persona: {id, name}}`. 화면의 캐릭터 이름은 `persona.name`을 쓰고 코드에 넣지 않는다(NFR-08). `POST /api/sessions/{id}/turns` `{text}`(1~4000자) → 위 SSE. `POST /api/sessions/{id}/end` → 세션(`status: ended`, 여러 번 불러도 같다). 쉬기(`paused`) 상태에서 턴을 보내면 다시 `active`가 된다. 턴 도중 연결을 끊으면 사용자 메시지만 기록된다.
+
+**프로필 API**: `GET /api/profile` → `{nickname, interests, persona_id, voice, keep_audio}`(처음 조회하면 기본값으로 만든다). `PUT /api/profile`은 보낸 필드만 바꾼다. `nickname`은 앞뒤 공백을 빼고 1~20자 한 줄이고, `null`이면 기본 호칭으로 돌아간다. `interests`는 최대 10개, 각 1~30자이며 중복은 제거한다. 없는 `persona_id`는 404 `persona_not_found`다. 프로필을 바꾸면 다음 세션부터 반영된다(진행 중인 세션의 프롬프트는 그대로).
 
 **순서**: 한 턴은 `turn`으로 시작해 `sentence`·`tool`이 섞여 오다가 `done` 또는 `error` 하나로 끝난다. 모든 필드는 항상 실려 온다(스키마상 required). `summary`의 도구별 타입은 3단계 확정 때 스키마로 고정한다. 시작 전 오류(세션 없음, 진행 중인 턴 등)는 SSE가 아니라 7절의 JSON 오류 응답으로 온다.
 
@@ -37,7 +39,7 @@
 
 ## 5. 클라이언트 설정값
 
-기본값은 `shared/client-defaults.json`, 실제 값은 서버 `/api/profile`이 내려준다.
+기본값은 `shared/client-defaults.json`, 실제 값은 서버 `/api/profile`이 내려준다(3단계 S3-06에서 추가, 지금 응답에는 없다).
 
 ## 6. 알림음·안내 문구
 
@@ -65,11 +67,15 @@
 | 404 | `session_not_found` | 없는 대화 세션 |
 | 409 | `session_ended` | 이미 끝난 세션에 턴 요청 |
 | 409 | `turn_in_progress` | 같은 세션의 이전 답변이 아직 진행 중 |
+| 500 | `persona_invalid` | 서버의 페르소나 YAML 오류(프로필 요청에서 올 수 있다. 세션 시작에서는 일반 문구로 바뀐다) |
+| 401·403·409·429 등 | `unauthorized`·`forbidden`·`conflict`·`too_many_requests`, 그 밖은 HTTP 상태 이름 | 일반 HTTP 오류(`server/app/errors.py`) |
 | 404 | `persona_not_found` | 없는 페르소나(`PUT /api/profile`) |
 | 502 | `llm_error` | 인사말·답변을 만들지 못함(SSE에서는 `error` 이벤트) |
 | 502 | `llm_process_exited` | Claude CLI 프로세스가 끝남. 다음 요청에서 맥락을 이어 다시 띄운다 |
 | 504 | `llm_timeout` | 답변 시간 초과 |
 
 기능별 코드(예: `session_not_found`)는 해당 API를 만들 때 이 표에 추가한다.
+
+**클라이언트 측 코드**(서버가 보내지 않고 클라이언트가 만든다, 웹 `src/api/conversation.ts`): `network_error`(서버에 연결할 수 없음), `http_error`(오류 응답이 공통 형식이 아님), `stream_closed`(턴 스트림이 `done`·`error` 없이 끊김), `bad_event`(SSE `data`가 JSON이 아님). 안드로이드도 같은 코드를 쓴다.
 
 **요청 ID**: 클라이언트는 `X-Request-ID` 헤더(영문·숫자·`._-`, 64자 이내)를 보낼 수 있고, 없거나 형식이 맞지 않으면 서버가 새로 만든다. 서버는 모든 응답 헤더에 `X-Request-ID`를 넣는다.

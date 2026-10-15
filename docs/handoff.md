@@ -5,7 +5,7 @@
 ## 1. 지금 어디까지 왔나
 
 - **0단계 완료.** 저장소 골격, Claude CLI 검증 스파이크([spikes/claude-cli.md](spikes/claude-cli.md)), 서버용 토큰
-- **1단계(제니 텍스트 대화) 작업 11/11 완료, 마감 전.** 완료한 작업과 커밋은 아래와 같다.
+- **1단계(제니 텍스트 대화) 작업 11/11 완료, 완료 기준 모두 통과(2026-10-15 측정). 사용자 확인 대기.** 완료한 작업과 커밋은 아래와 같다.
 
 | 작업 | 내용 | 커밋 |
 |---|---|---|
@@ -19,9 +19,9 @@
 | S1-06 | 앱 도구 MCP 서버(FastAPI 내부 `/internal/mcp/`) | `03bf1c8` |
 | S1-08 | 세션·턴·프로필 API(`app/api/sessions.py`·`profile.py`, `app/services/conversation.py`) | `e4e9a7d` |
 | S1-10 | 웹 텍스트 대화 화면(`web/src/core/sse.ts`·`conversation.ts`, `screens/ConversationScreen.tsx`), S1-04 Playwright 가짜 CLI | `aec44df` |
-| S1-11 | 페르소나 톤 평가 20/20(5회차, 음성 상한 5문장). 도구 `server/tests/persona_eval/`, 리포트 `docs/eval/` | `d867e14`, 이 문서와 같은 커밋 |
+| S1-11 | 페르소나 톤 평가 20/20(5회차, 음성 상한 5문장). 도구 `server/tests/persona_eval/`, 리포트 `docs/eval/` | `d867e14`, `ea609ec` |
 
-- **다음 작업: 1단계 측정·마감.** 계획서 4장 완료 기준 표를 측정하고(첫 sentence 2초 이내 10회 중앙값 등) 마일스톤 체크리스트를 처리한 뒤 사용자 확인을 받는다. 앱은 `./run.sh`(실제 CLI) 또는 `./run.sh --fake`로 띄운다.
+- **다음 작업: 1단계 마감 사용자 확인 → 2단계(대화 기록).** 측정값은 계획서 4장 완료 기준 표에 있다(첫 sentence 중앙값 1.29초, 톤 20/20 등). 확인을 받으면 대시보드에 1단계 완료와 마일스톤 커밋을 적는다. 앱은 `./run.sh`(실제 CLI) 또는 `./run.sh --fake`로 띄운다.
 - E2E(`npm run e2e`)는 가짜 CLI 전용 서버(8100)·웹(5199)을 띄운다. 서버 API를 바꾸면 `npm run gen:api`로 웹 타입을 다시 만든다.
 - 1단계 남은 작업 전체 계획은 사용자 승인을 받았다. 요약은 아래 4절에 있고, 원본은 `~/.claude/plans/scalable-discovering-emerson.md`다.
 

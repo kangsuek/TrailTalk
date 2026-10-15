@@ -29,18 +29,20 @@ server/            FastAPI (Python 3.12, uv)
   app/llm/         Claude CLI 프로세스 관리, stream-json 파서
   app/mcp/         제니 도구 MCP 서버
   app/jobs/        세션 종료 추출, 브리핑
+  app/services/    대화 처리(conversation: 세션·턴 SSE), 대화별 런타임(runtime: MCP 토큰·턴 락), 프로필
+  app/openapi.py   OpenAPI 내보내기(웹 타입 생성 gen:api)
   app/db/          SQLAlchemy 모델
   personas/        캐릭터 YAML
-  tests/
+  tests/           pytest. fakes/(가짜 CLI), fixtures/claude_cli/(녹화), persona_eval/(톤 평가, 실제 CLI)
 web/               React + TypeScript + Vite
   src/core/        세션 상태 머신, 오프라인 큐 (브라우저 API 비의존)
   src/platform/    AudioInput, AudioOutput, LocalQueue 브라우저 구현
   src/screens/     ConversationScreen, JournalListScreen, JournalDetailScreen, SettingsScreen
   src/api/         서버 API 클라이언트
   e2e/             Playwright
-android/           4단계에서 생성
+android/           4단계에서 구현(지금은 README만)
 shared/            효과음, 상태 전이 표, 클라이언트 설정 기본값
-docs/              설계서, 계획서, 규약, 검증 기록(spikes/)
+docs/              설계서, 계획서, 규약, 검증 기록(spikes/), 톤 평가 리포트(eval/)
 ```
 
 ## 명령

@@ -146,6 +146,30 @@ def test_start_session_saves_greeting(api):
     assert api.app.state.runtimes.get(session["id"]) is not None
 
 
+def test_persona_yaml_change_needs_no_code_change(fake_cli, home, monkeypatch, tmp_path):
+    """NFR-08: YAML만 바꿔도 캐릭터 이름·말투가 화면 응답과 프롬프트에 반영된다."""
+    import yaml
+
+    source = fake_cli.settings.persona_dir / f"{fake_cli.settings.default_persona}.yaml"
+    data = yaml.safe_load(source.read_text(encoding="utf-8"))
+    old_name = data["name"]
+    data["name"] = "테스트캐릭터"
+    data["speech_style"]["register"] = "차분하고 느긋한 존댓말"
+    personas = tmp_path / "personas"
+    personas.mkdir()
+    (personas / source.name).write_text(yaml.safe_dump(data, allow_unicode=True), "utf-8")
+
+    monkeypatch.setenv("FAKE_CLAUDE_FIXTURE", "multiturn")
+    settings = fake_cli.settings.model_copy(update={"persona_dir": personas})
+    with TestClient(create_app(settings)) as client:
+        body = client.post("/api/sessions", json={"mode": "voice"}).json()
+    assert body["persona"]["name"] == "테스트캐릭터"
+    args = fake_cli.records()[-1]["args"]
+    prompt = args[args.index("--system-prompt") + 1]
+    assert "너의 이름: 테스트캐릭터" in prompt and "말투: 차분하고 느긋한 존댓말" in prompt
+    assert old_name not in prompt
+
+
 def test_voice_session_uses_profile_nickname(api):
     assert api.put("/api/profile", json={"nickname": "민수"}).status_code == 200
     start(api, mode="voice")
