@@ -61,8 +61,9 @@ def test_voice_and_text_situation(jenny):
     voice = build(jenny, mode="voice")
     text = build(jenny, mode="text")
     assert "2026년 10월 13일(화) 오전 7시 30분" in voice
-    assert "한 번에 4문장 이내" in voice and "이모지" in voice and "잠깐 찾아볼게요" in voice
-    assert "4문장 이내" not in text and "텍스트 대화" in text
+    limit = f"{jenny.speech_style.max_sentences_voice}문장 이내"  # 상한은 YAML 값
+    assert f"한 번에 {limit}" in voice and "이모지" in voice and "잠깐 찾아볼게요" in voice
+    assert limit not in text and "텍스트 대화" in text
 
 
 def test_role_rules(jenny):

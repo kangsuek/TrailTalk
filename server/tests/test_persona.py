@@ -28,7 +28,7 @@ def test_default_persona_is_valid():
     loaded = load_persona(settings.persona_dir, settings.default_persona)
     persona = loaded.persona
     assert persona.id == settings.default_persona
-    assert persona.speech_style.max_sentences_voice == 4
+    assert persona.speech_style.max_sentences_voice == 5
     assert persona.voice.pitch == 2.0
     assert len(loaded.version) == 16
 
