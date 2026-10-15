@@ -3,6 +3,7 @@
 세션이 끝나면(끝내기 API, end_session 도구, 무발화 타임아웃) ensure_extraction이 세션당 하나의
 백그라운드 작업을 띄운다. 가벼운 모델을 CLI 단발 호출로 부르고(app/llm/claude_cli.run_oneshot),
 결과를 Pydantic 스키마로 검증한다. 실패하면 한 번 다시 시도하고, 그래도 실패하면 failed로 둔다.
+아이디어·할 일·메모는 중복(app/jobs/dedupe.py)을 거른 뒤 노트로 저장한다.
 상태(conversation_session.extract_status)는 pending → done/failed다.
 """
 
@@ -14,7 +15,8 @@ from fastapi import FastAPI
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 from sqlalchemy import select
 
-from app.db.models import ConversationSession, ExtractStatus, Turn, TurnRole
+from app.db.models import ConversationSession, ExtractStatus, Note, NoteKind, Turn, TurnRole
+from app.jobs.dedupe import new_items
 from app.llm.backend import LlmError
 from app.llm.claude_cli import run_oneshot
 from app.persona.rules import EXTRACT_INSTRUCTION
@@ -148,6 +150,17 @@ async def run_extraction(app: FastAPI, session_id: str) -> Extraction | None:
             convo.title = result.title
             convo.summary = "\n".join(result.summary)
             convo.tags = list(dict.fromkeys(result.tags))
+            # 대화 중 save_note로 저장한 노트와 겹치지 않는 항목만 노트로 남긴다(S2-03)
+            rows = await db.execute(select(Note.content).where(Note.session_id == session_id))
+            existing = list(rows.scalars())
+            for kind, items in (
+                (NoteKind.IDEA, result.ideas),
+                (NoteKind.TODO, result.todos),
+                (NoteKind.MEMO, result.memos),
+            ):
+                for content in new_items(existing, items):
+                    db.add(Note(session_id=session_id, kind=kind, content=content))
+                    existing.append(content)
             convo.extract_status = ExtractStatus.DONE
             await db.commit()
 

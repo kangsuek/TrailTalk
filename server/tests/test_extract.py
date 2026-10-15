@@ -6,12 +6,13 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app.db.models import ConversationSession, ExtractStatus, SessionStatus, Turn, TurnRole
 from app.jobs.extract import Extraction, build_transcript
 from app.llm.events import TurnStarted
 from app.main import create_app
-from tests.test_sessions import hook_llm, session_row, start, turn
+from tests.test_sessions import hook_llm, load, session_row, start, turn
 
 FIXTURE = Path(__file__).parent / "fixtures" / "claude_cli" / "extract.jsonl"
 
@@ -235,3 +236,41 @@ def test_extraction_schema_limits():
     for bad in ({"summary": []}, {"title": ""}, {"tags": ["a"] * 6}, {"extra": 1}):
         with pytest.raises(ValueError):
             Extraction.model_validate({**data, **bad})
+
+
+def test_extracted_items_become_notes_without_duplicates(api):
+    from app.db.models import Note, NoteKind
+
+    session_id = start(api)["session"]["id"]
+    turn(api, session_id, "바나나는?")
+
+    async def saved_by_tool(db):  # 대화 중 save_note가 저장한 노트(종류가 달라도 같은 내용)
+        db.add(
+            Note(
+                session_id=session_id,
+                kind=NoteKind.MEMO,
+                content="Claude Code 최신 버전으로 업데이트",
+            )
+        )
+        await db.commit()
+
+    load(api, saved_by_tool)
+    end(api, session_id)
+
+    async def notes(db):
+        rows = await db.execute(
+            select(Note.kind, Note.content, Note.turn_id).where(Note.session_id == session_id)
+        )
+        return sorted(tuple(r) for r in rows)
+
+    assert load(api, notes) == sorted(
+        [
+            (NoteKind.MEMO, "Claude Code 최신 버전으로 업데이트", None),
+            (NoteKind.IDEA, "산책하면서 개발 도구 소식을 음성으로 듣는 습관 만들기", None),
+            (
+                NoteKind.MEMO,
+                "uv는 파이썬 패키지와 프로젝트를 관리하는 빠른 도구다(docs.astral.sh)",
+                None,
+            ),
+        ]
+    )
