@@ -43,7 +43,11 @@ done
 
 # 의존성(처음 한 번)
 (cd "$ROOT/server" && uv sync --quiet)
-[ -d "$ROOT/web/node_modules" ] || (cd "$ROOT/web" && npm install)
+# node_modules가 없거나 package-lock.json이 마지막 설치보다 새로우면 다시 설치한다
+if [ ! -f "$ROOT/web/node_modules/.package-lock.json" ] ||
+  [ "$ROOT/web/package-lock.json" -nt "$ROOT/web/node_modules/.package-lock.json" ]; then
+  (cd "$ROOT/web" && npm install)
+fi
 
 if [ "$FAKE" = 1 ]; then
   FAKE_DIR="$ROOT/.run-fake"
@@ -102,7 +106,8 @@ wait_for "http://127.0.0.1:$WEB_PORT" "웹"
 URL="http://127.0.0.1:$WEB_PORT"
 echo
 echo "TrailTalk 실행 중: $URL  (서버 http://127.0.0.1:$API_PORT, 종료: Ctrl+C)"
-if [ "$OPEN" = 1 ] && command -v open >/dev/null; then open "$URL"; fi
+# 브라우저 열기에 실패해도(다른 OS의 open 등) 서버는 계속 띄워 둔다
+if [ "$OPEN" = 1 ] && command -v open >/dev/null; then open "$URL" || true; fi
 
 # 서버나 웹 중 하나가 죽으면 나머지도 끈다(bash 3.2에는 wait -n이 없어 상태를 살핀다)
 while :; do

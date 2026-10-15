@@ -163,6 +163,101 @@ describe('ConversationScreen', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
+  it('서버가 받기 전에 실패한 메시지를 다시 보내도 말풍선이 하나뿐이다', async () => {
+    let first = true
+    stubServer(() => {
+      if (first) {
+        first = false
+        return new Response(JSON.stringify({ error: { code: 'turn_in_progress', message: '이전 답변이 아직 끝나지 않았습니다.' } }), { status: 409 })
+      }
+      return sseResponse(TURN)
+    })
+    await startConversation()
+    const input = screen.getByRole('textbox', { name: '메시지' })
+    fireEvent.change(input, { target: { value: '안녕' } })
+    fireEvent.click(screen.getByRole('button', { name: '보내기' }))
+    await screen.findByRole('alert')
+    expect(input).toHaveValue('안녕')
+    fireEvent.click(screen.getByRole('button', { name: '보내기' }))
+    await screen.findByText(/누가 쓰면 좋을까요\?/)
+    const log = screen.getByRole('log', { name: '대화 내용' })
+    expect(within(log).getAllByText('안녕')).toHaveLength(1)
+  })
+
+  it('턴 시작 전에 SSE 오류가 오면 말풍선을 빼고 쓴 글을 되살린다', async () => {
+    stubServer(() => sseResponse([{ type: 'error', code: 'internal_error', message: '서버 내부 오류가 발생했습니다.' }]))
+    await startConversation()
+    const input = screen.getByRole('textbox', { name: '메시지' })
+    fireEvent.change(input, { target: { value: '저장 안 된 글' } })
+    fireEvent.click(screen.getByRole('button', { name: '보내기' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('서버 내부 오류가 발생했습니다.')
+    expect(input).toHaveValue('저장 안 된 글')
+    const log = screen.getByRole('log', { name: '대화 내용' })
+    expect(within(log).queryByText('저장 안 된 글')).not.toBeInTheDocument()
+  })
+
+  it('서버에서 이미 끝난 세션이면 새 대화 시작으로 넘어간다', async () => {
+    stubServer(() => new Response(JSON.stringify({ error: { code: 'session_ended', message: '이미 끝난 대화입니다.' } }), { status: 409 }))
+    await startConversation()
+    fireEvent.change(screen.getByRole('textbox', { name: '메시지' }), { target: { value: '안녕' } })
+    fireEvent.click(screen.getByRole('button', { name: '보내기' }))
+    expect(await screen.findByRole('button', { name: '새 대화 시작' })).toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: '메시지' })).not.toBeInTheDocument()
+  })
+
+  it('답변 없이 오류로 끝난 말풍선에는 안내 문구를 보여 준다', async () => {
+    stubServer(() => sseResponse([{ type: 'turn', turn_id: 'a1' }, { type: 'error', code: 'llm_error', message: '답변을 만들지 못했습니다.' }]))
+    await startConversation()
+    fireEvent.change(screen.getByRole('textbox', { name: '메시지' }), { target: { value: '안녕' } })
+    fireEvent.click(screen.getByRole('button', { name: '보내기' }))
+    expect(await screen.findByText('답변을 받지 못했어요.')).toBeInTheDocument()
+  })
+
+  it('문장도 알림도 없이 끝난 답(쉬기·끝내기 도구만 쓴 경우)은 빈 말풍선을 그리지 않는다', async () => {
+    stubServer(() =>
+      sseResponse([
+        { type: 'turn', turn_id: 'a1' },
+        { type: 'done', turn_id: 'a1', text: '', interrupted: false, session_status: 'paused' },
+      ]),
+    )
+    await startConversation()
+    fireEvent.change(screen.getByRole('textbox', { name: '메시지' }), { target: { value: '쉬자' } })
+    fireEvent.click(screen.getByRole('button', { name: '보내기' }))
+    await screen.findByText('쉬는 중이에요. 말을 걸면 다시 이어 가요.')
+    const log = screen.getByRole('log', { name: '대화 내용' })
+    expect(within(log).getAllByText('도우미')).toHaveLength(1) // 인사말 말풍선만
+  })
+
+  it('터치 화면에서는 Enter가 보내지 않는다(줄바꿈)', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(pointer: coarse)' }))
+    const fetchMock = stubServer()
+    await startConversation()
+    const input = screen.getByRole('textbox', { name: '메시지' })
+    fireEvent.change(input, { target: { value: '안녕' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(turnCalls(fetchMock)).toBe(0)
+  })
+
+  it('대화가 시작되면 입력창에 포커스를 둔다', async () => {
+    stubServer()
+    await startConversation()
+    await waitFor(() => expect(screen.getByRole('textbox', { name: '메시지' })).toHaveFocus())
+  })
+
+  it('브라우저 탭이 백그라운드면 미리 준비를 보내지 않는다', async () => {
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
+    try {
+      const fetchMock = stubServer()
+      render(<ConversationScreen />)
+      expect(calls(fetchMock, '/prepare')).toBe(0)
+      visibility.mockReturnValue('visible')
+      fireEvent(document, new Event('visibilitychange'))
+      await waitFor(() => expect(calls(fetchMock, '/prepare')).toBe(1))
+    } finally {
+      visibility.mockRestore()
+    }
+  })
+
   it('대화를 끝내면 입력창이 사라지고 새 대화를 시작할 수 있다', async () => {
     stubServer()
     await startConversation()

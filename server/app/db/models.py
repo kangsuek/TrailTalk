@@ -80,6 +80,9 @@ class ConversationSession(Base):
     # Claude CLI 프로세스가 죽었을 때 --resume으로 맥락을 잇는 값
     # (docs/spikes/claude-cli.md 5절)
     cli_session_id: Mapped[str | None] = mapped_column(String(64))
+    # 세션을 처음 열 때 만든 시스템 프롬프트. CLI를 다시 띄울 때 같은 프롬프트를 쓴다
+    # (그사이 프로필을 바꿔도 진행 중인 대화는 그대로)
+    system_prompt: Mapped[str | None] = mapped_column(Text)
 
     turns: Mapped[list["Turn"]] = relationship(
         back_populates="session",

@@ -129,6 +129,11 @@ body {
   list-style: none;
 }
 
+/* 대화 전에는 목록이 비어 있어도(스크린리더용) 자리를 차지하지 않게 */
+.messages:not(:has(.message)) {
+  margin: 0;
+}
+
 .message {
   display: flex;
   flex-direction: column;

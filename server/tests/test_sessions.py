@@ -337,6 +337,9 @@ def test_greeting_failure_leaves_no_session(api, monkeypatch):
     response = api.post("/api/sessions", json={"mode": "text"})
     assert response.status_code == 502
     assert response.json()["error"]["code"] == "llm_error"
+    assert (
+        response.json()["error"]["message"] == "대화를 시작하지 못했어요. 잠시 뒤 다시 해 주세요."
+    )
     assert load(api, lambda db: db.scalar(select(ConversationSession.id))) is None
     assert api.app.state.llm.active_count == 0
     assert not api.app.state.runtimes._items  # MCP 토큰도 남기지 않는다
@@ -627,3 +630,102 @@ def test_unused_prepared_cli_expires(fake_cli, home, monkeypatch):
         assert client.app.state.runtimes.get(prepared_id) is None
         # 만료 뒤에도 시작은 평소처럼 된다
         assert client.post("/api/sessions", json={"mode": "text"}).status_code == 201
+
+
+def system_prompt_of(record: dict) -> str:
+    args = record["args"]
+    return args[args.index("--system-prompt") + 1]
+
+
+def test_prepare_failure_hides_internal_path(fake_cli, home, tmp_path):
+    secret = tmp_path / "secret-dir" / "claude"
+    settings = fake_cli.settings.model_copy(update={"claude_cli_path": str(secret)})
+    with TestClient(create_app(settings)) as client:
+        for path in ("/api/sessions/prepare", "/api/sessions"):
+            response = client.post(path, json={"mode": "text"})
+            assert response.status_code == 502
+            message = response.json()["error"]["message"]
+            assert "secret-dir" not in message and "FileNotFoundError" not in message
+            assert message == "대화를 시작하지 못했어요. 잠시 뒤 다시 해 주세요."
+
+
+def test_profile_change_does_not_alter_running_session_prompt(api):
+    """진행 중인 대화는 CLI를 다시 띄워도(--resume) 시작 때의 프롬프트를 쓴다."""
+    session_id = start(api)["session"]["id"]
+    original = system_prompt_of(api.fake_cli.records()[-1])
+    assert session_row(api, session_id).system_prompt == original
+    api.put("/api/profile", json={"nickname": "바뀐호칭"})
+    assert turn(api, session_id, "__crash__")[-1].type == "error"
+    assert turn(api, session_id, "괜찮아?")[-1].type == "done"
+    resumed = api.fake_cli.records()[-1]
+    assert "--resume" in resumed["args"]
+    assert system_prompt_of(resumed) == original and "바뀐호칭" not in original
+
+
+def test_session_prompt_survives_server_restart(fake_cli, home, monkeypatch):
+    monkeypatch.setenv("FAKE_CLAUDE_FIXTURE", "multiturn")
+    with TestClient(create_app(fake_cli.settings)) as client:
+        session_id = client.post("/api/sessions", json={"mode": "text"}).json()["session"]["id"]
+        original = system_prompt_of(fake_cli.records()[-1])
+        client.put("/api/profile", json={"nickname": "새호칭"})
+    with TestClient(create_app(fake_cli.settings)) as client:  # 서버 재시작(메모리 상태 없음)
+        response = client.post(f"/api/sessions/{session_id}/turns", json={"text": "안녕"})
+        assert events_of(response)[-1].type == "done"
+    restarted = fake_cli.records()[-1]
+    assert "--resume" in restarted["args"] and system_prompt_of(restarted) == original
+
+
+def test_end_request_survives_turn_error(api):
+    """끝내기 도구를 부른 뒤 턴이 오류로 끝나도 세션은 끝난다."""
+    from app.errors import AppError
+
+    session_id = start(api)["session"]["id"]
+    runtime = api.app.state.runtimes.get(session_id)
+
+    def end_then_fail(event):
+        if isinstance(event, TurnStarted):
+            runtime.requested_status = SessionStatus.ENDED  # end_session 도구 호출 흉내
+            raise AppError("llm_error", "도구 뒤 오류", 502)
+
+    hook_llm(api, end_then_fail)
+    last = turn(api, session_id, "오늘은 여기까지")[-1]
+    assert last.type == "error" and last.code == "session_ended"  # 클라이언트가 끝난 화면으로 간다
+    row = session_row(api, session_id)
+    assert row.status is SessionStatus.ENDED and row.ended_at is not None
+    assert api.app.state.llm.active_count == 0
+    assert api.app.state.runtimes.get(session_id) is None
+
+
+def test_pause_request_survives_turn_error(api):
+    from app.errors import AppError
+
+    session_id = start(api)["session"]["id"]
+    runtime = api.app.state.runtimes.get(session_id)
+
+    def pause_then_fail(event):
+        if isinstance(event, TurnStarted):
+            runtime.requested_status = SessionStatus.PAUSED
+            raise AppError("llm_error", "도구 뒤 오류", 502)
+
+    hook_llm(api, pause_then_fail)
+    assert turn(api, session_id, "잠깐 쉬자")[-1].type == "error"
+    assert session_row(api, session_id).status is SessionStatus.PAUSED
+
+
+def test_user_turn_save_error_sends_error_event(api, monkeypatch):
+    import app.services.conversation as conversation
+
+    session_id = start(api)["session"]["id"]
+    original = conversation._set_status
+    calls = []
+
+    async def fail_once(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("db down")
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(conversation, "_set_status", fail_once)
+    events = turn(api, session_id, "안녕")
+    assert [e.type for e in events] == ["error"] and events[0].code == "internal_error"
+    assert turn(api, session_id, "다시 안녕")[-1].type == "done"

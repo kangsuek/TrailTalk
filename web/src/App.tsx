@@ -13,6 +13,8 @@ const SCREENS = [
 ] as const
 
 type ScreenId = (typeof SCREENS)[number]['id']
+
+const HEALTH_INTERVAL_MS = 30_000
 type ServerState = 'checking' | 'ok' | 'error'
 
 const SERVER_LABELS: Record<ServerState, string> = {
@@ -25,14 +27,24 @@ function App() {
   const [screen, setScreen] = useState<ScreenId>('conversation')
   const [server, setServer] = useState<ServerState>('checking')
 
+  // 서버 상태는 앱을 열 때와 30초마다, 탭이 다시 보일 때 확인한다(서버가 꺼졌다 켜져도 반영)
   useEffect(() => {
     const controller = new AbortController()
-    fetchHealth(controller.signal)
-      .then((ok) => setServer(ok ? 'ok' : 'error'))
-      .catch(() => {
-        if (!controller.signal.aborted) setServer('error')
-      })
-    return () => controller.abort()
+    const check = () =>
+      fetchHealth(controller.signal)
+        .then((ok) => setServer(ok ? 'ok' : 'error'))
+        .catch(() => {
+          if (!controller.signal.aborted) setServer('error')
+        })
+    void check()
+    const timer = setInterval(check, HEALTH_INTERVAL_MS)
+    const onVisible = () => document.visibilityState === 'visible' && void check()
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+      controller.abort()
+    }
   }, [])
 
   const Current = SCREENS.find((s) => s.id === screen)!.Component

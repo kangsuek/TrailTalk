@@ -20,6 +20,7 @@ export class ApiError extends Error {
 }
 
 const NETWORK_ERROR = '서버에 연결할 수 없어요.'
+const GATEWAY_STATUSES = new Set([502, 503, 504])
 
 async function post(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
   let response: Response
@@ -46,6 +47,10 @@ async function errorOf(response: Response): Promise<ApiError> {
     }
   } catch {
     // 본문이 JSON이 아니면 상태 코드로만 알린다
+  }
+  // 개발 프록시·배포 터널은 서버가 꺼져 있으면 JSON 없이 502·503·504를 준다
+  if (GATEWAY_STATUSES.has(response.status)) {
+    return new ApiError('network_error', NETWORK_ERROR, response.status)
   }
   return new ApiError('http_error', `요청이 실패했어요(${response.status}).`, response.status)
 }
@@ -94,6 +99,9 @@ export async function sendTurn(
     try {
       event = JSON.parse(data) as StreamEvent
     } catch {
+      throw new ApiError('bad_event', '답변을 읽지 못했어요.', 0)
+    }
+    if (typeof event !== 'object' || event === null || typeof event.type !== 'string') {
       throw new ApiError('bad_event', '답변을 읽지 못했어요.', 0)
     }
     if (event.type === 'done' || event.type === 'error') finished = true

@@ -243,6 +243,7 @@ async def test_idle_reaper_and_shutdown_cleanup(fake_cli):
             await asyncio.sleep(0.05)
         assert manager.active_count == 0
         assert not session.alive and not work_dir.exists()
+        assert "idle" not in manager._key_locks  # 정리한 세션의 락도 남기지 않는다
         other = await manager.get("other", system_prompt="P", model="sonnet")
     finally:
         await manager.shutdown()

@@ -101,11 +101,23 @@ describe('sendTurn', () => {
     expect(cancelled).toBe(true)
   })
 
-  it('네트워크 오류는 network_error로, JSON이 아닌 오류 응답은 http_error로 던진다', async () => {
+  it('네트워크 오류와 서버가 꺼져 있을 때의 게이트웨이 오류는 network_error, 그 밖은 http_error', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(new TypeError('fail'))))
     await expect(startSession()).rejects.toMatchObject({ code: 'network_error' })
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('bad gateway', { status: 502 })))
-    await expect(endSession('s1')).rejects.toMatchObject({ code: 'http_error', status: 502 })
+    for (const status of [502, 503, 504]) {
+      vi.stubGlobal('fetch', vi.fn(async () => new Response('bad gateway', { status })))
+      await expect(endSession('s1')).rejects.toMatchObject({
+        code: 'network_error',
+        message: '서버에 연결할 수 없어요.',
+      })
+    }
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('oops', { status: 500 })))
+    await expect(endSession('s1')).rejects.toMatchObject({ code: 'http_error', status: 500 })
+  })
+
+  it.each(['null', '3', '[]', '{"no_type":1}'])('객체가 아닌 이벤트(%s)는 bad_event로 던진다', async (data) => {
+    vi.stubGlobal('fetch', vi.fn(async () => sseResponse([new TextEncoder().encode(`data: ${data}\n\n`)])))
+    await expect(sendTurn('s1', '안녕', () => {})).rejects.toMatchObject({ code: 'bad_event' })
   })
 
   it('중단(abort)하면 원래 오류를 그대로 던진다', async () => {

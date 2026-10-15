@@ -98,6 +98,16 @@ def public_error(exc: AppError) -> AppError:
     return exc
 
 
+def start_error(exc: AppError) -> AppError:
+    """세션 시작·미리 띄우기 실패를 클라이언트에 보낼 오류로 바꾼다(내부 정보 없이 시작용 문구)."""
+    if isinstance(exc, LlmError) or exc.status_code >= 500:
+        logger.warning("세션 시작 실패(code=%s): %s", exc.code, exc.message)
+        return LlmError(
+            exc.code, "대화를 시작하지 못했어요. 잠시 뒤 다시 해 주세요.", exc.status_code
+        )
+    return exc
+
+
 async def _set_status(db: AsyncSession, session_id: str, status: SessionStatus) -> None:
     """상태를 바꾼다. 이미 끝난 세션은 건드리지 않는다(종료 요청과 턴이 겹쳐도 ended를 지킨다)."""
     values: dict = {"status": status}
@@ -163,10 +173,18 @@ async def _get_cli(
 async def open_llm(
     app: FastAPI, db: AsyncSession, convo: ConversationSession
 ) -> tuple[LlmSession, LoadedPersona]:
-    """대화의 CLI 세션과 프롬프트에 쓴 페르소나. CLI가 살아 있으면 재사용하고 없으면 --resume."""
+    """대화의 CLI 세션과 프롬프트에 쓴 페르소나. CLI가 살아 있으면 재사용하고 없으면 --resume.
+
+    프롬프트는 세션을 처음 열 때 만들어 세션 행에 고정한다. 그 뒤 프로필을 바꿔도 CLI를 다시 띄울
+    때(유휴 정리·크래시·서버 재시작 후 --resume) 같은 프롬프트를 쓴다. 다음 커밋 때 함께 저장된다.
+    """
     profile, loaded = await _profile(app, db)
-    prompt = _session_prompt(app.state.settings, profile, loaded, convo.mode, convo.started_at)
-    session = await _get_cli(app, convo.id, prompt, convo.cli_session_id)
+    if convo.system_prompt is None:
+        convo.system_prompt = _session_prompt(
+            app.state.settings, profile, loaded, convo.mode, convo.started_at
+        )
+        await db.commit()  # 이 턴이 오류로 끝나도 고정한 프롬프트는 남긴다
+    session = await _get_cli(app, convo.id, convo.system_prompt, convo.cli_session_id)
     return session, loaded
 
 
@@ -227,6 +245,13 @@ async def _expire_prepared(app: FastAPI, prepared: PreparedSession, ttl_s: float
 
 async def prepare_session(app: FastAPI, db: AsyncSession, mode: ConversationMode) -> None:
     """다음 대화에 쓸 CLI를 미리 띄운다. 같은 조건으로 이미 준비돼 있으면 아무것도 하지 않는다."""
+    try:
+        await _prepare_session(app, db, mode)
+    except AppError as exc:
+        raise start_error(exc) from exc  # CLI 실행 경로 같은 내부 정보를 응답에 싣지 않는다
+
+
+async def _prepare_session(app: FastAPI, db: AsyncSession, mode: ConversationMode) -> None:
     settings = app.state.settings
     async with app.state.prepare_lock:
         profile, loaded = await _profile(app, db)
@@ -291,7 +316,12 @@ async def start_session(
     profile, loaded = await _profile(app, db)
     prepared = await _take_prepared(app, mode, profile, loaded)
     if prepared is not None:
-        convo = ConversationSession(id=prepared.id, mode=mode, started_at=prepared.started_at)
+        convo = ConversationSession(
+            id=prepared.id,
+            mode=mode,
+            started_at=prepared.started_at,
+            system_prompt=prepared.prompt,  # 미리 띄운 CLI가 쓰는 프롬프트 그대로
+        )
     else:
         convo = ConversationSession(mode=mode)
     db.add(convo)
@@ -340,9 +370,7 @@ async def start_session(
         except Exception:
             logger.exception("시작 실패 정리 중 예외(session=%s)", session_id)
         if isinstance(exc, AppError):
-            if isinstance(exc, LlmError) or exc.status_code >= 500:
-                logger.warning("세션 시작 실패(code=%s): %s", exc.code, exc.message)
-            raise public_error(exc) from exc
+            raise start_error(exc) from exc
         raise
     return convo, greeting, persona
 
@@ -423,17 +451,22 @@ async def _run_turn(
     짧은 DB 작업 구간은 취소(연결 끊김)에서 보호한다. 쿼리 도중 취소되면 SQLAlchemy가
     커넥션을 폐기하다 그것마저 취소되어, 죽은 커넥션이 풀에 남는다.
     """
-    with anyio.CancelScope(shield=True):
-        convo = await db.get(ConversationSession, session_id)
-        if convo is not None and convo.status is not SessionStatus.ENDED:
-            last_seq = await db.scalar(
-                select(func.max(Turn.seq)).where(Turn.session_id == session_id)
-            )
-            seq = (last_seq if last_seq is not None else -1) + 1
-            user_turn = Turn(session_id=session_id, seq=seq, role=TurnRole.USER, text=text)
-            db.add(user_turn)
-            await _set_status(db, session_id, SessionStatus.ACTIVE)  # 쉬기 중이면 다시 이어 감
-            await db.commit()
+    try:
+        with anyio.CancelScope(shield=True):
+            convo = await db.get(ConversationSession, session_id)
+            if convo is not None and convo.status is not SessionStatus.ENDED:
+                last_seq = await db.scalar(
+                    select(func.max(Turn.seq)).where(Turn.session_id == session_id)
+                )
+                seq = (last_seq if last_seq is not None else -1) + 1
+                user_turn = Turn(session_id=session_id, seq=seq, role=TurnRole.USER, text=text)
+                db.add(user_turn)
+                await _set_status(db, session_id, SessionStatus.ACTIVE)  # 쉬기 중이면 이어 감
+                await db.commit()
+    except Exception:
+        logger.exception("사용자 턴 저장 실패(session=%s)", session_id)
+        yield _error(AppError("internal_error", "서버 내부 오류가 발생했습니다.", 500))
+        return
     if convo is None or convo.status is SessionStatus.ENDED:
         app.state.runtimes.discard(session_id)  # 위에서 새로 만든 런타임(토큰)을 남기지 않는다
         yield _error(SessionNotFound() if convo is None else SessionEnded())
@@ -547,9 +580,52 @@ async def _run_turn(
         )
     except AppError as exc:
         logger.warning("턴 오류(session=%s, code=%s): %s", session_id, exc.code, exc.message)
-        yield _error(exc)
+        yield _error(await _settle_after_error(app, db, runtime, session_id, exc))
     except Exception:
         logger.exception("턴 처리 중 예외(session=%s)", session_id)
-        yield _error(AppError("internal_error", "서버 내부 오류가 발생했습니다.", 500))
+        error = AppError("internal_error", "서버 내부 오류가 발생했습니다.", 500)
+        yield _error(await _settle_after_error(app, db, runtime, session_id, error))
     finally:
         runtime.current_user_turn_id = None
+        # 도구가 쉬기·끝내기를 요청한 뒤 턴이 오류나 연결 끊김으로 끝났어도 요청은 반영한다
+        # (정상 종료면 위에서 이미 꺼냈다). 끊김으로 취소된 중에도 끝까지 처리한다
+        leftover = runtime.pop_requested_status()
+        if leftover is not None:
+            with anyio.CancelScope(shield=True):
+                await _apply_leftover_status(app, db, session_id, leftover)
+
+
+async def _settle_after_error(
+    app: FastAPI,
+    db: AsyncSession,
+    runtime: ConversationRuntime,
+    session_id: str,
+    error: AppError,
+) -> AppError:
+    """턴이 오류로 끝났을 때 도구가 남긴 쉬기·끝내기 요청을 반영하고 보낼 오류를 고른다.
+
+    끝내기 요청이었으면 세션이 끝났음을 알려 클라이언트가 끝난 화면으로 가게 한다.
+    """
+    leftover = runtime.pop_requested_status()
+    if leftover is None:
+        return error
+    with anyio.CancelScope(shield=True):
+        await _apply_leftover_status(app, db, session_id, leftover)
+    if leftover is SessionStatus.ENDED:
+        return AppError("session_ended", "대화를 마쳤어요.", 409)
+    return error
+
+
+async def _apply_leftover_status(
+    app: FastAPI, db: AsyncSession, session_id: str, status: SessionStatus
+) -> None:
+    try:
+        await db.rollback()
+        await _set_status(db, session_id, status)
+        await db.commit()
+        if status is SessionStatus.ENDED:
+            convo = await db.get(ConversationSession, session_id)
+            await teardown(app, session_id, convo.cli_session_id if convo else None)
+        logger.info("턴이 끝나지 않았지만 상태 요청 반영(session=%s, %s)", session_id, status)
+    except Exception:
+        logger.exception("상태 요청 반영 실패(session=%s)", session_id)

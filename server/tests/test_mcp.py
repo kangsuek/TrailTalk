@@ -89,6 +89,16 @@ def test_rejects_missing_or_wrong_token(mcp, client):
     assert response.headers["www-authenticate"] == "Bearer"
 
 
+def test_non_ascii_token_is_401_not_500(mcp, client):
+    headers = {
+        "Authorization": "Bearer \xe9\xe9".encode("latin-1"),
+        "X-TrailTalk-Session": mcp.session_id,
+        "Accept": "application/json, text/event-stream",
+    }
+    body = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+    assert client.post("/internal/mcp/", headers=headers, json=body).status_code == 401
+
+
 def test_rejects_token_of_another_session(mcp, client):
     other = client.app.state.runtimes.ensure("other-session")
     # 다른 세션의 올바른 토큰을 이 세션 ID와 함께 보내면 거부한다

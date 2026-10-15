@@ -51,6 +51,21 @@ describe('App', () => {
     expect(screen.getByText('반가워요!')).toBeVisible()
   })
 
+  it('서버 상태를 30초마다 다시 확인한다(꺼졌다 켜져도 반영)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      let up = false
+      stubFetch(async () => (up ? new Response(JSON.stringify({ status: 'ok' })) : Promise.reject(new TypeError('down'))))
+      render(<App />)
+      expect(await screen.findByText('서버 연결 안 됨')).toBeInTheDocument()
+      up = true
+      await vi.advanceTimersByTimeAsync(30_000)
+      expect(await screen.findByText('서버 연결됨')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('서버 헬스체크 결과를 표시한다', async () => {
     stubHealth(true)
     render(<App />)

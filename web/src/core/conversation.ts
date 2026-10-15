@@ -53,9 +53,13 @@ export type ConversationAction =
     }
   | { type: 'send'; id: string; text: string }
   | { type: 'event'; event: StreamEvent }
-  | { type: 'failed'; message: string }
+  // code: 서버 오류 코드(세션이 이미 끝났으면 대화를 끝낸다), unsentId: 서버가 받기 전에 실패해
+  // 입력창으로 되돌린 사용자 메시지(목록에서 뺀다)
+  | { type: 'failed'; message: string; code?: string; unsentId?: string }
   | { type: 'ending' }
   | { type: 'ended' }
+
+const SESSION_GONE = new Set(['session_ended', 'session_not_found'])
 
 export const initialConversation: ConversationState = {
   status: 'idle',
@@ -144,6 +148,8 @@ function applyEvent(state: ConversationState, event: StreamEvent): ConversationS
     case 'error':
       return {
         ...state,
+        // 턴 도중 세션이 끝났으면(끝내기 요청 뒤 오류 등) 끝난 화면으로 간다
+        status: SESSION_GONE.has(event.code) ? 'ended' : state.status,
         sending: false,
         error: event.message,
         messages: updateStreaming(state.messages, (m) => ({ ...m, status: 'error' })),
@@ -187,15 +193,24 @@ export function conversationReducer(
       }
     case 'event':
       return applyEvent(state, action.event)
-    case 'failed':
+    case 'failed': {
+      const messages = action.unsentId
+        ? state.messages.filter((m) => m.id !== action.unsentId)
+        : state.messages
       return {
         ...state,
-        // 시작 실패면 처음 화면으로 돌아간다
-        status: state.status === 'starting' ? 'idle' : state.status,
+        // 시작 실패면 처음 화면으로, 서버에서 이미 끝난 세션이면 끝난 화면으로 간다
+        status:
+          state.status === 'starting'
+            ? 'idle'
+            : action.code && SESSION_GONE.has(action.code)
+              ? 'ended'
+              : state.status,
         sending: false,
         error: action.message,
-        messages: updateStreaming(state.messages, (m) => ({ ...m, status: 'error' })),
+        messages: updateStreaming(messages, (m) => ({ ...m, status: 'error' })),
       }
+    }
     case 'ending':
       return { ...state, sending: true, error: null }
     case 'ended':
@@ -239,7 +254,8 @@ export function toolNotice(tool: ToolState): string | null {
     }
     case 'web_fetch': {
       if (!finished) return '페이지 읽는 중…'
-      if (tool.isError) return '페이지를 읽지 못했어요'
+      const code = tool.summary?.code
+      if (tool.isError || (typeof code === 'number' && code >= 400)) return '페이지를 읽지 못했어요'
       const host = hostOf(tool.input?.url)
       return host ? `출처: ${host}` : '페이지 읽기 완료'
     }
@@ -249,8 +265,11 @@ export function toolNotice(tool: ToolState): string | null {
       const content = text(tool.input?.content)
       return content ? `메모 저장: ${content}` : '메모 저장 완료'
     }
-    case 'search_notes':
-      return finished ? '지난 메모 찾기 완료' : '지난 메모 찾는 중…'
+    case 'search_notes': {
+      const keyword = text(tool.input?.keyword)
+      if (!finished) return keyword ? `지난 메모에서 '${keyword}' 찾는 중…` : '지난 메모 찾는 중…'
+      return keyword ? `지난 메모 찾기: ${keyword}` : '지난 메모 찾기 완료'
+    }
     case 'summarize_session':
       return finished ? '대화 정리 완료' : '대화 정리 중…'
     default:

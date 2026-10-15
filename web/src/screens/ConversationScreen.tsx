@@ -9,6 +9,17 @@ import {
 
 const PREPARE_INTERVAL_MS = 4 * 60 * 1000 // 서버 준비분 만료(5분)보다 짧게
 
+/** 브라우저 탭이 보이는지(백그라운드 탭에서는 미리 준비 요청을 보내지 않는다) */
+function usePageVisible(): boolean {
+  const [shown, setShown] = useState(() => document.visibilityState !== 'hidden')
+  useEffect(() => {
+    const update = () => setShown(document.visibilityState !== 'hidden')
+    document.addEventListener('visibilitychange', update)
+    return () => document.removeEventListener('visibilitychange', update)
+  }, [])
+  return shown
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof ApiError ? error.message : '알 수 없는 오류가 났어요.'
 }
@@ -18,6 +29,9 @@ function AssistantBubble({ message, name }: { message: AssistantMessage; name: s
     .map((tool) => ({ id: tool.id, text: toolNotice(tool), done: tool.phase === 'end' }))
     .filter((n) => n.text !== null)
   const waiting = message.status === 'streaming' && message.sentences.length === 0
+  const empty = message.sentences.length === 0 && notices.length === 0
+  // 문장도 알림도 없이 끝난 답(쉬기·끝내기 도구만 쓴 경우)은 그리지 않는다
+  if (empty && message.status === 'done') return null
   return (
     <li className="message assistant" data-status={message.status}>
       <span className="speaker">{name}</span>
@@ -39,6 +53,9 @@ function AssistantBubble({ message, name }: { message: AssistantMessage; name: s
           ))}
         </p>
       )}
+      {message.status === 'error' && message.sentences.length === 0 && (
+        <p className="bubble">답변을 받지 못했어요.</p>
+      )}
       {waiting && notices.length === 0 && (
         <p className="bubble typing">
           <span aria-hidden="true">…</span>
@@ -56,6 +73,8 @@ export function ConversationScreen({ visible = true }: { visible?: boolean }) {
   const controller = useRef<AbortController | null>(null)
   const nextId = useRef(0)
   const listEnd = useRef<HTMLLIElement>(null)
+  const input = useRef<HTMLTextAreaElement>(null)
+  const pageVisible = usePageVisible()
 
   // 화면을 떠나면 진행 중인 요청을 멈춘다(서버는 연결이 끊기면 CLI 턴을 정리한다)
   useEffect(() => () => controller.current?.abort(), [])
@@ -63,7 +82,8 @@ export function ConversationScreen({ visible = true }: { visible?: boolean }) {
   // 대화 탭이 보이고 대화 시작 전·끝난 뒤이면 서버가 다음 대화의 CLI를 미리 띄워 두게 한다
   // (인사말 대기 단축). 서버는 쓰지 않으면 5분 뒤 닫으므로, 화면이 열려 있는 동안 4분마다 다시
   // 알린다(같은 조건이면 만료만 미룬다). 결과를 기다리지 않고 실패해도 무시한다
-  const waitingToStart = visible && (state.status === 'idle' || state.status === 'ended')
+  const waitingToStart =
+    visible && pageVisible && (state.status === 'idle' || state.status === 'ended')
   useEffect(() => {
     if (!waitingToStart) return
     const prepare = new AbortController()
@@ -94,14 +114,31 @@ export function ConversationScreen({ visible = true }: { visible?: boolean }) {
     if (visible && stickToBottom.current) listEnd.current?.scrollIntoView?.({ block: 'end' })
   }, [state.messages, visible])
 
-  const run = async (task: (signal: AbortSignal) => Promise<void>) => {
+  // 대화가 시작되면 바로 입력할 수 있게 입력창으로 포커스를 옮긴다
+  const previousStatus = useRef(state.status)
+  useEffect(() => {
+    if (previousStatus.current === 'starting' && state.status === 'active') input.current?.focus()
+    previousStatus.current = state.status
+  }, [state.status])
+
+  /** unsentId: 실패했을 때 서버가 받지 못한 사용자 메시지 id(목록에서 뺀다) */
+  const run = async (
+    task: (signal: AbortSignal) => Promise<void>,
+    unsentId: () => string | undefined = () => undefined,
+  ) => {
     controller.current?.abort()
     const current = new AbortController()
     controller.current = current
     try {
       await task(current.signal)
     } catch (error) {
-      if (!current.signal.aborted) dispatch({ type: 'failed', message: errorMessage(error) })
+      if (current.signal.aborted) return
+      dispatch({
+        type: 'failed',
+        message: errorMessage(error),
+        code: error instanceof ApiError ? error.code : undefined,
+        unsentId: unsentId(),
+      })
     }
   }
 
@@ -129,15 +166,28 @@ export function ConversationScreen({ visible = true }: { visible?: boolean }) {
     const sessionId = state.sessionId
     setDraft('')
     stickToBottom.current = true
-    dispatch({ type: 'send', id: `local-${nextId.current++}`, text })
+    const id = `local-${nextId.current++}`
+    dispatch({ type: 'send', id, text })
     let answered = false
-    void run(async (signal) => {
+    void run(
+      async (signal) => {
       try {
         await sendTurn(
           sessionId,
           text,
           (streamEvent) => {
             if (streamEvent.type === 'turn') answered = true
+            if (streamEvent.type === 'error' && !answered) {
+              // 서버가 사용자 메시지를 받기 전에 실패했다: 말풍선을 빼고 쓴 글을 되살린다
+              setDraft((current) => current || text)
+              dispatch({
+                type: 'failed',
+                message: streamEvent.message,
+                code: streamEvent.code,
+                unsentId: id,
+              })
+              return
+            }
             dispatch({ type: 'event', event: streamEvent })
           },
           signal,
@@ -147,13 +197,17 @@ export function ConversationScreen({ visible = true }: { visible?: boolean }) {
         if (!answered && !signal.aborted) setDraft((current) => current || text)
         throw error
       }
-    })
+      },
+      () => (answered ? undefined : id),
+    )
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     // 한글 조합 중 Enter는 글자 확정이므로 보내지 않는다(Safari는 isComposing 대신 keyCode 229)
     const composing = event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229
-    if (event.key === 'Enter' && !event.shiftKey && !composing) {
+    // 터치 화면의 가상 키보드에는 Shift+Enter가 없으므로 Enter는 줄바꿈, 보내기는 버튼으로 한다
+    const touch = window.matchMedia?.('(pointer: coarse)').matches ?? false
+    if (event.key === 'Enter' && !event.shiftKey && !composing && !touch) {
       event.preventDefault()
       send()
     }
@@ -184,21 +238,20 @@ export function ConversationScreen({ visible = true }: { visible?: boolean }) {
         </div>
       )}
 
-      {state.messages.length > 0 && (
-        <ol className="messages" role="log" aria-label="대화 내용" aria-live="polite">
-          {state.messages.map((message) =>
-            message.role === 'user' ? (
-              <li key={message.id} className="message user">
-                <span className="speaker">나</span>
-                <p className="bubble">{message.text}</p>
-              </li>
-            ) : (
-              <AssistantBubble key={message.id} message={message} name={name} />
-            ),
-          )}
-          <li ref={listEnd} className="list-end" aria-hidden="true" />
-        </ol>
-      )}
+      {/* 스크린리더가 첫 인사말부터 읽도록 목록은 비어 있어도 그려 둔다 */}
+      <ol className="messages" role="log" aria-label="대화 내용" aria-live="polite">
+        {state.messages.map((message) =>
+          message.role === 'user' ? (
+            <li key={message.id} className="message user">
+              <span className="speaker">나</span>
+              <p className="bubble">{message.text}</p>
+            </li>
+          ) : (
+            <AssistantBubble key={message.id} message={message} name={name} />
+          ),
+        )}
+        <li ref={listEnd} className="list-end" aria-hidden="true" />
+      </ol>
 
       {state.error && (
         <p className="conversation-error" role="alert">
@@ -212,6 +265,7 @@ export function ConversationScreen({ visible = true }: { visible?: boolean }) {
       {inConversation && (
         <form className="composer" onSubmit={send}>
           <textarea
+            ref={input}
             aria-label="메시지"
             value={draft}
             rows={2}

@@ -140,6 +140,30 @@ describe('conversationReducer', () => {
     expect(conversationReducer(state, { type: 'nope' } as unknown as ConversationAction)).toBe(state)
   })
 
+  it('서버가 받기 전에 실패한 메시지는 목록에서 뺀다(다시 보내도 중복되지 않게)', () => {
+    const state = reduce([
+      ...started,
+      { type: 'send', id: 'u-1', text: '안녕' },
+      { type: 'failed', message: '이전 답변이 아직 끝나지 않았습니다.', code: 'turn_in_progress', unsentId: 'u-1' },
+    ])
+    expect(state.messages.map((m) => m.id)).toEqual(['g1'])
+    expect(state.status).toBe('active')
+  })
+
+  it.each(['session_ended', 'session_not_found'])('%s 오류면 대화를 끝낸다', (code) => {
+    const state = reduce([...started, { type: 'send', id: 'u-1', text: '안녕' }, { type: 'failed', message: '끝', code }])
+    expect(state.status).toBe('ended')
+  })
+
+  it('턴 도중 session_ended 오류 이벤트가 오면 대화를 끝낸다', () => {
+    const state = reduce([
+      ...started,
+      ev({ type: 'turn', turn_id: 'a1' }),
+      ev({ type: 'error', code: 'session_ended', message: '대화를 마쳤어요.' }),
+    ])
+    expect(state.status).toBe('ended')
+  })
+
   it('done의 session_status가 ended면 대화가 끝난다', () => {
     const state = reduce([
       ...started,
@@ -185,6 +209,9 @@ describe('toolNotice', () => {
     [{ name: 'save_note', phase: 'end', input: { kind: 'idea', content: '지도 앱' } }, '메모 저장: 지도 앱'],
     [{ name: 'save_note', phase: 'end', isError: true }, '메모를 저장하지 못했어요'],
     [{ name: 'search_notes' }, '지난 메모 찾는 중…'],
+    [{ name: 'search_notes', phase: 'call', input: { keyword: '쓰레기통' } }, "지난 메모에서 '쓰레기통' 찾는 중…"],
+    [{ name: 'search_notes', phase: 'end', input: { keyword: '쓰레기통' } }, '지난 메모 찾기: 쓰레기통'],
+    [{ name: 'web_fetch', phase: 'end', input: { url: 'https://a.com/x' }, summary: { code: 404, bytes: 0 } }, '페이지를 읽지 못했어요'],
     [{ name: 'summarize_session', phase: 'end' }, '대화 정리 완료'],
     [{ name: 'pause_session' }, null],
     [{ name: 'end_session', phase: 'end' }, null],

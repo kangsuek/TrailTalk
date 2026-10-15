@@ -50,6 +50,11 @@ class RuntimeRegistry:
 
     def authenticate(self, session_id: str | None, token: str | None) -> ConversationRuntime | None:
         runtime = self._items.get(session_id or "")
-        if runtime is None or not token or not secrets.compare_digest(runtime.token, token):
+        # bytes로 비교한다(str끼리는 ASCII가 아닌 값이 오면 compare_digest가 예외를 낸다)
+        if (
+            runtime is None
+            or not token
+            or not secrets.compare_digest(runtime.token.encode(), token.encode())
+        ):
             return None
         return runtime

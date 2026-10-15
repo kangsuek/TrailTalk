@@ -104,6 +104,8 @@ class LlmSessionManager:
                 self._sessions.pop(key)
             logger.info("CLI 프로세스 정리(session=%s, 이유=%s)", key, reason)
             await session.close()
+            if not lock.locked() and key not in self._sessions:
+                self._key_locks.pop(key, None)  # 대화 수만큼 락이 쌓이지 않게
             reaped += 1
         return reaped
 
