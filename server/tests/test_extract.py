@@ -111,7 +111,10 @@ def test_schema_error_is_retried_once(api, oneshot):
     end(api, session_id)
     row = session_row(api, session_id)
     assert (row.extract_status, row.title) == (ExtractStatus.DONE, "다시 받은 제목")
-    assert len(oneshot_records(api.fake_cli)) == 2
+    records = oneshot_records(api.fake_cli)
+    assert len(records) == 2
+    # 단발 호출은 고정 작업 폴더 하나를 쓴다(CLI가 폴더마다 ~/.claude/projects 항목을 만든다)
+    assert records[0]["cwd"] == records[1]["cwd"] and records[0]["cwd"].endswith("oneshot")
 
 
 def test_two_failures_mark_failed(api, oneshot):

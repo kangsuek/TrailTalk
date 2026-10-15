@@ -30,10 +30,27 @@ def build(persona, **kwargs) -> str:
     return build_system_prompt(persona, **values)
 
 
-@pytest.mark.parametrize("mode", ["voice", "text"])
-def test_snapshot(jenny, mode):
-    prompt = build(jenny, mode=mode)
-    path = SNAPSHOTS / f"prompt_jenny_{mode}.txt"
+SNAPSHOT_MEMORY = MemoryContext(
+    recent_summaries=[
+        "10월 12일 '등산로 쓰레기통 지도': 등산로 쓰레기통 위치를 지도로 모으는 아이디어"
+    ],
+    open_ideas=["등산로 쓰레기통 지도 앱"],
+    open_todos=["공공데이터 포털에서 쓰레기통 위치 데이터 찾아보기"],
+    interests=["등산"],
+)
+
+
+@pytest.mark.parametrize(
+    ("mode", "memory", "name"),
+    [
+        ("voice", None, "voice"),
+        ("text", None, "text"),
+        ("voice", SNAPSHOT_MEMORY, "voice_memory"),
+    ],
+)
+def test_snapshot(jenny, mode, memory, name):
+    prompt = build(jenny, mode=mode, memory=memory)
+    path = SNAPSHOTS / f"prompt_jenny_{name}.txt"
     if os.environ.get("UPDATE_SNAPSHOTS") == "1":
         path.write_text(prompt, encoding="utf-8")
     if not path.exists():

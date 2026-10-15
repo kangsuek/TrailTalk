@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     # (넘으면 그때까지 저장된 개수로 마무리 멘트를 만들고 정리는 백그라운드에서 계속한다)
     extract_timeout_s: float = 60
     extract_wait_s: float = 45
+    # 다음 세션 프롬프트의 기억 블록 예산(글자 수, app/persona/memory.py)
+    memory_budget_chars: int = 1200
     # 자식 CLI에 추가로 넘길 환경 변수 이름 패턴(기본 허용 목록 외). 테스트의 가짜 CLI용
     cli_env_passthrough: tuple[str, ...] = ()
 

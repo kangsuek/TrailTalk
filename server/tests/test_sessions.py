@@ -593,7 +593,7 @@ def wait_for_records(fake_cli, count: int) -> list[dict]:
 
 def test_prepare_then_start_reuses_cli(api):
     """미리 띄운 CLI를 시작할 때 재사용한다(프로세스 기동·첫 요청 준비 시간을 인사말에서 뺀다)."""
-    from app.services.conversation import _session_prompt
+    from app.services.conversation import _memory, _session_prompt
     from app.services.profile import profile_with_persona
 
     assert api.post("/api/sessions/prepare", json={"mode": "text"}).status_code == 204
@@ -613,10 +613,33 @@ def test_prepare_then_start_reuses_cli(api):
     # CLI가 죽어 --resume으로 다시 띄울 때도 미리 띄울 때와 같은 프롬프트가 나온다
     async def resume_prompt(db):
         profile, loaded = await profile_with_persona(db, api.app.state.settings)
-        return _session_prompt(api.app.state.settings, profile, loaded, row.mode, row.started_at)
+        memory = await _memory(api.app, db, profile, row.started_at)
+        return _session_prompt(
+            api.app.state.settings, profile, loaded, row.mode, row.started_at, memory
+        )
 
     args = record["args"]
     assert load(api, resume_prompt) == args[args.index("--system-prompt") + 1]
+
+
+def test_prepared_cli_is_dropped_when_memory_changes(api):
+    """미리 띄운 뒤 지난 대화가 정리돼 기억이 바뀌면 새 프롬프트로 다시 띄운다."""
+    assert api.post("/api/sessions/prepare", json={"mode": "text"}).status_code == 204
+    wait_for_records(api.fake_cli, 1)
+    old = start(api)["session"]["id"]  # 준비분을 쓴 세션(노트를 붙일 곳)
+    api.post(f"/api/sessions/{old}/end")
+    assert api.post("/api/sessions/prepare", json={"mode": "text"}).status_code == 204
+    before = len(wait_for_records(api.fake_cli, 2))
+
+    async def add_idea(db):
+        db.add(Note(session_id=old, kind=NoteKind.IDEA, content="동네 쓰레기통 지도"))
+        await db.commit()
+
+    load(api, add_idea)
+    start(api)
+    records = api.fake_cli.records()
+    assert len(records) == before + 1  # 준비분을 버리고 새로 띄웠다
+    assert "동네 쓰레기통 지도" in system_prompt_of(records[-1])
 
 
 def test_prepared_cli_is_dropped_when_profile_changes(api):

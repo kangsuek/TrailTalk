@@ -63,7 +63,8 @@ from app.llm.events import (
 )
 from app.mcp.server import mcp_client_config
 from app.persona.loader import LoadedPersona
-from app.persona.prompt import build_system_prompt
+from app.persona.memory import load_memory
+from app.persona.prompt import MemoryContext, build_system_prompt
 from app.persona.rules import GREETING_INSTRUCTION
 from app.services.profile import profile_with_persona
 from app.services.runtime import ConversationRuntime
@@ -144,6 +145,7 @@ def _session_prompt(
     loaded: LoadedPersona,
     mode: ConversationMode,
     started_at: datetime,
+    memory: MemoryContext,
 ) -> str:
     """세션의 시스템 프롬프트. 미리 띄우기와 open_llm이 같은 글자를 만들도록 여기서만 조립한다."""
     return build_system_prompt(
@@ -152,7 +154,17 @@ def _session_prompt(
         mode=mode.value,
         now=started_at,
         timezone=settings.timezone,
+        memory=memory,
     )
+
+
+async def _memory(
+    app: FastAPI, db: AsyncSession, profile: UserProfile, now: datetime
+) -> MemoryContext:
+    """기억 블록 입력(S2-05). 읽기만 하므로 바로 트랜잭션을 닫는다."""
+    memory = await load_memory(db, app.state.settings, profile, now)
+    await db.commit()
+    return memory
 
 
 async def _profile(app: FastAPI, db: AsyncSession) -> tuple[UserProfile, LoadedPersona]:
@@ -187,8 +199,9 @@ async def open_llm(
     """
     profile, loaded = await _profile(app, db)
     if convo.system_prompt is None:
+        memory = await _memory(app, db, profile, convo.started_at)
         convo.system_prompt = _session_prompt(
-            app.state.settings, profile, loaded, convo.mode, convo.started_at
+            app.state.settings, profile, loaded, convo.mode, convo.started_at, memory
         )
         await db.commit()  # 이 턴이 오류로 끝나도 고정한 프롬프트는 남긴다
     session = await _get_cli(app, convo.id, convo.system_prompt, convo.cli_session_id)
@@ -211,6 +224,7 @@ class PreparedSession:
         mode: ConversationMode,
         profile: UserProfile,
         loaded: LoadedPersona,
+        memory: MemoryContext,
     ) -> bool:
         """재사용 조건: 지금 프로필로 다시 만든 프롬프트가 글자까지 같다(호칭·페르소나 등 프롬프트에
         들어가는 값이 늘어나도 그대로 맞는다). 시작 시각은 준비 시각을 쓰므로, 준비된 지 TTL이
@@ -225,7 +239,10 @@ class PreparedSession:
         then, now = self.started_at.astimezone(tz), now_utc.astimezone(tz)
         if then.date() != now.date() or (then.hour < 12) != (now.hour < 12):
             return False
-        return self.prompt == _session_prompt(settings, profile, loaded, mode, self.started_at)
+        # 기억(지난 일지·열린 노트)이 그사이 바뀌었어도 프롬프트가 달라져 새로 띄운다
+        return self.prompt == _session_prompt(
+            settings, profile, loaded, mode, self.started_at, memory
+        )
 
     def schedule_expiry(self, app: FastAPI) -> None:
         if self.expiry is not None:
@@ -264,7 +281,8 @@ async def _prepare_session(app: FastAPI, db: AsyncSession, mode: ConversationMod
         profile, loaded = await _profile(app, db)
         current: PreparedSession | None = app.state.prepared
         if current is not None:
-            if current.matches(settings, mode, profile, loaded) and app.state.llm.is_alive(
+            memory = await _memory(app, db, profile, current.started_at)
+            if current.matches(settings, mode, profile, loaded, memory) and app.state.llm.is_alive(
                 current.id
             ):
                 current.schedule_expiry(app)  # 화면이 아직 열려 있다: 만료를 미룬다
@@ -272,7 +290,8 @@ async def _prepare_session(app: FastAPI, db: AsyncSession, mode: ConversationMod
             app.state.prepared = None
             await _drop_prepared(app, current)
         started_at = utcnow()
-        prompt = _session_prompt(settings, profile, loaded, mode, started_at)
+        memory = await _memory(app, db, profile, started_at)
+        prompt = _session_prompt(settings, profile, loaded, mode, started_at, memory)
         prepared = PreparedSession(new_id(), mode, started_at, prompt)
         try:
             await _get_cli(app, prepared.id, prompt)
@@ -285,17 +304,24 @@ async def _prepare_session(app: FastAPI, db: AsyncSession, mode: ConversationMod
 
 
 async def _take_prepared(
-    app: FastAPI, mode: ConversationMode, profile: UserProfile, loaded: LoadedPersona
+    app: FastAPI,
+    db: AsyncSession,
+    mode: ConversationMode,
+    profile: UserProfile,
+    loaded: LoadedPersona,
 ) -> PreparedSession | None:
     """같은 조건으로 준비된 CLI를 꺼낸다. 조건이 다르면 정리한다. 준비 중이면 끝나길 기다린다."""
     async with app.state.prepare_lock:
         prepared: PreparedSession | None = app.state.prepared
         if prepared is None:
             return None
+        # 기억 조회(DB)는 준비분을 상태에서 빼기 전에 한다. 실패·취소돼도 준비분이 그대로 남아
+        # 만료 타이머가 정리한다(빼고 나서 실패하면 런타임·MCP 토큰이 남는다)
+        memory = await _memory(app, db, profile, prepared.started_at)
         app.state.prepared = None
         if prepared.expiry is not None:
             prepared.expiry.cancel()
-        if prepared.matches(app.state.settings, mode, profile, loaded):
+        if prepared.matches(app.state.settings, mode, profile, loaded, memory):
             return prepared
         await _drop_prepared(app, prepared)
         return None
@@ -321,7 +347,7 @@ async def start_session(
     app: FastAPI, db: AsyncSession, mode: ConversationMode
 ) -> tuple[ConversationSession, Turn, LoadedPersona]:
     profile, loaded = await _profile(app, db)
-    prepared = await _take_prepared(app, mode, profile, loaded)
+    prepared = await _take_prepared(app, db, mode, profile, loaded)
     if prepared is not None:
         convo = ConversationSession(
             id=prepared.id,

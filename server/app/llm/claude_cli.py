@@ -103,6 +103,10 @@ def build_oneshot_command(settings: Settings, *, model: str, json_schema: dict) 
     ]  # fmt: skip
 
 
+def oneshot_work_dir(settings: Settings) -> Path:
+    return settings.cli_work_dir.resolve() / "oneshot"
+
+
 async def run_oneshot(
     settings: Settings, prompt: str, *, model: str, json_schema: dict, timeout_s: float
 ) -> dict:
@@ -110,30 +114,29 @@ async def run_oneshot(
 
     시간 초과·취소 때는 프로세스를 kill한다(사용량이 계속 나가지 않게).
     """
-    cwd = settings.cli_work_dir.resolve() / "oneshot" / uuid.uuid4().hex[:12]
+    # 작업 폴더는 모든 단발 호출이 같이 쓴다. CLI는 기록을 남기지 않아도 작업 폴더마다
+    # ~/.claude/projects/<폴더 이름>/를 만들므로, 호출마다 다른 폴더를 쓰면 빈 폴더가 쌓인다
+    cwd = oneshot_work_dir(settings)
     cwd.mkdir(parents=True, exist_ok=True)
     token = settings.claude_code_oauth_token
     secrets = [token.get_secret_value()] if token else []
+    proc = await asyncio.create_subprocess_exec(
+        *build_oneshot_command(settings, model=model, json_schema=json_schema),
+        cwd=cwd,
+        env=build_env(settings),
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
     try:
-        proc = await asyncio.create_subprocess_exec(
-            *build_oneshot_command(settings, model=model, json_schema=json_schema),
-            cwd=cwd,
-            env=build_env(settings),
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(prompt.encode()), timeout_s)
-        except BaseException as exc:
-            with contextlib.suppress(ProcessLookupError):  # 그 사이 이미 끝났을 수 있다
-                proc.kill()
-            await proc.wait()
-            if isinstance(exc, TimeoutError):
-                raise LlmTimeoutError("CLI 단발 호출 시간 초과") from exc
-            raise
-    finally:
-        shutil.rmtree(cwd, ignore_errors=True)
+        stdout, stderr = await asyncio.wait_for(proc.communicate(prompt.encode()), timeout_s)
+    except BaseException as exc:
+        with contextlib.suppress(ProcessLookupError):  # 그 사이 이미 끝났을 수 있다
+            proc.kill()
+        await proc.wait()
+        if isinstance(exc, TimeoutError):
+            raise LlmTimeoutError("CLI 단발 호출 시간 초과") from exc
+        raise
     try:
         output = json.loads(stdout)
     except ValueError:
