@@ -111,6 +111,10 @@ VAD 수치는 시작값이며 S3-10과 실제 산책 측정에서 조정한다.
 | 502 | `llm_error` | 인사말·답변을 만들지 못함(SSE에서는 `error` 이벤트) |
 | 502 | `llm_process_exited` | Claude CLI 프로세스가 끝남. 다음 요청에서 맥락을 이어 다시 띄운다 |
 | 504 | `llm_timeout` | 답변 시간 초과 |
+| 400·413 | `audio_invalid` | 업로드 오디오가 비었거나, 너무 크거나(413), 읽을 수 없음(S3-03 음성 턴) |
+| 503 | `voice_unavailable` | 음성 서비스를 쓸 수 없음(서버 키 없음·인증 실패·크레딧 소진·ffmpeg 없음). 다시 시도해도 풀리지 않는다 |
+| 502 | `stt_failed`·`tts_failed` | 음성 인식·합성 실패(일시 오류 포함) |
+| 504 | `stt_timeout`·`tts_timeout` | 음성 인식·합성 시간 초과 |
 
 기능별 코드(예: `session_not_found`)는 해당 API를 만들 때 이 표에 추가한다.
 

@@ -16,8 +16,11 @@ _MD_LINK = re.compile(r"\[([^\]]*)\]\((?:[^()\s]|\([^()\s]*\))*\)")
 _URL = re.compile(r"(?:https?://|www\.)[A-Za-z0-9_\-.~:/?#@!$&'*+,;=%]*[A-Za-z0-9_/#=&%-]")
 # 숫자 사이의 *(곱하기, 3*4)는 남긴다
 _MD_MARKS = re.compile(r"(?<!\d)\*+|\*+(?!\d)|__+|`+|^#{1,6}\s*|^>\s*", re.MULTILINE)
+# 줄 첫머리 목록 기호("- 사과", "• 둘째"). 띄어 쓰지 않은 음수(-3도)는 남긴다
+_LIST_BULLET = re.compile(r"^[ \t]*[-•+*][ \t]+", re.MULTILINE)
 _SPACES = re.compile(r"[ \t\u00a0]{2,}")
-_SPACE_BEFORE_PUNCT = re.compile(r"\s+([.,!?…~])")
+# 범위 표기 "3시 ~ 5시"의 ~ 앞 공백은 남긴다
+_SPACE_BEFORE_PUNCT = re.compile(r"\s+([.,!?…])")
 _EMPTY_PARENS = re.compile(r"\(\s*\)")
 
 
@@ -27,6 +30,7 @@ def speech_text(sentence: str) -> str:
     화면에 보이는 문장(sentence 이벤트의 text)은 그대로 두고 음성에만 쓴다."""
     text = _MD_LINK.sub(r"\1", sentence)
     text = _URL.sub("", text)
+    text = _LIST_BULLET.sub("", text)
     text = _MD_MARKS.sub("", text)
     text = "".join(c for c in text if not _is_symbol(c))
     text = _EMPTY_PARENS.sub("", text)
@@ -81,6 +85,10 @@ class OpenAiTts:
             timeout_s=settings.tts_timeout_s,
         )
 
+    def _style(self, voice: VoiceStyle) -> dict[str, str]:
+        # 말투 지시는 gpt-4o-mini-tts 계열만 받는다(tts-1·tts-1-hd는 받지 않음)
+        return {"instructions": voice.instructions} if self._model.startswith("gpt-") else {}
+
     async def synthesize(self, text: str, voice: VoiceStyle) -> bytes:
         spoken = speech_text(text)
         if not has_speech(spoken):
@@ -96,10 +104,10 @@ class OpenAiTts:
                 "model": self._model,
                 "voice": voice.tts_voice,
                 "input": spoken,
-                "instructions": voice.instructions,
                 "speed": voice.speaking_rate,
                 "response_format": "mp3",
-            },
+            }
+            | self._style(voice),
         )
         if not response.content:
             raise openai_http.failed("tts")

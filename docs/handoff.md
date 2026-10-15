@@ -27,6 +27,7 @@ TrailTalk 작업을 이어서 진행합니다. 먼저 docs/handoff.md를 읽고,
   - 그 다음 `uv run python -m tests.voice_samples`로 보이스 6종 샘플(`server/data/voice-samples/`)을 만들어 사용자가 고르게 하고 `jenny.yaml`의 `tts_voice`·`instructions`를 확정한다(지금 임시 `coral`).
   - OpenAI TTS에는 피치가 없어 페르소나 `voice.pitch`를 지우고 `instructions`(말투 지시)를 넣었다. `gpt-4o-mini-tts`는 `speed`를 무시한다는 보고가 있어, 빠르기는 `instructions`에도 적었다.
   - TTS 전처리 `speech_text`는 음성에만 쓰고 화면 문장(`sentence.text`)은 그대로 둔다.
+  - 그대로 못 보내는 업로드(ogg 등)는 WAV가 아니라 16kHz 모노 webm/opus(24kbps)로 바꾼다(업로드 크기가 응답 지연에 더해지므로). 설정은 빈 값(`KEY=`)을 없는 것으로 본다(`env_ignore_empty`).
 - **결정(2026-10-16)**
   - D2 음성 인식은 OpenAI API다. 서버 PC가 Intel CPU라 로컬 큰 모델로는 3초 목표가 어렵다.
   - D3 목소리는 OpenAI TTS다. 인식과 같은 OpenAI 키를 쓰고, 보이스는 S3-02에서 같은 문장으로 샘플을 만들어 사용자가 듣고 고른다.
@@ -42,7 +43,7 @@ TrailTalk 작업을 이어서 진행합니다. 먼저 docs/handoff.md를 읽고,
   - 무발화 종료의 `ended_at`을 마지막 활동 시각으로 기록한다.
   - 끝내기 응답이 `pending`이면 정리 중 안내를 보인다.
   - 진행 중 대화의 일지 상세에 안내를 보인다.
-- **테스트(현재)**: pytest 440(4개는 실제 CLI·OpenAI라 건너뜀), Vitest 138, E2E 3.
+- **테스트(현재)**: pytest 459(4개는 실제 CLI·OpenAI라 건너뜀), Vitest 138, E2E 3.
 - **다음 작업**(사용자에게 먼저 고르게 한다)
   - S3-01·S3-02 마무리: OpenAI 크레딧을 충전하면 실제 확인과 보이스 선택을 한다(과금되므로 쓸 때 사용자에게 알린다).
   - S3-03 음성 턴 스트리밍: S3-01·S3-02 provider를 턴 SSE에 연결한다. 테스트는 모의 provider로 할 수 있다.

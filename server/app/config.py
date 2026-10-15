@@ -1,7 +1,8 @@
+import os
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import AliasChoices, Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 SERVER_DIR = Path(__file__).resolve().parent.parent
@@ -12,7 +13,11 @@ class Settings(BaseSettings):
     """서버 설정. 값은 환경 변수 또는 저장소 루트의 .env에서 읽는다."""
 
     model_config = SettingsConfigDict(
-        env_file=REPO_DIR / ".env", extra="ignore", populate_by_name=True
+        env_file=REPO_DIR / ".env",
+        extra="ignore",
+        populate_by_name=True,
+        # 빈 값(KEY=)은 없는 것으로 본다. 셸의 빈 환경 변수가 .env 값을 가리지 않게 한다
+        env_ignore_empty=True,
     )
 
     database_url: str = f"sqlite+aiosqlite:///{SERVER_DIR / 'trailtalk.db'}"
@@ -45,10 +50,9 @@ class Settings(BaseSettings):
     cli_env_passthrough: tuple[str, ...] = ()
 
     # 음성 인식·합성(OpenAI, 결정 D2·D3). 키가 없어도 서버는 시작하고 음성 호출만 실패한다.
-    # 예전 이름 WHISPER_API_KEY도 받는다
-    openai_api_key: SecretStr | None = Field(
-        default=None, validation_alias=AliasChoices("OPENAI_API_KEY", "WHISPER_API_KEY")
-    )
+    # 예전 이름 WHISPER_API_KEY도 받는다(OPENAI_API_KEY가 비어 있을 때만 쓴다)
+    openai_api_key: SecretStr | None = Field(default=None, validation_alias="OPENAI_API_KEY")
+    whisper_api_key: SecretStr | None = Field(default=None, validation_alias="WHISPER_API_KEY")
     openai_base_url: str = "https://api.openai.com/v1"
     stt_model: str = "gpt-transcribe"
     stt_language: str = "ko"
@@ -68,6 +72,20 @@ class Settings(BaseSettings):
         except (ZoneInfoNotFoundError, ValueError) as exc:
             raise ValueError(f"알 수 없는 시간대: {value}") from exc
         return value
+
+    @field_validator("ffmpeg_path")
+    @classmethod
+    def _expand_home(cls, value: str) -> str:
+        # 실행 파일 경로의 ~는 셸이 아닌 곳(create_subprocess_exec)에서 풀리지 않는다
+        return os.path.expanduser(value)
+
+    @model_validator(mode="after")
+    def _voice_key(self) -> "Settings":
+        """빈 키 줄(OPENAI_API_KEY=)은 없는 것으로 보고, 비어 있지 않은 첫 키를 쓴다."""
+        keys = (self.openai_api_key, self.whisper_api_key)
+        values = (k.get_secret_value().strip() for k in keys if k)
+        self.openai_api_key = next((SecretStr(v) for v in values if v), None)
+        return self
 
     persona_dir: Path = SERVER_DIR / "personas"
     default_persona: str = "jenny"

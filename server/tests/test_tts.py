@@ -14,13 +14,13 @@ VOICE = VoiceStyle(tts_voice="coral", speaking_rate=1.05, instructions="밝게 �
 MP3 = b"ID3fake-mp3"
 
 
-def make_tts(handler, *, api_key=KEY) -> OpenAiTts:
+def make_tts(handler, *, api_key=KEY, model="gpt-4o-mini-tts") -> OpenAiTts:
     client = httpx2.AsyncClient(transport=httpx2.MockTransport(handler))
     return OpenAiTts(
         client,
         api_key=SecretStr(api_key) if api_key else None,
         base_url="https://api.test/v1",
-        model="gpt-4o-mini-tts",
+        model=model,
         timeout_s=5,
     )
 
@@ -45,6 +45,18 @@ async def test_synthesize_sends_voice_settings():
         "speed": 1.05,
         "response_format": "mp3",
     }
+
+
+async def test_older_models_get_no_instructions():
+    seen = {}
+
+    def handler(request):
+        seen["body"] = json.loads(request.content)
+        return httpx2.Response(200, content=MP3)
+
+    await make_tts(handler, model="tts-1").synthesize("안녕", VOICE)
+    assert seen["body"]["model"] == "tts-1"
+    assert "instructions" not in seen["body"]
 
 
 @pytest.mark.parametrize("text", ["", "   ", "😊", "https://example.com", "**!**"])
@@ -135,6 +147,12 @@ async def test_empty_audio_is_failed():
         ("3*4는 12예요.", "3*4는 12예요."),
         ("기온이 25℃예요. ☀️", "기온이 25℃예요."),
         ("5㎞ 남았고 25°C예요.", "5㎞ 남았고 25°C예요."),
+        ("오후 3시 ~ 5시예요.", "오후 3시 ~ 5시예요."),
+        ("- 사과 고르기", "사과 고르기"),
+        ("• 둘째 항목이에요.", "둘째 항목이에요."),
+        ("* 사과\n* 배", "사과\n배"),
+        ("기온은 -3도예요.", "기온은 -3도예요."),
+        ("좋아요 !", "좋아요!"),
         ("# 제목", "제목"),
         ("평범한 문장이에요.", "평범한 문장이에요."),
     ],

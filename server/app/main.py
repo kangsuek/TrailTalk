@@ -55,23 +55,22 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
         )
         await llm.start()
         app.state.llm = llm
-        # 음성 API(OpenAI) 호출에 같이 쓰는 연결
-        http = httpx2.AsyncClient()
-        app.state.stt = OpenAiStt.from_settings(http, app_settings)
-        app.state.tts = OpenAiTts.from_settings(http, app_settings)
-        idle_watch = asyncio.create_task(idle.run(app), name="idle-watch")
-        try:
-            async with mcp.session_manager.run():
-                yield
-        finally:
-            idle_watch.cancel()
-            await asyncio.wait([idle_watch])
-            await conversation.cancel_prepared(app)
-            await llm.shutdown()
-            # CLI를 닫으면서 끝난 턴이 추출을 띄울 수 있어 그 뒤에 멈춘다
-            await extract.cancel_all(app)
-            await http.aclose()
-            await engine.dispose()
+        # 음성 API(OpenAI) 호출에 같이 쓰는 연결. 아래 정리가 모두 끝난 뒤 닫힌다
+        async with httpx2.AsyncClient() as http:
+            app.state.stt = OpenAiStt.from_settings(http, app_settings)
+            app.state.tts = OpenAiTts.from_settings(http, app_settings)
+            idle_watch = asyncio.create_task(idle.run(app), name="idle-watch")
+            try:
+                async with mcp.session_manager.run():
+                    yield
+            finally:
+                idle_watch.cancel()
+                await asyncio.wait([idle_watch])
+                await conversation.cancel_prepared(app)
+                await llm.shutdown()
+                # CLI를 닫으면서 끝난 턴이 추출을 띄울 수 있어 그 뒤에 멈춘다
+                await extract.cancel_all(app)
+                await engine.dispose()
 
     app = FastAPI(title="TrailTalk", lifespan=lifespan)
     app.state.settings = app_settings

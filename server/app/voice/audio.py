@@ -1,7 +1,8 @@
 """음성 인식에 보낼 업로드 오디오 준비(계획서 S3-01).
 
 OpenAI 음성 인식이 그대로 받는 형식(웹 MediaRecorder의 webm/opus 등)은 변환하지 않는다.
-그 밖의 형식(안드로이드 ogg/opus 등)은 ffmpeg로 16kHz 모노 WAV로 바꾼다.
+그 밖의 형식(안드로이드 ogg/opus 등)은 ffmpeg로 16kHz 모노 webm/opus로 바꾼다.
+WAV(약 32KB/s)보다 10배쯤 작아 OpenAI로 올리는 시간이 응답 지연(NFR-01)에 덜 더해진다.
 """
 
 import asyncio
@@ -28,7 +29,8 @@ _PASSTHROUGH = {
     "audio/x-m4a": "m4a",
 }
 _SAMPLE_RATE = 16000
-# 변환 결과 길이 상한(초). 압축 오디오는 WAV로 풀면 커지므로 음성 인식 업로드 한도(25MB) 안에 둔다
+_BITRATE = "24k"
+# 변환 결과 길이 상한(초). 긴 녹음이 음성 인식 업로드 한도(25MB)와 시간 제한을 넘지 않게 한다
 _MAX_SECONDS = 120
 
 
@@ -58,14 +60,14 @@ async def prepare_for_stt(
     mime = (content_type or "").split(";", 1)[0].strip().lower()
     if ext := _PASSTHROUGH.get(mime):
         return AudioFile(data, f"speech.{ext}", mime)
-    wav = await _to_wav(data, ffmpeg_path=ffmpeg_path, timeout_s=timeout_s)
-    return AudioFile(wav, "speech.wav", "audio/wav")
+    webm = await _to_webm(data, ffmpeg_path=ffmpeg_path, timeout_s=timeout_s)
+    return AudioFile(webm, "speech.webm", "audio/webm")
 
 
-async def _to_wav(data: bytes, *, ffmpeg_path: str, timeout_s: float) -> bytes:
-    # 파이프로 내보낸 WAV는 머리말에 길이를 못 적으므로 임시 파일로 받는다
+async def _to_webm(data: bytes, *, ffmpeg_path: str, timeout_s: float) -> bytes:
+    # 파이프 출력은 컨테이너 머리말에 길이·색인을 못 적으므로 임시 파일로 받는다
     with tempfile.TemporaryDirectory(prefix="trailtalk-audio-") as tmp:
-        out = Path(tmp) / "speech.wav"
+        out = Path(tmp) / "speech.webm"
         try:
             proc = await asyncio.create_subprocess_exec(
                 ffmpeg_path,
@@ -80,8 +82,13 @@ async def _to_wav(data: bytes, *, ffmpeg_path: str, timeout_s: float) -> bytes:
                 "1",
                 "-ar",
                 str(_SAMPLE_RATE),
+                "-c:a",
+                "libopus",
+                "-b:a",
+                _BITRATE,
+                "-vn",
                 "-f",
-                "wav",
+                "webm",
                 str(out),
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.DEVNULL,

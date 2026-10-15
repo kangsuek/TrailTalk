@@ -359,7 +359,7 @@
 #### S3-01 STT(Whisper)
 - [x] `SttProvider` 인터페이스
 - [x] 결정 D2에 따라 OpenAI Whisper API 또는 faster-whisper 구현(OpenAI `gpt-transcribe`, `languages=ko`. 설정 `STT_MODEL`로 변경 가능)
-- [x] Opus 업로드를 ffmpeg로 디코딩(WAV 대체 경로 수용). webm·wav·mp3·m4a는 그대로 보내고 그 밖(ogg/opus 등)만 16kHz 모노 WAV로 변환, 120초 상한
+- [x] Opus 업로드를 ffmpeg로 디코딩(WAV 대체 경로 수용). webm·wav·mp3·m4a는 그대로 보내고 그 밖(ogg/opus 등)만 16kHz 모노 webm/opus로 변환(WAV보다 업로드 약 10배 작음), 120초 상한
 - [x] 테스트: 모의 응답, 오류·시간 초과
 - [ ] 실제 API 확인(`RUN_REAL_OPENAI=1 uv run pytest tests/test_voice_real.py`). 2026-10-16 OpenAI 크레딧 소진(429 `insufficient_quota`)으로 미실행. multipart `languages` 필드 형식 확인 필요
 
@@ -715,3 +715,4 @@
 | 2026-10-16 | S3-08 세션 상태 머신·S3-09 상태 전이 표 완료. 쉬기 중 30분 무발화 종료 유지(사용자 결정) | `9202e04` |
 | 2026-10-16 | S3-06 클라이언트 설정값: VAD 임계값 키 추가, `/api/profile`의 `client`로 제공, 규약 5절 | `2b643a9` |
 | 2026-10-16 | S3-01 STT·S3-02 TTS 코드 완료(OpenAI provider, ffmpeg 변환, TTS 전처리, 인용 조사 분할 수정, 페르소나 `pitch`→`instructions`). 실제 호출 확인·보이스 선택은 크레딧 충전 뒤 | `f89057b` |
+| 2026-10-16 | S3-01·S3-02 점검 수정: 빈 `OPENAI_API_KEY=`가 실제 키를 가리던 문제, `FFMPEG_PATH`의 `~`, TTS 전처리(목록 기호·범위 `~`), `tts-1`에 `instructions` 미전송, ogg 등 변환을 webm/opus로(업로드 약 1/10), 규약 7절 음성 오류 코드 | (다음 갱신) |
