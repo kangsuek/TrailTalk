@@ -44,7 +44,7 @@ web/               React + TypeScript + Vite
   e2e/             Playwright
 android/           4단계에서 구현(지금은 README만)
 shared/            효과음, 상태 전이 표, 클라이언트 설정 기본값
-docs/              설계서, 계획서, 규약, 검증 기록(spikes/), 톤 평가 리포트(eval/)
+docs/              설계서, 계획서, 규약, 인계(handoff.md), 검증 기록(spikes/), 톤·추출 평가 리포트(eval/)
 ```
 
 ## 명령
@@ -62,7 +62,7 @@ docs/              설계서, 계획서, 규약, 검증 기록(spikes/), 톤 평
 (cd server && uv run alembic revision --autogenerate -m "설명")   # 모델 변경 후 마이그레이션 생성(검토 필수)
 (cd server && uv run alembic upgrade head)                      # 수동 적용(앱 시작 때도 자동 적용)
 (cd server && RUN_REAL_CLI=1 uv run pytest tests/test_llm_real.py -q)  # 실제 Claude CLI 통합 테스트(구독 사용량 소모)
-(cd server && RUN_REAL_CLI=1 uv run python -m tests.extract_eval.run_eval)  # 일지 추출 평가(haiku 약 20회) → docs/eval/extract-<날짜>.md
+(cd server && RUN_REAL_CLI=1 uv run python -m tests.extract_eval.run_eval)  # 일지 추출 평가(haiku·sonnet 각 12회) → docs/eval/extract-<날짜>.md
 
 # 웹
 (cd web && npm run dev)                                # http://127.0.0.1:5173, /api → 8000 프록시
