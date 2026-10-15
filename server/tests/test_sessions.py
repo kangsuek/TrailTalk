@@ -21,7 +21,7 @@ from app.db.models import (
     Turn,
     TurnRole,
 )
-from app.llm.events import TurnStarted
+from app.llm.events import TextDelta, TurnStarted
 from app.main import create_app
 from app.persona.loader import load_persona
 
@@ -198,6 +198,52 @@ def test_turns_stream_sentences_and_save_both_sides(api):
         (4, TurnRole.ASSISTANT, "사과와 바나나입니다."),
     ]
     assert rows[2].id == first.turn_id
+
+
+THREE_SENTENCES = "첫 문장입니다. 둘째 문장이에요. 셋째 문장이죠."
+
+
+def test_reply_is_committed_sentence_by_sentence(api):
+    """문장을 보내기 전에 커밋한다. 끝나기 전까지는 끊긴 답변(interrupted)으로 남는다."""
+    session_id = start(api)["session"]["id"]
+    seen: list[tuple[str, bool]] = []
+
+    async def snapshot(event):
+        if isinstance(event, TextDelta):
+            async with api.app.state.session_factory() as db:  # 다른 연결: 커밋된 것만 보인다
+                row = await db.scalar(
+                    select(Turn).where(Turn.session_id == session_id, Turn.seq == 2)
+                )
+            if row is not None and (row.text, row.interrupted) not in seen:
+                seen.append((row.text, row.interrupted))
+
+    hook_llm(api, snapshot)
+    events = turn(api, session_id, f"__say__:{THREE_SENTENCES}")
+    assert [e.text for e in events if e.type == "sentence"] == [
+        "첫 문장입니다.",
+        "둘째 문장이에요.",
+        "셋째 문장이죠.",
+    ]
+    assert seen == [("첫 문장입니다.", True), ("첫 문장입니다. 둘째 문장이에요.", True)]
+    reply = turns_of(api, session_id)[2]
+    assert reply.id == events[0].turn_id
+    assert (reply.text, reply.interrupted) == (THREE_SENTENCES, False)
+
+
+def test_cli_crash_keeps_sent_sentences(api):
+    session_id = start(api)["session"]["id"]
+    events = turn(api, session_id, f"__say_then_crash__:{THREE_SENTENCES}")
+    assert events[-1].type == "error"
+    sent = [e.text for e in events if e.type == "sentence"]
+    assert sent[:2] == ["첫 문장입니다.", "둘째 문장이에요."]
+    reply = turns_of(api, session_id)[2]
+    assert (reply.role, reply.text, reply.interrupted) == (
+        TurnRole.ASSISTANT,
+        " ".join(sent),
+        True,
+    )
+    assert turn(api, session_id, "괜찮아?")[-1].type == "done"
+    assert [t.seq for t in turns_of(api, session_id)] == [0, 1, 2, 3, 4]
 
 
 def test_tool_events_use_public_names(api, monkeypatch):
@@ -438,8 +484,11 @@ def test_end_during_turn_stops_it(api):
     assert api.app.state.runtimes.get(session_id) is None
 
 
-async def _http(port: int, path: str, body: dict, *, until: bytes | None = None) -> bytes:
-    """원시 HTTP POST. until을 받으면 그 바이트가 보이자마자 연결을 끊는다(클라이언트 끊김)."""
+async def _http(
+    port: int, path: str, body: dict, *, until: bytes | None = None, count: int = 1
+) -> bytes:
+    """원시 HTTP POST. until을 받으면 그 바이트가 count번 보이자마자 연결을 끊는다
+    (클라이언트 끊김)."""
     import asyncio
 
     reader, writer = await asyncio.open_connection("127.0.0.1", port)
@@ -454,7 +503,7 @@ async def _http(port: int, path: str, body: dict, *, until: bytes | None = None)
     try:
         while chunk := await asyncio.wait_for(reader.read(65536), 10):
             data += chunk
-            if until is not None and until in data:
+            if until is not None and data.count(until) >= count:
                 break
     finally:
         writer.close()
@@ -498,14 +547,35 @@ async def test_client_disconnect_releases_turn(fake_cli, home, monkeypatch):
             await asyncio.sleep(0.05)
         assert not runtime.turn_lock.locked()
 
+        # 첫 문장을 받고 끊으면 그 문장까지 끊긴 답변으로 남는다
+        await _http(
+            port, path, {"text": f"__say_then_hang__:{THREE_SENTENCES}"}, until=b"event: sentence"
+        )
+        for _ in range(100):
+            if not runtime.turn_lock.locked():
+                break
+            await asyncio.sleep(0.05)
+        assert not runtime.turn_lock.locked()
+
         assert b"event: done" in await _http(port, path, {"text": "바나나는?"})
         async with app.state.session_factory() as db:
             rows = await db.execute(
-                select(Turn.role).where(Turn.session_id == session_id).order_by(Turn.seq)
+                select(Turn).where(Turn.session_id == session_id).order_by(Turn.seq)
             )
-            roles = list(rows.scalars())
-        # 끊긴 턴은 사용자 메시지만 남는다
-        assert roles == [TurnRole.ASSISTANT, TurnRole.USER, TurnRole.USER, TurnRole.ASSISTANT]
+            saved = [(t.role, t.interrupted) for t in rows.scalars()]
+            partial = await db.scalar(
+                select(Turn.text).where(Turn.session_id == session_id, Turn.seq == 3)
+            )
+        # 문장 전에 끊긴 턴은 사용자 메시지만 남는다
+        assert saved == [
+            (TurnRole.ASSISTANT, False),
+            (TurnRole.USER, False),
+            (TurnRole.USER, False),
+            (TurnRole.ASSISTANT, True),
+            (TurnRole.USER, False),
+            (TurnRole.ASSISTANT, False),
+        ]
+        assert partial.startswith("첫 문장입니다.")
     finally:
         server.should_exit = True
         await serving

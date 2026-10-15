@@ -7,6 +7,10 @@
 - FAKE_CLAUDE_ARGS_LOG: 받은 인자·환경을 JSON 한 줄씩 기록할 파일(토큰은 존재 여부만).
 메시지 내용이 "__crash__"이면 종료 코드 3으로 죽는다. "__hang__"이면 아무것도 출력하지 않고
 인터럽트도 무시한다. "__hang_until_interrupt__"이면 멈춰 있다가 인터럽트가 오면 중단 결과를 낸다.
+"__say__:<글>"이면 녹화 대신 <글>을 몇 글자씩 text_delta로 보내고 정상 결과로 끝낸다
+(여러 문장 답변용).
+"__say_then_crash__:<글>"은 글을 보낸 뒤 죽고, "__say_then_hang__:<글>"은 글을 보낸 뒤
+"__hang_until_interrupt__"처럼 멈춘다(답변 도중 끊김·서버 강제 종료 시험용).
 
 stdin은 파일 객체 버퍼를 쓰지 않고 fd에서 직접 줄 단위로 읽는다(select와 섞어도 줄을 놓치지 않게).
 """
@@ -93,6 +97,39 @@ def emit_interrupted(control: dict, session_id: str) -> None:
     )
 
 
+def wait_for_interrupt(stdin: StdinLines, session_id: str) -> None:
+    while (waiting := stdin.next_line()) not in ("", None):
+        control = json.loads(waiting)
+        if control.get("type") == "control_request":
+            emit_interrupted(control, session_id)
+            return
+
+
+def say(text: str, session_id: str, stdin: StdinLines, delay: float) -> bool:
+    """글을 몇 글자씩 text_delta로 보낸다. 도중에 인터럽트가 오면 중단 결과를 내고 False."""
+    emit({"type": "system", "subtype": "init", "session_id": session_id, "model": "fake"})
+    for start in range(0, len(text), _SAY_CHUNK):
+        if delay:
+            time.sleep(delay)
+        pending = stdin.next_line(timeout=0)
+        control = json.loads(pending) if pending else None
+        if control is not None and control.get("type") == "control_request":
+            emit_interrupted(control, session_id)
+            return False
+        delta = {"type": "text_delta", "text": text[start : start + _SAY_CHUNK]}
+        emit(
+            {
+                "type": "stream_event",
+                "event": {"type": "content_block_delta", "index": 0, "delta": delta},
+                "session_id": session_id,
+            }
+        )
+    return True
+
+
+_SAY_CHUNK = 4
+
+
 def main() -> None:
     args = sys.argv[1:]
     resume_id = args[args.index("--resume") + 1] if "--resume" in args else None
@@ -129,11 +166,28 @@ def main() -> None:
         if content == "__hang__":
             continue
         if content == "__hang_until_interrupt__":
-            while (waiting := stdin.next_line()) not in ("", None):
-                control = json.loads(waiting)
-                if control.get("type") == "control_request":
-                    emit_interrupted(control, session_id)
-                    break
+            wait_for_interrupt(stdin, session_id)
+            continue
+        directive, _, text = content.partition(":")
+        if directive in ("__say__", "__say_then_crash__", "__say_then_hang__"):
+            if not say(text, session_id, stdin, delay):
+                continue
+            if directive == "__say_then_crash__":
+                print("fake crash", file=sys.stderr, flush=True)
+                sys.exit(3)
+            if directive == "__say_then_hang__":
+                wait_for_interrupt(stdin, session_id)
+                continue
+            emit(
+                {
+                    "type": "result",
+                    "subtype": "success",
+                    "is_error": False,
+                    "result": text,
+                    "session_id": session_id,
+                    "duration_ms": 1,
+                }
+            )
             continue
         turn = turns[min(index, len(turns) - 1)]
         index += 1

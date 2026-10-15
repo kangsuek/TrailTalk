@@ -3,6 +3,8 @@
 - 세션 시작: 프롬프트를 조립해 CLI를 열고, 숨은 첫 메시지로 받은 인사말을
   assistant 턴(seq 0)으로 저장한다.
 - 턴: 사용자 턴을 먼저 저장하고 CLI 이벤트를 SSE 이벤트(app/api/events.py)로 바꿔 보낸다.
+  답변은 문장을 보내기 전에 문장마다 커밋한다(계획서 S2-01). 끝나지 못한 답변(연결 끊김·오류·
+  서버 강제 종료)은 보낸 문장까지 interrupted로 남는다.
 - 종료: CLI를 닫고 대화 런타임(MCP 토큰)을 버린 뒤 CLI 대화 기록 파일을 지운다.
 
 프롬프트는 세션의 시작 시각·모드와 현재 프로필로 만든다. CLI가 죽어 --resume으로 다시 띄울 때도
@@ -23,7 +25,7 @@ from zoneinfo import ZoneInfo
 
 import anyio
 from fastapi import FastAPI
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.events import (
@@ -422,8 +424,8 @@ def _error(exc: AppError) -> bytes:
 async def stream_turn(app: FastAPI, session_id: str, text: str) -> AsyncIterator[bytes]:
     """사용자 메시지 한 턴을 처리하며 SSE 바이트를 낸다.
 
-    클라이언트가 끊기면 이 제너레이터가 닫히고 aclosing이 CLI 턴을 멈춘다. 이때 사용자 턴만
-    남는다(문장별 저장은 S2-01).
+    클라이언트가 끊기면 이 제너레이터가 닫히고 aclosing이 CLI 턴을 멈춘다. 이때 사용자 턴과
+    보낸 문장까지의 답변(interrupted)이 남는다.
     """
     runtime = app.state.runtimes.ensure(session_id)
     if runtime.turn_lock.locked():  # 검사와 획득 사이에 await가 없어 경합하지 않는다
@@ -485,11 +487,25 @@ async def _run_turn(
         splitter = SentenceSplitter()
         index = 0
         parts: list[str] = []
+        sent: list[str] = []  # 클라이언트에 보낸 문장(부분 답변으로 저장)
+        reply_saved = False
         tool_names: dict[str, str] = {}
         finished: TurnFinished | None = None
 
-        def sentences(items: list[str]) -> list[bytes]:
-            nonlocal index
+        async def sentences(items: list[str]) -> list[bytes]:
+            """문장을 먼저 커밋하고 보낸다. 클라이언트가 받은 문장은 서버가 죽어도 남는다(보내기
+            직전에 끊기면 못 받은 문장이 하나 더 남을 수 있다). 끝나기 전에는 interrupted로
+            둔다."""
+            nonlocal index, reply_saved
+            if not items:
+                return []
+            sent.extend(items)
+            with anyio.CancelScope(shield=True):
+                await _save_reply(
+                    db, assistant_id, session_id, seq + 1, " ".join(sent), True, reply_saved
+                )
+                await db.commit()
+            reply_saved = True
             out = []
             for item in items:
                 out.append(encode_sse(SentenceEvent(index=index, text=item)))
@@ -505,11 +521,11 @@ async def _run_turn(
                             await db.commit()
                 elif isinstance(event, TextDelta):
                     parts.append(event.text)
-                    for chunk in sentences(splitter.feed(event.text)):
+                    for chunk in await sentences(splitter.feed(event.text)):
                         yield chunk
                 elif isinstance(event, ToolStarted):
                     # 도구 앞의 말("잠깐 찾아볼게요")은 기다리지 않고 바로 문장으로 보낸다
-                    for chunk in sentences(splitter.flush()):
+                    for chunk in await sentences(splitter.flush()):
                         yield chunk
                     if parts and not parts[-1][-1:].isspace():
                         parts.append("\n\n")
@@ -543,25 +559,18 @@ async def _run_turn(
                     )
                 elif isinstance(event, TurnFinished):
                     finished = event
-        for chunk in sentences(splitter.flush()):
+        for chunk in await sentences(splitter.flush()):
             yield chunk
 
         if finished is None or (finished.is_error and not finished.interrupted):
             detail = finished.error_message if finished else "응답 없음"
             logger.warning("턴 실패(session=%s): %s", session_id, detail)
             yield _error(LlmError("llm_error", "답변을 만들지 못했습니다."))
-            return
+            return  # 보낸 문장은 끊긴 답변으로 남는다
         reply = "".join(parts).strip() or finished.text
         with anyio.CancelScope(shield=True):
-            db.add(
-                Turn(
-                    id=assistant_id,
-                    session_id=session_id,
-                    seq=seq + 1,
-                    role=TurnRole.ASSISTANT,
-                    text=reply,
-                    interrupted=finished.interrupted,
-                )
+            await _save_reply(
+                db, assistant_id, session_id, seq + 1, reply, finished.interrupted, reply_saved
             )
             requested = runtime.pop_requested_status()
             if requested is not None:
@@ -593,6 +602,35 @@ async def _run_turn(
         if leftover is not None:
             with anyio.CancelScope(shield=True):
                 await _apply_leftover_status(app, db, session_id, leftover)
+
+
+async def _save_reply(
+    db: AsyncSession,
+    turn_id: str,
+    session_id: str,
+    seq: int,
+    text: str,
+    interrupted: bool,
+    exists: bool,
+) -> None:
+    """assistant 턴을 만들거나 고친다(커밋은 부르는 쪽). 문장마다 불리므로 한 줄 쿼리로 끝낸다."""
+    if exists:
+        statement = (
+            update(Turn)
+            .where(Turn.id == turn_id)
+            .values(text=text, interrupted=interrupted)
+            .execution_options(synchronize_session=False)
+        )
+    else:
+        statement = insert(Turn).values(
+            id=turn_id,
+            session_id=session_id,
+            seq=seq,
+            role=TurnRole.ASSISTANT,
+            text=text,
+            interrupted=interrupted,
+        )
+    await db.execute(statement)
 
 
 async def _settle_after_error(
