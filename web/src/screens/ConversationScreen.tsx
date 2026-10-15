@@ -286,7 +286,7 @@ export function ConversationScreen({
         {state.ending ? '오늘 대화를 일지로 정리하는 중이에요…' : ''}
       </p>
       {state.status === 'paused' && (
-        <p className="conversation-note">쉬는 중이에요. 말을 걸면 다시 이어 가요.</p>
+        <p className="conversation-note">쉬는 중이에요. 말을 걸면 다시 이어 가요. 30분 동안 말이 없으면 대화를 마쳐요.</p>
       )}
 
       {inConversation && (

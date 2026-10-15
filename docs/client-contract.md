@@ -37,7 +37,25 @@
 
 ## 4. 세션 상태 머신
 
-상태: 대기, 듣기, 처리 중, 말하기, 쉬기, 오프라인 보관, 정리. 전이 표는 `shared/fixtures/transitions.json`(S3-09).
+음성 대화는 아래 상태를 오가는 하나의 루프다(설계서 4.1). 상태 머신은 이벤트를 받아 다음 상태와 **명령**을 돌려주는 순수 함수이고(웹 `web/src/core/sessionMachine.ts`), 마이크·재생·서버 호출·타이머는 화면·플랫폼 계층이 명령을 받아 실행한다. 전이 표 `shared/fixtures/transitions.json`(S3-09)을 웹과 안드로이드 테스트가 함께 읽는다. 3단계 S3-15에서 확정한다.
+
+- **상태**(코드 이름): 대기 `idle`, 듣기 `listening`, 처리 중 `processing`, 말하기 `speaking`, 쉬기 `paused`, 오프라인 보관 `offline`, 정리 `closing`.
+- **이벤트**: 버튼 `tap`·`long_press`, 시작 `session_started`(인사말 재생 시작)·`start_failed`, 발화 감지 `speech_start`·`speech_end`, 턴 스트림 `turn`·`sentence`·`turn_done`·`turn_error`·`note_saved`, 재생 `sentence_played`·`playback_idle`, 오프라인 `send_failed`·`offline_notice_done`·`online`·`queue_flushed`, 그 밖 `idle_timeout`·`session_closed`·`end_failed`.
+- **명령**: `startSession`, `sendTurn`, `cancelTurn`(턴 ID와 마지막으로 다 들려준 문장 번호), `endSession`, `micOn`·`micOff`, `setVadMode`(재생 중 `playback`으로 임계값 상향), `stopPlayback`, `queueUtterance`, `speakOfflineNotice`, `flushQueue`, `playSound`(`listen`·`saved`·`offline`), `notifyError`, `startIdleTimer`·`clearIdleTimer`.
+- **규칙 요약**
+  - 한 번 누르기: 대기에서는 시작, 말하기·처리 중에는 끼어들기(취소 뒤 듣기), 쉬기에서는 다시 듣기.
+  - 길게 누르기: 대기 외 어디서나 종료(정리 중이면 끝내기 응답을 기다리지 않고 대기로).
+  - 답변 문장을 다 들려주고 턴이 끝나면 `done`의 `session_status`에 따라 듣기·쉬기·정리로 간다.
+  - 듣기·쉬기에서 30분(`idle_timeout_minutes`) 동안 말이 없으면 정리로 간다. 서버 안전망과 같은 기준이다.
+  - 큐에 발화가 남아 있으면 새 발화도 큐 뒤에 넣어 순서를 지킨다.
+  - 표에 없는 조합과 모르는 이벤트는 무시한다.
+- **플랫폼이 지킬 것**
+  - 인사말은 SSE가 아니라 시작 응답으로 온다. 재생을 시작하며 `session_started {turnId}`(인사말 턴 ID)를 보내고, 재생할 소리가 없으면 바로 `playback_idle`을 보낸다.
+  - `sentence`·`turn_done`에는 턴 ID를 싣는다. 머신은 지금 턴과 다른 ID의 이벤트(취소한 턴의 늦은 이벤트)를 무시한다. `turn_error`는 턴 시작 전 오류면 `turnId: null`이다.
+  - `sentence` 이벤트는 그 문장 소리를 재생 대기열에 넣은 뒤에 머신에 보낸다. `playback_idle`은 보내는 순간 대기열이 비어 있을 때만 보낸다(`done`보다 먼저 와도 된다).
+  - 모든 요청(`startSession`·`sendTurn`·`endSession`)은 성공 이벤트나 실패 이벤트(`start_failed`·`turn_error`·`send_failed`·`end_failed`) 중 하나로 반드시 끝낸다. 시간 초과도 실패로 보낸다.
+  - 처리 중에 들어온 발화(`speech_end`)는 버린다.
+  - 큐 비우기가 끝나면 남은 발화 수를 `queue_flushed {remaining}`로 알린다. 큐 항목이 어느 세션에 속하는지와 끝내기 전에 큐를 비울지는 S3-12(LocalQueue)에서 정한다.
 
 ## 5. 클라이언트 설정값
 

@@ -251,7 +251,7 @@ describe('ConversationScreen', () => {
     await startConversation()
     fireEvent.change(screen.getByRole('textbox', { name: '메시지' }), { target: { value: '쉬자' } })
     fireEvent.click(screen.getByRole('button', { name: '보내기' }))
-    await screen.findByText('쉬는 중이에요. 말을 걸면 다시 이어 가요.')
+    await screen.findByText('쉬는 중이에요. 말을 걸면 다시 이어 가요. 30분 동안 말이 없으면 대화를 마쳐요.')
     const log = screen.getByRole('log', { name: '대화 내용' })
     expect(within(log).getAllByText('도우미')).toHaveLength(1) // 인사말 말풍선만
   })
