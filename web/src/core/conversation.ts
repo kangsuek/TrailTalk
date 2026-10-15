@@ -40,6 +40,8 @@ export interface ConversationState {
   personaName: string | null
   messages: Message[]
   sending: boolean
+  // 끝내기 요청 중(서버가 일지를 정리하는 동안 기다린다)
+  ending: boolean
   error: string | null
 }
 
@@ -57,7 +59,8 @@ export type ConversationAction =
   // 입력창으로 되돌린 사용자 메시지(목록에서 뺀다)
   | { type: 'failed'; message: string; code?: string; unsentId?: string }
   | { type: 'ending' }
-  | { type: 'ended' }
+  // closing: 서버가 준 마무리 멘트(캐릭터 말풍선으로 보인다)
+  | { type: 'ended'; closing?: string }
 
 const SESSION_GONE = new Set(['session_ended', 'session_not_found'])
 
@@ -67,6 +70,7 @@ export const initialConversation: ConversationState = {
   personaName: null,
   messages: [],
   sending: false,
+  ending: false,
   error: null,
 }
 
@@ -199,6 +203,7 @@ export function conversationReducer(
         : state.messages
       return {
         ...state,
+        ending: false,
         // 시작 실패면 처음 화면으로, 서버에서 이미 끝난 세션이면 끝난 화면으로 간다
         status:
           state.status === 'starting'
@@ -212,9 +217,28 @@ export function conversationReducer(
       }
     }
     case 'ending':
-      return { ...state, sending: true, error: null }
-    case 'ended':
-      return { ...state, status: 'ended', sending: false }
+      return { ...state, sending: true, ending: true, error: null }
+    case 'ended': {
+      const closing: AssistantMessage[] = action.closing
+        ? [
+            {
+              role: 'assistant',
+              id: 'closing',
+              sentences: [action.closing],
+              tools: [],
+              status: 'done',
+              interrupted: false,
+            },
+          ]
+        : []
+      return {
+        ...state,
+        status: 'ended',
+        sending: false,
+        ending: false,
+        messages: [...state.messages.filter((m) => m.id !== 'closing'), ...closing],
+      }
+    }
     default:
       return state
   }

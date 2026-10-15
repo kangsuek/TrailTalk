@@ -27,6 +27,26 @@ class VoiceStyle(_Strict):
     pitch: Annotated[float, Field(ge=-20, le=20)]  # TTS 피치(반음)
 
 
+SAVED_PLACEHOLDER = "{저장}"
+
+
+class Closing(_Strict):
+    """세션을 닫을 때 하는 마무리 멘트(설계서 4.4).
+
+    {저장}에는 앱이 "아이디어 3개, 할 일 1개"를 넣는다."""
+
+    saved: Text  # 저장한 것이 있을 때
+    nothing: Text  # 저장한 것이 없을 때
+
+    @model_validator(mode="after")
+    def _placeholder(self) -> "Closing":
+        if SAVED_PLACEHOLDER not in self.saved:
+            raise ValueError(f"closing.saved에는 {SAVED_PLACEHOLDER}가 있어야 합니다")
+        if SAVED_PLACEHOLDER in self.nothing:
+            raise ValueError(f"closing.nothing에는 {SAVED_PLACEHOLDER}를 쓸 수 없습니다")
+        return self
+
+
 class Persona(_Strict):
     id: Annotated[str, StringConstraints(pattern=r"^[a-z0-9_-]{1,64}$")]
     name: Text
@@ -35,6 +55,7 @@ class Persona(_Strict):
     speech_style: SpeechStyle
     brainstorm_style: TextList
     examples: TextList
+    closing: Closing
     voice: VoiceStyle
 
     @model_validator(mode="after")

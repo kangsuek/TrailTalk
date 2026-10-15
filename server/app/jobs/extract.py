@@ -190,6 +190,19 @@ def ensure_extraction(app: FastAPI, session_id: str) -> asyncio.Task | None:
     return task
 
 
+async def wait_extraction(app: FastAPI, session_id: str, timeout_s: float) -> None:
+    """진행 중인 추출이 끝나길 최대 timeout_s 기다린다. 시간이 지나도 추출은 멈추지 않는다."""
+    task = app.state.extractions.get(session_id)
+    if task is None:
+        return
+    try:
+        await asyncio.wait_for(asyncio.shield(task), timeout_s)
+    except TimeoutError:
+        logger.info("추출이 아직 끝나지 않아 먼저 응답(session=%s)", session_id)
+    except Exception:  # 정리 실패가 끝내기 응답까지 실패로 만들지 않는다(세션은 이미 끝났다)
+        logger.exception("추출 대기 중 예외(session=%s)", session_id)
+
+
 async def _guarded(app: FastAPI, session_id: str) -> Extraction | None:
     try:
         return await run_extraction(app, session_id)

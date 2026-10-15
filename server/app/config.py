@@ -30,8 +30,10 @@ class Settings(BaseSettings):
     session_prepare_ttl_s: float = 300
     # CLI가 앱 도구 MCP 서버(/internal/mcp/)에 접속할 이 서버의 주소
     internal_base_url: str = "http://127.0.0.1:8000"
-    # 세션 종료 추출(일지 정리) CLI 한 번의 시간 제한
+    # 세션 종료 추출(일지 정리) CLI 한 번의 시간 제한과, 끝내기 API가 정리를 기다리는 최대 시간
+    # (넘으면 그때까지 저장된 개수로 마무리 멘트를 만들고 정리는 백그라운드에서 계속한다)
     extract_timeout_s: float = 60
+    extract_wait_s: float = 45
     # 자식 CLI에 추가로 넘길 환경 변수 이름 패턴(기본 허용 목록 외). 테스트의 가짜 CLI용
     cli_env_passthrough: tuple[str, ...] = ()
 

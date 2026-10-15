@@ -172,6 +172,27 @@ describe('conversationReducer', () => {
     ])
     expect(state.status).toBe('ended')
   })
+
+  it('끝내기 중에는 ending이고, 끝나면 마무리 멘트를 캐릭터 말풍선으로 덧붙인다(한 번만)', () => {
+    const ending = reduce([...started, { type: 'ending' }])
+    expect(ending.ending).toBe(true)
+    const ended = reduce([
+      ...started,
+      { type: 'ending' },
+      { type: 'ended', closing: '오늘 할 일 1개 저장했어요!' },
+      { type: 'ended', closing: '오늘 할 일 1개 저장했어요!' },
+    ])
+    expect(ended.status).toBe('ended')
+    expect(ended.ending).toBe(false)
+    const last = ended.messages.at(-1)
+    expect(last).toMatchObject({ role: 'assistant', sentences: ['오늘 할 일 1개 저장했어요!'], status: 'done' })
+    expect(ended.messages.filter((m) => m.id === 'closing')).toHaveLength(1)
+  })
+
+  it('끝내기가 실패하면 ending을 푼다', () => {
+    const state = reduce([...started, { type: 'ending' }, { type: 'failed', message: '연결 안 됨' }])
+    expect(state.ending).toBe(false)
+  })
 })
 
 describe('toolNotice', () => {

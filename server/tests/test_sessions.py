@@ -308,13 +308,15 @@ def test_end_session_closes_cli_and_deletes_its_transcript(api, home):
 
     response = api.post(f"/api/sessions/{session_id}/end")
     assert response.status_code == 200
-    assert response.json()["status"] == "ended" and response.json()["ended_at"]
+    closed = response.json()["session"]
+    assert closed["status"] == "ended" and closed["ended_at"]
     assert not transcript.exists() and other.exists()
     assert api.app.state.llm.active_count == 0
     assert api.app.state.runtimes.get(session_id) is None
 
     again = api.post(f"/api/sessions/{session_id}/end")  # 두 번 끝내도 같은 결과
-    assert again.status_code == 200 and again.json()["ended_at"] == response.json()["ended_at"]
+    assert again.status_code == 200
+    assert again.json()["session"]["ended_at"] == closed["ended_at"]
     response = api.post(f"/api/sessions/{session_id}/turns", json={"text": "안녕"})
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "session_ended"
@@ -476,7 +478,7 @@ def test_end_during_turn_stops_it(api):
     started = time.monotonic()
     response = api.post(f"/api/sessions/{session_id}/end")
     worker.join(10)
-    assert response.status_code == 200 and response.json()["status"] == "ended"
+    assert response.status_code == 200 and response.json()["session"]["status"] == "ended"
     assert time.monotonic() - started < 5
     assert result["events"][-1].type == "error"
     assert session_row(api, session_id).status is SessionStatus.ENDED

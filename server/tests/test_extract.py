@@ -161,7 +161,7 @@ def test_tool_requested_end_starts_extraction(api):
 def test_pending_extraction_is_cancelled_on_shutdown(fake_cli, home, oneshot, monkeypatch):
     monkeypatch.setenv("FAKE_CLAUDE_FIXTURE", "multiturn")
     oneshot("__hang__")
-    with make_api(fake_cli) as api:
+    with make_api(fake_cli, extract_wait_s=0.2) as api:
         session_id = start(api)["session"]["id"]
         turn(api, session_id, "바나나는?")
         api.post(f"/api/sessions/{session_id}/end")
@@ -274,3 +274,38 @@ def test_extracted_items_become_notes_without_duplicates(api):
             ),
         ]
     )
+
+
+def test_end_returns_closing_with_saved_counts(api):
+    from app.persona.loader import load_persona
+
+    persona = load_persona(api.app.state.settings.persona_dir, "jenny").persona
+    session_id = start(api)["session"]["id"]
+    turn(api, session_id, "바나나는?")
+    body = api.post(f"/api/sessions/{session_id}/end").json()
+    assert body["saved"] == {"idea": 1, "todo": 1, "memo": 1}
+    assert body["journal_status"] == "done"
+    # 문구는 페르소나 YAML(closing)에서 오고 개수만 앱이 채운다
+    assert body["closing"] == persona.closing.saved.replace(
+        "{저장}", "아이디어 1개, 할 일 1개, 메모 1개"
+    )
+    again = api.post(f"/api/sessions/{session_id}/end").json()
+    assert again["closing"] == body["closing"]  # 다시 불러도 같은 멘트(정리는 다시 하지 않음)
+    assert len(oneshot_records(api.fake_cli)) == 1
+
+
+def test_end_does_not_wait_forever_for_extraction(fake_cli, home, oneshot, monkeypatch):
+    from app.persona.loader import load_persona
+
+    monkeypatch.setenv("FAKE_CLAUDE_FIXTURE", "multiturn")
+    oneshot("__hang__")
+    with make_api(fake_cli, extract_wait_s=0.3) as api:
+        persona = load_persona(api.app.state.settings.persona_dir, "jenny").persona
+        session_id = start(api)["session"]["id"]
+        turn(api, session_id, "바나나는?")
+        started = time.monotonic()
+        body = api.post(f"/api/sessions/{session_id}/end").json()
+        assert time.monotonic() - started < 3
+        assert body["journal_status"] == "pending"
+        assert body["saved"] == {"idea": 0, "todo": 0, "memo": 0}
+        assert body["closing"] == persona.closing.nothing

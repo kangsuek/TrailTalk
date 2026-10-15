@@ -33,6 +33,8 @@ test('텍스트 대화: 인사말, 문장 말풍선, 도구 알림, 끝내기', 
 
   await page.getByRole('button', { name: '대화 끝내기' }).click()
   await expect(page.getByText('대화가 끝났어요.')).toBeVisible()
+  // 마무리 멘트: 문구는 페르소나 YAML, 개수는 서버가 일지 정리(가짜 CLI 추출 픽스처) 뒤 채운다
+  await expect(log.getByText(/아이디어 1개, 할 일 1개, 메모 1개/)).toBeVisible()
   await expect(input).toBeHidden()
   await page.screenshot({ path: 'test-results/conversation-ended.png', fullPage: true })
 })

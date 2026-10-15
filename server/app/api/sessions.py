@@ -1,4 +1,4 @@
-"""대화 세션 API(설계서 4.6): 시작(인사말), 턴(SSE), 종료."""
+"""대화 세션 API(설계서 4.6): 시작(인사말), 턴(SSE), 종료(마무리 멘트)."""
 
 from datetime import datetime
 from typing import Annotated, Literal
@@ -10,7 +10,9 @@ from pydantic import BaseModel, Field
 from app.api.events import sse_response_doc
 from app.db.models import ConversationMode, ConversationSession
 from app.db.session import DbSession
+from app.jobs import closing, extract
 from app.services import conversation
+from app.services.profile import profile_with_persona
 
 router = APIRouter(tags=["sessions"])
 
@@ -47,6 +49,24 @@ class SessionOut(BaseModel):
             started_at=convo.started_at,
             ended_at=convo.ended_at,
         )
+
+
+class SavedCounts(BaseModel):
+    idea: int
+    todo: int
+    memo: int
+
+
+class SessionClosed(BaseModel):
+    """끝내기 응답. closing은 캐릭터가 하는 마무리 멘트, saved는 이 대화에서 저장한 노트 개수다.
+
+    journal_status가 pending이면 일지 정리가 아직 끝나지 않은 것이다(개수가 나중에 늘 수 있다).
+    """
+
+    session: SessionOut
+    closing: str
+    saved: SavedCounts
+    journal_status: Literal["pending", "done", "failed"] | None
 
 
 class SessionCreate(BaseModel):
@@ -115,7 +135,21 @@ async def create_turn(
 
 
 @router.post("/sessions/{session_id}/end")
-async def end_session(session_id: str, request: Request, db: DbSession) -> SessionOut:
+async def end_session(session_id: str, request: Request, db: DbSession) -> SessionClosed:
+    """세션을 끝내고 일지 정리를 띄운 뒤, 정리가 끝나길 잠깐 기다려 마무리 멘트를 준다(멱등)."""
+    app = request.app
     convo = await conversation.get_session(db, session_id)
-    await conversation.end_session(request.app, db, convo)
-    return SessionOut.of(convo)
+    await conversation.end_session(app, db, convo)
+    # 기다리는 동안 이 요청의 트랜잭션을 열어 두지 않는다(추출 결과 쓰기와 잠금이 겹치지 않게)
+    await db.commit()
+    await extract.wait_extraction(app, session_id, app.state.settings.extract_wait_s)
+    await db.refresh(convo)
+    counts = await closing.count_notes(db, session_id)
+    _, loaded = await profile_with_persona(db, app.state.settings)
+    await db.commit()
+    return SessionClosed(
+        session=SessionOut.of(convo),
+        closing=closing.closing_message(loaded.persona, counts),
+        saved=SavedCounts(**{kind.value: count for kind, count in counts.items()}),
+        journal_status=convo.extract_status.value if convo.extract_status else None,
+    )

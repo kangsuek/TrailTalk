@@ -169,6 +169,7 @@ export function ConversationScreen({ visible = true }: { visible?: boolean }) {
     const id = `local-${nextId.current++}`
     dispatch({ type: 'send', id, text })
     let answered = false
+    let endedByTool = false // 끝내기 도구로 대화가 끝났다(마무리 멘트를 받으러 끝내기를 부른다)
     void run(
       async (signal) => {
       try {
@@ -177,6 +178,13 @@ export function ConversationScreen({ visible = true }: { visible?: boolean }) {
           text,
           (streamEvent) => {
             if (streamEvent.type === 'turn') answered = true
+            // 끝내기 도구 뒤 턴이 정상 또는 오류로 끝났다
+            if (streamEvent.type === 'done' && streamEvent.session_status === 'ended') {
+              endedByTool = true
+            }
+            if (streamEvent.type === 'error' && answered && streamEvent.code === 'session_ended') {
+              endedByTool = true
+            }
             if (streamEvent.type === 'error' && !answered) {
               // 서버가 사용자 메시지를 받기 전에 실패했다: 말풍선을 빼고 쓴 글을 되살린다
               setDraft((current) => current || text)
@@ -197,6 +205,7 @@ export function ConversationScreen({ visible = true }: { visible?: boolean }) {
         if (!answered && !signal.aborted) setDraft((current) => current || text)
         throw error
       }
+      if (endedByTool) await finish(sessionId, signal)
       },
       () => (answered ? undefined : id),
     )
@@ -213,14 +222,17 @@ export function ConversationScreen({ visible = true }: { visible?: boolean }) {
     }
   }
 
+  /** 끝내기를 서버에 알리고 마무리 멘트를 받는다(일지 정리를 잠깐 기다린다). */
+  const finish = async (sessionId: string, signal: AbortSignal) => {
+    dispatch({ type: 'ending' })
+    const closed = await endSession(sessionId, signal)
+    dispatch({ type: 'ended', closing: closed.closing })
+  }
+
   const end = () => {
     if (state.sessionId === null) return
     const sessionId = state.sessionId
-    void run(async (signal) => {
-      dispatch({ type: 'ending' })
-      await endSession(sessionId, signal)
-      dispatch({ type: 'ended' })
-    })
+    void run((signal) => finish(sessionId, signal))
   }
 
   const name = state.personaName ?? ''
@@ -258,6 +270,10 @@ export function ConversationScreen({ visible = true }: { visible?: boolean }) {
           {state.error}
         </p>
       )}
+      {/* 라이브 영역은 미리 그려 두고 글만 바꾼다(새로 넣은 영역은 스크린리더가 놓치기 쉽다) */}
+      <p className="conversation-note" aria-live="polite" hidden={!state.ending}>
+        {state.ending ? '오늘 대화를 일지로 정리하는 중이에요…' : ''}
+      </p>
       {state.status === 'paused' && (
         <p className="conversation-note">쉬는 중이에요. 말을 걸면 다시 이어 가요.</p>
       )}
@@ -285,7 +301,7 @@ export function ConversationScreen({ visible = true }: { visible?: boolean }) {
         </form>
       )}
 
-      {state.status === 'ended' && (
+      {state.status === 'ended' && !state.ending && (
         <div className="conversation-start">
           <p className="conversation-note">대화가 끝났어요.</p>
           <button type="button" onClick={start}>

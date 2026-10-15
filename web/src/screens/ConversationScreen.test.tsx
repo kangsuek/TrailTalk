@@ -37,12 +37,19 @@ const TURN: StreamEvent[] = [
   { type: 'done', turn_id: 'a1', text: '저장했어요! 누가 쓰면 좋을까요?', interrupted: false, session_status: 'active' },
 ]
 
+const CLOSED = {
+  session: { ...STARTED.session, status: 'ended', ended_at: '2026-10-14T00:10:00Z' },
+  closing: '오늘 아이디어 1개 저장했어요!',
+  saved: { idea: 1, todo: 0, memo: 0 },
+  journal_status: 'done',
+}
+
 function stubServer(turn: () => Response = () => sseResponse(TURN)) {
   const fetchMock = vi.fn(async (url: string) => {
     if (url === '/api/sessions') return new Response(JSON.stringify(STARTED), { status: 201 })
     if (url === '/api/sessions/prepare') return new Response(null, { status: 204 })
     if (url.endsWith('/turns')) return turn()
-    if (url.endsWith('/end')) return new Response(JSON.stringify({ ...STARTED.session, status: 'ended' }))
+    if (url.endsWith('/end')) return new Response(JSON.stringify(CLOSED))
     throw new Error(`unexpected ${url}`)
   })
   vi.stubGlobal('fetch', fetchMock)
@@ -228,6 +235,38 @@ describe('ConversationScreen', () => {
     expect(within(log).getAllByText('도우미')).toHaveLength(1) // 인사말 말풍선만
   })
 
+  it('끝내기 도구로 대화가 끝나면 끝내기를 불러 마무리 멘트를 받는다', async () => {
+    const fetchMock = stubServer(() =>
+      sseResponse([
+        { type: 'turn', turn_id: 'a1' },
+        { type: 'sentence', index: 0, text: '오늘 즐거웠어요!' },
+        { type: 'done', turn_id: 'a1', text: '오늘 즐거웠어요!', interrupted: false, session_status: 'ended' },
+      ]),
+    )
+    await startConversation()
+    fireEvent.change(screen.getByRole('textbox', { name: '메시지' }), { target: { value: '오늘은 여기까지' } })
+    fireEvent.click(screen.getByRole('button', { name: '보내기' }))
+    const log = screen.getByRole('log', { name: '대화 내용' })
+    expect(await within(log).findByText('오늘 아이디어 1개 저장했어요!')).toBeInTheDocument()
+    expect(calls(fetchMock, '/end')).toBe(1)
+    expect(screen.getByText('대화가 끝났어요.')).toBeInTheDocument()
+  })
+
+  it('끝내기 도구 뒤 턴이 session_ended 오류로 끝나도 마무리 멘트를 받는다', async () => {
+    const fetchMock = stubServer(() =>
+      sseResponse([
+        { type: 'turn', turn_id: 'a1' },
+        { type: 'error', code: 'session_ended', message: '대화를 마쳤어요.' },
+      ]),
+    )
+    await startConversation()
+    fireEvent.change(screen.getByRole('textbox', { name: '메시지' }), { target: { value: '그만하자' } })
+    fireEvent.click(screen.getByRole('button', { name: '보내기' }))
+    const log = screen.getByRole('log', { name: '대화 내용' })
+    expect(await within(log).findByText('오늘 아이디어 1개 저장했어요!')).toBeInTheDocument()
+    expect(calls(fetchMock, '/end')).toBe(1)
+  })
+
   it('터치 화면에서는 Enter가 보내지 않는다(줄바꿈)', async () => {
     vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(pointer: coarse)' }))
     const fetchMock = stubServer()
@@ -258,10 +297,23 @@ describe('ConversationScreen', () => {
     }
   })
 
-  it('대화를 끝내면 입력창이 사라지고 새 대화를 시작할 수 있다', async () => {
-    stubServer()
+  it('대화를 끝내면 마무리 멘트를 보이고 입력창이 사라지며 새 대화를 시작할 수 있다', async () => {
+    let release: () => void = () => {}
+    const fetchMock = stubServer()
+    const base = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (url: string) => {
+      // 서버가 일지를 정리하는 동안(끝내기 응답 전) 정리 중 안내를 보인다
+      if (url.endsWith('/end')) await new Promise<void>((resolve) => (release = resolve))
+      return base(url)
+    })
     await startConversation()
     fireEvent.click(screen.getByRole('button', { name: '대화 끝내기' }))
+    expect(await screen.findByText('오늘 대화를 일지로 정리하는 중이에요…')).toBeVisible()
+    expect(screen.queryByRole('button', { name: '새 대화 시작' })).not.toBeInTheDocument()
+    release()
+    const log = screen.getByRole('log', { name: '대화 내용' })
+    expect(await within(log).findByText('오늘 아이디어 1개 저장했어요!')).toBeInTheDocument()
+    expect(screen.queryByText('오늘 대화를 일지로 정리하는 중이에요…')).toBeNull()
     expect(await screen.findByText('대화가 끝났어요.')).toBeInTheDocument()
     expect(screen.queryByRole('textbox', { name: '메시지' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '새 대화 시작' })).toBeInTheDocument()

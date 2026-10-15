@@ -5,6 +5,7 @@ import type { components } from './schema'
 
 export type SessionStarted = components['schemas']['SessionStarted']
 export type SessionOut = components['schemas']['SessionOut']
+export type SessionClosed = components['schemas']['SessionClosed']
 
 /** 서버 공통 오류 형식(클라이언트 규약 7절) 또는 네트워크 오류. */
 export class ApiError extends Error {
@@ -70,7 +71,8 @@ export async function startSession(
   return (await post('/api/sessions', { mode }, signal)).json()
 }
 
-export async function endSession(sessionId: string, signal?: AbortSignal): Promise<SessionOut> {
+/** 대화를 끝낸다. 서버가 일지 정리를 잠깐 기다린 뒤 마무리 멘트와 저장 개수를 준다(여러 번 불러도 같다). */
+export async function endSession(sessionId: string, signal?: AbortSignal): Promise<SessionClosed> {
   return (await post(`/api/sessions/${encodeURIComponent(sessionId)}/end`, {}, signal)).json()
 }
 

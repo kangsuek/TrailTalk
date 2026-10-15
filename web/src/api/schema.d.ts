@@ -81,7 +81,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** End Session */
+        /**
+         * End Session
+         * @description 세션을 끝내고 일지 정리를 띄운 뒤, 정리가 끝나길 잠깐 기다려 마무리 멘트를 준다(멱등).
+         */
         post: operations["end_session_api_sessions__session_id__end_post"];
         delete?: never;
         options?: never;
@@ -167,6 +170,29 @@ export interface components {
              * @default false
              */
             keep_audio: boolean;
+        };
+        /** SavedCounts */
+        SavedCounts: {
+            /** Idea */
+            idea: number;
+            /** Todo */
+            todo: number;
+            /** Memo */
+            memo: number;
+        };
+        /**
+         * SessionClosed
+         * @description 끝내기 응답. closing은 캐릭터가 하는 마무리 멘트, saved는 이 대화에서 저장한 노트 개수다.
+         *
+         *     journal_status가 pending이면 일지 정리가 아직 끝나지 않은 것이다(개수가 나중에 늘 수 있다).
+         */
+        SessionClosed: {
+            session: components["schemas"]["SessionOut"];
+            /** Closing */
+            closing: string;
+            saved: components["schemas"]["SavedCounts"];
+            /** Journal Status */
+            journal_status: ("pending" | "done" | "failed") | null;
         };
         /** SessionCreate */
         SessionCreate: {
@@ -479,7 +505,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SessionOut"];
+                    "application/json": components["schemas"]["SessionClosed"];
                 };
             };
             /** @description Validation Error */
