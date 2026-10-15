@@ -1,7 +1,7 @@
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import SecretStr, field_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 SERVER_DIR = Path(__file__).resolve().parent.parent
@@ -11,7 +11,9 @@ REPO_DIR = SERVER_DIR.parent
 class Settings(BaseSettings):
     """서버 설정. 값은 환경 변수 또는 저장소 루트의 .env에서 읽는다."""
 
-    model_config = SettingsConfigDict(env_file=REPO_DIR / ".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=REPO_DIR / ".env", extra="ignore", populate_by_name=True
+    )
 
     database_url: str = f"sqlite+aiosqlite:///{SERVER_DIR / 'trailtalk.db'}"
     log_level: str = "INFO"
@@ -41,6 +43,22 @@ class Settings(BaseSettings):
     memory_budget_chars: int = 1200
     # 자식 CLI에 추가로 넘길 환경 변수 이름 패턴(기본 허용 목록 외). 테스트의 가짜 CLI용
     cli_env_passthrough: tuple[str, ...] = ()
+
+    # 음성 인식·합성(OpenAI, 결정 D2·D3). 키가 없어도 서버는 시작하고 음성 호출만 실패한다.
+    # 예전 이름 WHISPER_API_KEY도 받는다
+    openai_api_key: SecretStr | None = Field(
+        default=None, validation_alias=AliasChoices("OPENAI_API_KEY", "WHISPER_API_KEY")
+    )
+    openai_base_url: str = "https://api.openai.com/v1"
+    stt_model: str = "gpt-transcribe"
+    stt_language: str = "ko"
+    stt_timeout_s: float = 15
+    stt_max_bytes: int = 10 * 1024 * 1024
+    tts_model: str = "gpt-4o-mini-tts"
+    tts_timeout_s: float = 15
+    # 업로드 오디오 변환(app/voice/audio.py)
+    ffmpeg_path: str = "ffmpeg"
+    ffmpeg_timeout_s: float = 10
 
     @field_validator("timezone")
     @classmethod

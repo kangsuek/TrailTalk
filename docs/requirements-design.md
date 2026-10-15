@@ -178,9 +178,9 @@ examples:
   - "{호칭}, 좋은 아침이에요! 오늘은 무슨 생각 하면서 걸을까요?"  # {호칭}은 사용자 호칭으로 치환
   - "오, 그거 완전 좋은데요?! 그럼 제일 먼저 써볼 사람은 누구일까요?"
 voice:
-  tts_voice: ko-KR 밝은 여성 보이스
+  tts_voice: coral            # OpenAI TTS 보이스(결정 D3, 샘플 청취 후 확정)
   speaking_rate: 1.05
-  pitch: +2
+  instructions: 밝고 쾌활한 20대 여성 말동무처럼 …   # OpenAI TTS에는 피치가 없어 말투 지시로 대신한다
 ```
 
 시스템 프롬프트는 네 블록을 차례로 붙인다.

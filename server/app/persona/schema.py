@@ -22,9 +22,11 @@ class SpeechStyle(_Strict):
 
 
 class VoiceStyle(_Strict):
-    tts_voice: Text
-    speaking_rate: Annotated[float, Field(gt=0.25, le=4.0)]
-    pitch: Annotated[float, Field(ge=-20, le=20)]  # TTS 피치(반음)
+    """TTS 보이스(결정 D3: OpenAI TTS). 피치 조절은 OpenAI TTS에 없어 instructions로 대신한다."""
+
+    tts_voice: Text  # OpenAI 보이스 이름(예: coral)
+    speaking_rate: Annotated[float, Field(ge=0.25, le=4.0)]  # OpenAI speed
+    instructions: Text  # 말투·톤·빠르기 지시(gpt-4o-mini-tts)
 
 
 SAVED_PLACEHOLDER = "{저장}"

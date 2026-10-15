@@ -1,6 +1,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 
+import httpx2
 from fastapi import APIRouter, FastAPI
 from fastapi.staticfiles import StaticFiles
 from starlette._utils import get_route_path
@@ -21,6 +22,8 @@ from app.mcp.server import mount_mcp
 from app.request_context import RequestContextMiddleware, configure_logging
 from app.services import conversation
 from app.services.runtime import RuntimeRegistry
+from app.voice.stt import OpenAiStt
+from app.voice.tts import OpenAiTts
 
 
 class WebMount(Mount):
@@ -52,6 +55,10 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
         )
         await llm.start()
         app.state.llm = llm
+        # 음성 API(OpenAI) 호출에 같이 쓰는 연결
+        http = httpx2.AsyncClient()
+        app.state.stt = OpenAiStt.from_settings(http, app_settings)
+        app.state.tts = OpenAiTts.from_settings(http, app_settings)
         idle_watch = asyncio.create_task(idle.run(app), name="idle-watch")
         try:
             async with mcp.session_manager.run():
@@ -63,6 +70,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
             await llm.shutdown()
             # CLI를 닫으면서 끝난 턴이 추출을 띄울 수 있어 그 뒤에 멈춘다
             await extract.cancel_all(app)
+            await http.aclose()
             await engine.dispose()
 
     app = FastAPI(title="TrailTalk", lifespan=lifespan)

@@ -9,6 +9,20 @@ import unicodedata
 
 _TERMINALS = ".!?…~"
 _CLOSERS = "\"'”’)」』]>"
+_QUOTES = "\"'”’」』"
+# 닫는 따옴표 뒤에 띄어 쓴 인용 조사가 오면 문장이 이어진다("좋아요." 라고 했어요)
+_QUOTE_PARTICLES = (
+    "라고",
+    "라는",
+    "라며",
+    "하고",
+    "하며",
+    "하는",
+    "하면서",
+    "이라고",
+    "이라는",
+    "이라며",
+)
 # 문장 끝으로도 흔히 쓰는 단어(no, etc, st 등)는 넣지 않는다
 _ABBREVIATIONS = {"dr", "mr", "mrs", "ms", "vs", "e.g", "i.e"}
 _SYMBOL_CATEGORIES = {"So", "Sk", "Cf", "Mn", "Me", "Cn"}  # 이모지·결합 문자(수학·통화 기호 제외)
@@ -94,6 +108,14 @@ class SentenceSplitter:
             if not text[j].isspace():
                 i = j  # "1.5", "v2.1", "docs.astral.sh" 등: 경계 아님
                 continue
+            if any(c in _QUOTES for c in text[i:j]):
+                continues = self._quote_continues(text, j)
+                if continues is None:
+                    self._scan_from = i
+                    return None  # 조사인지 아직 모른다
+                if continues:
+                    i = j
+                    continue
             if self._is_exception(text, i, j):
                 i = j
                 continue
@@ -103,6 +125,19 @@ class SentenceSplitter:
             return cut
         self._scan_from = len(text)
         return None
+
+    @staticmethod
+    def _quote_continues(text: str, space: int) -> bool | None:
+        """닫는 따옴표 뒤 공백 다음이 인용 조사면 True. 글자가 모자라 판단할 수 없으면 None."""
+        start = space
+        while start < len(text) and text[start] in " \t\u00a0":
+            start += 1
+        rest = text[start:]
+        if any(rest.startswith(p) for p in _QUOTE_PARTICLES):
+            return True
+        if any(p.startswith(rest) for p in _QUOTE_PARTICLES):
+            return None
+        return False
 
     @staticmethod
     def _attach_trailing_symbols(text: str, space: int) -> tuple[int, int] | None:

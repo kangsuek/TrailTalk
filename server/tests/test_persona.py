@@ -29,7 +29,7 @@ def test_default_persona_is_valid():
     persona = loaded.persona
     assert persona.id == settings.default_persona
     assert persona.speech_style.max_sentences_voice == 5
-    assert persona.voice.pitch == 2.0
+    assert persona.voice.tts_voice
     assert len(loaded.version) == 16
 
 
@@ -47,7 +47,9 @@ def test_default_persona_is_valid():
         (lambda d: d["voice"].update(speaking_rate="빠르게"), "voice.speaking_rate"),
         (lambda d: d.update(role="   "), "role"),
         (lambda d: d["speech_style"].update(max_sentences_voice=True), "max_sentences_voice"),
-        (lambda d: d["voice"].update(pitch=50), "voice.pitch"),
+        (lambda d: d["voice"].update(pitch=2), "voice.pitch"),
+        (lambda d: d["voice"].pop("instructions"), "voice.instructions"),
+        (lambda d: d["voice"].update(speaking_rate=5), "voice.speaking_rate"),
         (lambda d: d.update(role="{호칭}의 친구"), "(전체)"),
     ],
 )
