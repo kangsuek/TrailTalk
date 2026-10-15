@@ -13,6 +13,7 @@ from app.db.models import (
     Turn,
     TurnRole,
 )
+from app.persona.loader import load_persona
 
 
 def run(client, fn):
@@ -124,6 +125,8 @@ def test_detail_has_summary_notes_and_transcript(client):
     add_note(client, session_id, NoteKind.TODO, "데이터 찾기")
     body = client.get(f"/api/journal/{session_id}").json()
     assert body["session"]["id"] == session_id and body["session"]["date"] == "2026-10-15"
+    persona = load_persona(client.app.state.settings.persona_dir, "jenny").persona
+    assert body["persona_name"] == persona.name  # 이름은 YAML에서 온다
     assert [(n["id"], n["kind"], n["starred"], n["done"]) for n in body["notes"]][0] == (
         idea,
         "idea",

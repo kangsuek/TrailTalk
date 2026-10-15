@@ -1,59 +1,17 @@
 // 대화 세션 API(docs/client-contract.md 2절 "세션 API"). 타입은 서버 OpenAPI에서 생성한 schema.d.ts를 쓴다.
 import type { StreamEvent } from '../core/conversation'
 import { SseParser } from '../core/sse'
+import { ApiError, request } from './http'
 import type { components } from './schema'
+
+export { ApiError }
 
 export type SessionStarted = components['schemas']['SessionStarted']
 export type SessionOut = components['schemas']['SessionOut']
 export type SessionClosed = components['schemas']['SessionClosed']
 
-/** 서버 공통 오류 형식(클라이언트 규약 7절) 또는 네트워크 오류. */
-export class ApiError extends Error {
-  readonly code: string
-  readonly status: number
-
-  constructor(code: string, message: string, status: number) {
-    super(message)
-    this.name = 'ApiError'
-    this.code = code
-    this.status = status
-  }
-}
-
-const NETWORK_ERROR = '서버에 연결할 수 없어요.'
-const GATEWAY_STATUSES = new Set([502, 503, 504])
-
-async function post(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
-  let response: Response
-  try {
-    response = await fetch(path, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal,
-    })
-  } catch (error) {
-    if (signal?.aborted) throw error
-    throw new ApiError('network_error', NETWORK_ERROR, 0)
-  }
-  if (!response.ok) throw await errorOf(response)
-  return response
-}
-
-async function errorOf(response: Response): Promise<ApiError> {
-  try {
-    const body = await response.json()
-    if (body?.error?.code) {
-      return new ApiError(body.error.code, body.error.message, response.status)
-    }
-  } catch {
-    // 본문이 JSON이 아니면 상태 코드로만 알린다
-  }
-  // 개발 프록시·배포 터널은 서버가 꺼져 있으면 JSON 없이 502·503·504를 준다
-  if (GATEWAY_STATUSES.has(response.status)) {
-    return new ApiError('network_error', NETWORK_ERROR, response.status)
-  }
-  return new ApiError('http_error', `요청이 실패했어요(${response.status}).`, response.status)
+function post(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
+  return request(path, 'POST', body, signal)
 }
 
 /** 다음 대화의 CLI를 서버에 미리 띄워 둔다(인사말 대기 단축). 응답 본문은 없다. */

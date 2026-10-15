@@ -17,6 +17,7 @@ from app.db.models import ConversationSession, Note, NoteKind, Turn, TurnRole
 from app.db.session import DbSession
 from app.errors import AppError
 from app.services.conversation import SessionNotFound
+from app.services.profile import profile_with_persona
 
 router = APIRouter(tags=["journal"])
 
@@ -83,6 +84,8 @@ class TurnOut(BaseModel):
 
 class JournalDetail(BaseModel):
     session: JournalItem
+    # 전문의 assistant 화자 이름(현재 페르소나 YAML). 클라이언트는 캐릭터 이름을 코드에 두지 않는다
+    persona_name: str
     notes: list[NoteOut]
     turns: list[TurnOut]
 
@@ -183,9 +186,12 @@ async def get_journal(session_id: str, request: Request, db: DbSession) -> Journ
     )
     turns = await db.execute(select(Turn).where(Turn.session_id == session_id).order_by(Turn.seq))
     note_rows = list(notes.scalars())
+    _, loaded = await profile_with_persona(db, request.app.state.settings)
+    await db.commit()
     counts = {kind: sum(n.kind is kind for n in note_rows) for kind in NoteKind}
     return JournalDetail(
         session=_item(convo, counts, tz),
+        persona_name=loaded.persona.name,
         notes=[NoteOut.of(n) for n in note_rows],
         turns=[
             TurnOut(

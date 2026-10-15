@@ -12,7 +12,27 @@ function stubFetch(response: () => Promise<Response>) {
 }
 
 function stubHealth(ok: boolean) {
-  stubFetch(async () => new Response(JSON.stringify({ status: ok ? 'ok' : 'down' })))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) =>
+      url.startsWith('/api/journal')
+        ? new Response('[]')
+        : new Response(JSON.stringify({ status: ok ? 'ok' : 'down' })),
+    ),
+  )
+}
+
+const JOURNAL_ITEM = {
+  id: 's1',
+  date: '2026-10-15',
+  started_at: '2026-10-15T00:00:00Z',
+  ended_at: '2026-10-15T00:10:00Z',
+  status: 'ended',
+  title: '산책 앱 아이디어',
+  summary: ['산책 앱을 이야기했다.'],
+  tags: [],
+  journal_status: 'done',
+  counts: { idea: 0, todo: 0, memo: 0 },
 }
 
 describe('App', () => {
@@ -24,6 +44,51 @@ describe('App', () => {
       expect(screen.getByRole('heading', { level: 2, name })).toBeInTheDocument()
     }
     expect(await screen.findByText('서버 연결됨')).toBeInTheDocument()
+  })
+
+  it('탭은 WAI-ARIA 탭 패턴을 따른다(패널 연결, 화살표·Home·End 이동)', () => {
+    stubHealth(true)
+    render(<App />)
+    const tabs = screen.getAllByRole('tab')
+    expect(screen.getByRole('tablist', { name: '화면' })).toBeInTheDocument()
+    expect(tabs.map((t) => t.tabIndex)).toEqual([0, -1, -1, -1])
+    const panel = screen.getByRole('tabpanel', { name: '대화' })
+    expect(tabs[0]).toHaveAttribute('aria-controls', panel.id)
+
+    fireEvent.keyDown(tabs[0], { key: 'ArrowRight' })
+    expect(tabs[1]).toHaveAttribute('aria-selected', 'true')
+    expect(tabs[1]).toHaveFocus()
+    expect(screen.getByRole('heading', { level: 2, name: '일지 목록' })).toBeInTheDocument()
+    fireEvent.keyDown(tabs[1], { key: 'End' })
+    expect(tabs[3]).toHaveFocus()
+    fireEvent.keyDown(tabs[3], { key: 'ArrowRight' })
+    expect(tabs[0]).toHaveFocus() // 끝에서 처음으로 돈다
+    fireEvent.keyDown(tabs[0], { key: 'ArrowLeft' })
+    expect(tabs[3]).toHaveFocus()
+    fireEvent.keyDown(tabs[3], { key: 'Home' })
+    expect(tabs[0]).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('일지 목록에서 항목을 누르면 일지 상세 탭에서 연다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url === '/api/journal') return new Response(JSON.stringify([JOURNAL_ITEM]))
+        if (url === '/api/journal/s1') {
+          return new Response(
+            JSON.stringify({ session: JOURNAL_ITEM, persona_name: '도우미', notes: [], turns: [] }),
+          )
+        }
+        return new Response(JSON.stringify({ status: 'ok' }))
+      }),
+    )
+    render(<App />)
+    fireEvent.click(screen.getByRole('tab', { name: '일지 목록' }))
+    fireEvent.click(await screen.findByRole('button', { name: /산책 앱 아이디어/ }))
+    expect(screen.getByRole('tab', { name: '일지 상세' })).toHaveAttribute('aria-selected', 'true')
+    expect(await screen.findByRole('heading', { level: 3, name: '산책 앱 아이디어' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '목록으로' }))
+    expect(screen.getByRole('tab', { name: '일지 목록' })).toHaveAttribute('aria-selected', 'true')
   })
 
   it('탭을 옮겼다 돌아와도 대화가 남아 있다', async () => {

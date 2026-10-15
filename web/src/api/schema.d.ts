@@ -188,6 +188,8 @@ export interface components {
         /** JournalDetail */
         JournalDetail: {
             session: components["schemas"]["JournalItem"];
+            /** Persona Name */
+            persona_name: string;
             /** Notes */
             notes: components["schemas"]["NoteOut"][];
             /** Turns */
