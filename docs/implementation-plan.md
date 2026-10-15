@@ -243,7 +243,7 @@
 
 | ID | 작업 | 상태 | 산출물 | 커밋 |
 |---|---|---|---|---|
-| S2-01 | 턴 즉시 저장 | 완료 | `server/app/services/conversation.py` | |
+| S2-01 | 턴 즉시 저장 | 완료 | `server/app/services/conversation.py` | `5a7c136` |
 | S2-02 | 세션 종료 추출 작업 | 대기 | `server/app/jobs/extract.py` | |
 | S2-03 | 노트 중복 제거 | 대기 | `server/app/jobs/dedupe.py` | |
 | S2-04 | 마무리 멘트 | 대기 | `server/app/api/sessions.py` | |
