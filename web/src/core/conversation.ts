@@ -5,13 +5,15 @@ import type { components } from '../api/schema'
 
 export type StreamEvent = components['schemas']['StreamEvent']
 type ToolEvent = components['schemas']['ToolEvent']
+/** 도구 결과 요약(종류 kind로 구분, 서버가 출처 호스트까지 만들어 준다. 규약 2절) */
+export type ToolSummary = NonNullable<ToolEvent['summary']>
 
 export interface ToolState {
   id: string
   name: string
   phase: ToolEvent['phase']
   input: Record<string, unknown> | null
-  summary: Record<string, unknown> | null
+  summary: ToolSummary | null
   isError: boolean
 }
 
@@ -276,21 +278,6 @@ function text(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null
 }
 
-function hostOf(url: unknown): string | null {
-  if (typeof url !== 'string') return null
-  try {
-    return new URL(url).hostname.replace(/^www\./, '')
-  } catch {
-    return null
-  }
-}
-
-function sources(summary: Record<string, unknown> | null): string[] {
-  const links = Array.isArray(summary?.links) ? summary.links : []
-  const hosts = links.map((link) => hostOf((link as { url?: unknown })?.url))
-  return [...new Set(hosts.filter((h): h is string => h !== null))].slice(0, 3)
-}
-
 // 저장한 노트 종류의 이름과 목적격(을/를)
 const NOTE_LABELS: Record<string, [string, string]> = {
   idea: ['아이디어', '아이디어를'],
@@ -308,15 +295,14 @@ export function toolNotice(tool: ToolState): string | null {
         return query ? `'${query}' 검색 중…` : '검색 중…'
       }
       if (tool.isError) return '검색하지 못했어요'
-      const hosts = sources(tool.summary)
+      const hosts = tool.summary?.kind === 'web_search' ? tool.summary.sources : []
       return hosts.length > 0 ? `출처: ${hosts.join(', ')}` : '검색 완료'
     }
     case 'web_fetch': {
       if (!finished) return '페이지 읽는 중…'
-      const code = tool.summary?.code
-      if (tool.isError || (typeof code === 'number' && code >= 400)) return '페이지를 읽지 못했어요'
-      const host = hostOf(tool.input?.url)
-      return host ? `출처: ${host}` : '페이지 읽기 완료'
+      const fetched = tool.summary?.kind === 'web_fetch' ? tool.summary : null
+      if (tool.isError || (fetched?.code ?? 0) >= 400) return '페이지를 읽지 못했어요'
+      return fetched?.host ? `출처: ${fetched.host}` : '페이지 읽기 완료'
     }
     case 'save_note': {
       // 도구 입력의 종류(idea·todo·memo)대로 부른다. start 단계에는 입력이 없어 종류를 모른다

@@ -46,6 +46,43 @@ class SentenceEvent(_Event):
     audio: str | None = None
 
 
+class SummaryLink(BaseModel):
+    title: str | None
+    url: str
+
+
+class WebSearchSummary(_Event):
+    """웹 검색 결과 요약. sources는 링크의 호스트 이름(www. 뗌, 중복 없이 최대 3개)으로
+    화면의 출처 표시에 쓴다."""
+
+    kind: Literal["web_search"] = "web_search"
+    query: str | None
+    links: list[SummaryLink]  # 최대 10개
+    sources: list[str]
+
+
+class WebFetchSummary(_Event):
+    """페이지 읽기 결과 요약. code는 HTTP 상태, host는 출처 표시용 호스트 이름."""
+
+    kind: Literal["web_fetch"] = "web_fetch"
+    code: int | None
+    bytes: int | None
+    url: str | None
+    host: str | None
+
+
+class ToolResultSummary(_Event):
+    """앱 도구(save_note 등) 결과. result는 도구가 돌려준 값(보통 문자열)."""
+
+    kind: Literal["result"] = "result"
+    result: Any
+
+
+ToolSummary = Annotated[
+    WebSearchSummary | WebFetchSummary | ToolResultSummary, Field(discriminator="kind")
+]
+
+
 class VoiceNotice(BaseModel):
     """답변이 아닌 안내 음성(예: 검색 전 "잠깐 찾아볼게요"). audio는 MP3(base64) 또는 null."""
 
@@ -61,7 +98,7 @@ class ToolEvent(_Event):
     tool_use_id: str
     name: str
     input: dict[str, Any] | None = None
-    summary: dict[str, Any] | None = None
+    summary: ToolSummary | None = None  # end에서만. 결과 형식을 모르면 null
     is_error: bool = False
     # 음성 세션에서 캐릭터가 아무 말 없이 검색을 시작하면 start에 안내 음성을 싣는다
     notice: VoiceNotice | None = None

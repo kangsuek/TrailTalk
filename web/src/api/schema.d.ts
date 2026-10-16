@@ -813,6 +813,13 @@ export interface components {
              */
             audio: string | null;
         };
+        /** SummaryLink */
+        SummaryLink: {
+            /** Title */
+            title: string | null;
+            /** Url */
+            url: string;
+        };
         /**
          * ToolEvent
          * @description 도구 사용. start(이름만, 검색 중 표시) → call(입력 완성) → end(결과 요약) 순서로 온다.
@@ -843,9 +850,7 @@ export interface components {
              * Summary
              * @default null
              */
-            summary: {
-                [key: string]: unknown;
-            } | null;
+            summary: (components["schemas"]["WebSearchSummary"] | components["schemas"]["WebFetchSummary"] | components["schemas"]["ToolResultSummary"]) | null;
             /**
              * Is Error
              * @default false
@@ -853,6 +858,19 @@ export interface components {
             is_error: boolean;
             /** @default null */
             notice: components["schemas"]["VoiceNotice"] | null;
+        };
+        /**
+         * ToolResultSummary
+         * @description 앱 도구(save_note 등) 결과. result는 도구가 돌려준 값(보통 문자열).
+         */
+        ToolResultSummary: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "result";
+            /** Result */
+            result: unknown;
         };
         /**
          * TranscriptEvent
@@ -889,6 +907,43 @@ export interface components {
             text: string;
             /** Audio */
             audio: string | null;
+        };
+        /**
+         * WebFetchSummary
+         * @description 페이지 읽기 결과 요약. code는 HTTP 상태, host는 출처 표시용 호스트 이름.
+         */
+        WebFetchSummary: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "web_fetch";
+            /** Code */
+            code: number | null;
+            /** Bytes */
+            bytes: number | null;
+            /** Url */
+            url: string | null;
+            /** Host */
+            host: string | null;
+        };
+        /**
+         * WebSearchSummary
+         * @description 웹 검색 결과 요약. sources는 링크의 호스트 이름(www. 뗌, 중복 없이 최대 3개)으로
+         *     화면의 출처 표시에 쓴다.
+         */
+        WebSearchSummary: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "web_search";
+            /** Query */
+            query: string | null;
+            /** Links */
+            links: components["schemas"]["SummaryLink"][];
+            /** Sources */
+            sources: string[];
         };
         StreamEvent: components["schemas"]["TranscriptEvent"] | components["schemas"]["TurnEvent"] | components["schemas"]["SentenceEvent"] | components["schemas"]["ToolEvent"] | components["schemas"]["DoneEvent"] | components["schemas"]["ErrorEvent"];
     };

@@ -8,6 +8,7 @@ import {
   type ConversationState,
   type StreamEvent,
   type ToolState,
+  type ToolSummary,
 } from './conversation'
 
 function reduce(actions: ConversationAction[], state = initialConversation): ConversationState {
@@ -116,7 +117,7 @@ describe('conversationReducer', () => {
       ev(tool('call', { input: { query: '날씨' } } as Partial<StreamEvent>)),
       ev(
         tool('end', {
-          summary: { query: '날씨', links: [{ url: 'https://www.weather.go.kr/x' }] },
+          summary: { kind: 'web_search', query: '날씨', links: [{ title: null, url: 'https://www.weather.go.kr/x' }], sources: ['weather.go.kr'] },
         } as Partial<StreamEvent>),
       ),
     ])
@@ -237,6 +238,9 @@ describe('conversationReducer', () => {
   })
 })
 
+const search = (sources: string[]): ToolSummary => ({ kind: 'web_search', query: 'q', links: [], sources })
+const fetched = (code: number, host: string): ToolSummary => ({ kind: 'web_fetch', code, bytes: 0, url: null, host })
+
 describe('toolNotice', () => {
   const base: ToolState = {
     id: 'u1',
@@ -250,24 +254,12 @@ describe('toolNotice', () => {
   it.each<[Partial<ToolState>, string | null]>([
     [{}, '검색 중…'],
     [{ phase: 'call', input: { query: 'uv' } }, "'uv' 검색 중…"],
-    [{ phase: 'end', summary: { links: [] } }, '검색 완료'],
+    [{ phase: 'end', summary: search([]) }, '검색 완료'],
     [{ phase: 'end', isError: true }, '검색하지 못했어요'],
-    [
-      {
-        phase: 'end',
-        summary: {
-          links: [
-            { url: 'https://a.com/1' },
-            { url: 'https://a.com/2' },
-            { url: 'not a url' },
-            { url: 'https://b.org' },
-          ],
-        },
-      },
-      '출처: a.com, b.org',
-    ],
+    [{ phase: 'end', summary: search(['a.com', 'b.org']) }, '출처: a.com, b.org'],
     [{ name: 'web_fetch' }, '페이지 읽는 중…'],
-    [{ name: 'web_fetch', phase: 'end', input: { url: 'https://docs.astral.sh/uv/' } }, '출처: docs.astral.sh'],
+    [{ name: 'web_fetch', phase: 'end', summary: fetched(200, 'docs.astral.sh') }, '출처: docs.astral.sh'],
+    [{ name: 'web_fetch', phase: 'end', summary: null }, '페이지 읽기 완료'],
     [{ name: 'save_note' }, '저장 중…'],
     [{ name: 'save_note', phase: 'call', input: { kind: 'todo', content: '전화' } }, '할 일 저장 중…'],
     [{ name: 'save_note', phase: 'end', input: { kind: 'idea', content: '지도 앱' } }, '아이디어 저장: 지도 앱'],
@@ -283,7 +275,7 @@ describe('toolNotice', () => {
     [{ name: 'search_notes' }, '지난 메모 찾는 중…'],
     [{ name: 'search_notes', phase: 'call', input: { keyword: '쓰레기통' } }, "지난 메모에서 '쓰레기통' 찾는 중…"],
     [{ name: 'search_notes', phase: 'end', input: { keyword: '쓰레기통' } }, '지난 메모 찾기: 쓰레기통'],
-    [{ name: 'web_fetch', phase: 'end', input: { url: 'https://a.com/x' }, summary: { code: 404, bytes: 0 } }, '페이지를 읽지 못했어요'],
+    [{ name: 'web_fetch', phase: 'end', summary: fetched(404, 'a.com') }, '페이지를 읽지 못했어요'],
     [{ name: 'summarize_session', phase: 'end' }, '대화 정리 완료'],
     [{ name: 'pause_session' }, null],
     [{ name: 'end_session', phase: 'end' }, null],

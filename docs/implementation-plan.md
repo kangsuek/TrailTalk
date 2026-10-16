@@ -25,13 +25,13 @@
 | [0. 준비·기술 검증](#3-0단계--준비와-기술-검증) | 완료 | 5/5 | 3~5일 | 2026-10-12 | 2026-10-12 | `a9b2970` |
 | [1. 제니 텍스트 대화](#4-1단계--제니-텍스트-대화) | 완료 | 11/11 | 1~2주 | 2026-10-12 | 2026-10-15 | `4dac567` |
 | [2. 대화 기록](#5-2단계--대화-기록) | 완료 | 9/9 | 1~2주 | 2026-10-15 | 2026-10-16 | `5749ea3` |
-| [3. 웹 음성 대화](#6-3단계--웹-음성-대화) | 진행 중 | 15/18 | 2~3주 | 2026-10-16 | | |
+| [3. 웹 음성 대화](#6-3단계--웹-음성-대화) | 진행 중 | 16/18 | 2~3주 | 2026-10-16 | | |
 | [4. 안드로이드 포팅](#7-4단계--안드로이드-포팅) | 대기 | 0/9 | 3주 | | | |
 | [5. 다듬기·확장](#8-5단계--다듬기와-확장) | 대기 | 0/6 | 2주 | | | |
-| **전체** | | **40/58** | 약 10~13주 | | | |
+| **전체** | | **41/58** | 약 10~13주 | | | |
 
-- **현재 작업**: S3-17 일지 정렬·아이디어별 보기
-- **다음 작업**: S3-15 → S3-16
+- **현재 작업**: S3-16 음성 흐름 E2E, S3-17 일지 정렬·아이디어별 보기(다른 세션)
+- **다음 작업**: S3-16 → 3단계 마일스톤 종료 점검
 
 ## 3. 0단계 — 준비와 기술 검증
 
@@ -353,7 +353,7 @@
 | S3-12 | LocalQueue(오프라인 큐) | 완료 | `web/src/core/localQueue.ts`, `web/src/platform/localQueue.ts`, `web/src/screens/voiceController.ts`, `server/app/api/sessions.py` | `30b8576` |
 | S3-13 | 대화 화면 음성 모드 | 완료 | `web/src/screens/ConversationScreen.tsx`, `web/src/screens/voiceController.ts`, `web/src/screens/VoiceControls.tsx` | `0465493` |
 | S3-14 | PWA·정적 서빙·HTTPS 터널 | 완료 | `web/vite.config.ts`, `run.sh --phone`, `stop.sh`, `docs/phone.md` | `0c1af0c`, `dc127a0`, `615f01b` |
-| S3-15 | 클라이언트 규약 확정 | 대기 | `docs/client-contract.md` | |
+| S3-15 | 클라이언트 규약 확정 | 완료 | `docs/client-contract.md` | |
 | S3-16 | 음성 흐름 E2E | 대기 | `web/e2e/` | |
 | S3-17 | 일지 정렬·아이디어별 보기(사용자 요청 추가) | 진행 중 | `server/app/jobs/extract.py`, `server/app/jobs/topics_backfill.py`, `web/src/core/journal.ts`, `web/src/screens/JournalListScreen.tsx` | |
 | S3-18 | 웹 설정 화면(S5-01 웹 부분 앞당김, 사용자 요청 추가) | 완료 | `web/src/screens/SettingsScreen.tsx`, `server/app/api/profile.py`, `server/app/services/profile.py` | `c96fcca` |
@@ -457,9 +457,9 @@
 - [x] 폰 브라우저에서 마이크 권한 확인(2026-10-17 사용자, Galaxy A35 Chrome·Tailscale로 음성 대화 정상). 홈 화면 추가·이어폰 버튼(Media Session)은 따로 확인하지 않음 — 실제 산책 때 본다
 
 #### S3-15 클라이언트 규약 확정
-- [ ] API, SSE 이벤트 JSON 스키마(도구별 `summary` 타입 고정 포함), 오디오 형식
-- [ ] 상태 머신·전이 표, 설정값, 알림음·안내 문구
-- [ ] `docs/client-contract.md` 확정본
+- [x] API, SSE 이벤트 JSON 스키마(도구별 `summary`를 `kind`로 구분하는 타입으로 고정: `web_search`·`web_fetch`·`result`, 알 수 없으면 null), 오디오 형식. 출처 호스트 추출을 웹에서 서버로 옮김(`sources`·`host`)
+- [x] 상태 머신·전이 표(version 1, 사례 27개), 설정값, 알림음·안내 문구가 코드·`shared/` 파일과 맞는지 확인
+- [x] `docs/client-contract.md` 확정본(초안 표시 정리, 바꾸는 규칙, 폰 접속·PWA, 낡은 경로·확인 결과 갱신)
 
 #### S3-16 음성 흐름 E2E
 - [ ] Playwright 가짜 마이크(녹음 파일 주입) 설정
@@ -765,3 +765,4 @@
 | 2026-10-17 | 대화 중 호칭 바꾸기(사용자 요청 추가, 작업 ID 없음): MCP `set_nickname`이 프로필 호칭을 바꾼다(이번 사용자 발화에 나온 호칭만 받음), 프롬프트 규칙, 웹 알림. 실제 CLI로 저장·다음 대화 인사말 확인 | `18310b3` |
 | 2026-10-17 | S3-14 완료: 결정 D1(집 Mac + Tailscale Serve), PWA, `./run.sh --phone`·`./stop.sh`, 폰(A35)에서 음성 대화 확인(사용자) | `0c1af0c` |
 | 2026-10-17 | S3-18 웹 설정 화면 완료(S5-01 웹 부분 앞당김): 호칭·관심사·보이스(미리 듣기)·말 속도·음성 원본 보관, 프로필 보이스·속도를 음성 합성에 적용, 실제 TTS 속도 측정 | `c96fcca` |
+| 2026-10-17 | S3-15 클라이언트 규약 확정: 도구 `summary`를 `kind` 타입으로 고정, 출처 호스트를 서버로, `docs/client-contract.md` 확정본 | (커밋 후 기입) |

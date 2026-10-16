@@ -8,6 +8,7 @@
 import json
 import logging
 from typing import Any
+from urllib.parse import urlsplit
 
 from app.llm.events import (
     LlmEvent,
@@ -24,28 +25,65 @@ logger = logging.getLogger("trailtalk.llm")
 _SUMMARY_LIMIT = 500
 
 
-def _tool_summary(raw: Any) -> dict[str, Any]:
-    """도구 결과에서 SSE·기록에 필요한 부분만 남긴다(본문 전체는 싣지 않는다)."""
+_MAX_LINKS = 10
+_MAX_SOURCES = 3
+
+
+def host_of(url: Any) -> str | None:
+    """출처로 보일 호스트 이름(www. 뗌). URL이 아니거나 읽을 수 없으면 None."""
+    if not isinstance(url, str):
+        return None
+    try:
+        host = urlsplit(url).hostname  # "http://[::1" 같은 값은 ValueError
+    except ValueError:
+        return None
+    if not host:
+        return None
+    return host.removeprefix("www.") or None  # "www." 뿐이면 None
+
+
+def _tool_summary(raw: Any) -> dict[str, Any] | None:
+    """도구 결과에서 SSE에 필요한 부분만 남긴다(본문 전체는 싣지 않는다). 종류는 kind로 구분한다
+    (클라이언트 규약 2절, app/api/events.py의 *Summary). 알 수 없는 결과면 None."""
     if not isinstance(raw, dict):
-        return {}
+        return None
     if "query" in raw and "results" in raw:  # WebSearch
         links = []
         for result in raw.get("results") or []:
             if not isinstance(result, dict):  # 결과 목록에 요약 문자열이 섞여 온다
                 continue
             for item in result.get("content") or []:
-                if isinstance(item, dict) and item.get("url"):
-                    links.append({"title": item.get("title"), "url": item["url"]})
-        return {"query": raw.get("query"), "links": links[:10]}
+                if isinstance(item, dict) and isinstance(item.get("url"), str):
+                    title = item.get("title")
+                    links.append(
+                        {"title": title if isinstance(title, str) else None, "url": item["url"]}
+                    )
+        links = links[:_MAX_LINKS]
+        hosts = (host_of(link["url"]) for link in links)
+        sources = list(dict.fromkeys(h for h in hosts if h))[:_MAX_SOURCES]
+        query = raw.get("query")
+        return {
+            "kind": "web_search",
+            "query": query if isinstance(query, str) else None,
+            "links": links,
+            "sources": sources,
+        }
     if "code" in raw and "bytes" in raw:  # WebFetch
-        return {"code": raw.get("code"), "bytes": raw.get("bytes")}
+        url = raw.get("url")
+        return {
+            "kind": "web_fetch",
+            "code": raw.get("code") if type(raw.get("code")) is int else None,
+            "bytes": raw.get("bytes") if type(raw.get("bytes")) is int else None,
+            "url": url if isinstance(url, str) else None,
+            "host": host_of(url),
+        }
     if "structuredContent" in raw:  # MCP 도구
         content = raw.get("structuredContent")
-        # 문자열을 돌려주는 도구는 SDK가 {"result": 문자열}로 감싼다. 클라이언트에는 {result}만 준다
+        # 문자열을 돌려주는 도구는 SDK가 {"result": 문자열}로 감싼다. 클라이언트에는 그 값만 준다
         if isinstance(content, dict) and set(content) == {"result"}:
             content = content["result"]
-        return {"result": content}
-    return {}
+        return {"kind": "result", "result": content}
+    return None
 
 
 class StreamJsonParser:

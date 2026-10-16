@@ -41,7 +41,7 @@ class ToolCalled:
 class ToolFinished:
     tool_use_id: str
     is_error: bool
-    summary: dict[str, Any] = field(default_factory=dict)
+    summary: dict[str, Any] | None = None  # 종류(kind)를 붙인 요약(parser._tool_summary)
 
 
 @dataclass(frozen=True)

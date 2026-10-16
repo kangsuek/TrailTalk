@@ -32,7 +32,7 @@ const TURN: StreamEvent[] = [
     is_error: false,
     notice: null,
   },
-  { type: 'tool', phase: 'end', tool_use_id: 'u1', name: 'save_note', input: null, summary: { result: 'ok' }, is_error: false, notice: null },
+  { type: 'tool', phase: 'end', tool_use_id: 'u1', name: 'save_note', input: null, summary: { kind: 'result', result: 'ok' }, is_error: false, notice: null },
   { type: 'sentence', index: 0, text: '저장했어요!', audio: null },
   { type: 'sentence', index: 1, text: '누가 쓰면 좋을까요?', audio: null },
   { type: 'done', turn_id: 'a1', text: '저장했어요! 누가 쓰면 좋을까요?', interrupted: false, session_status: 'active' },

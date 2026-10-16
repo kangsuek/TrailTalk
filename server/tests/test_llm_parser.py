@@ -10,7 +10,7 @@ from app.llm.events import (
     TurnFinished,
     TurnStarted,
 )
-from app.llm.parser import StreamJsonParser
+from app.llm.parser import StreamJsonParser, _tool_summary, host_of
 
 FIXTURES = Path(__file__).parent / "fixtures" / "claude_cli"
 
@@ -58,7 +58,7 @@ def test_tool_call_order_and_input():
     assert started.name == called.name == "mcp__trailtalk__save_note"
     assert started.tool_use_id == called.tool_use_id == finished.tool_use_id
     assert called.input["kind"] == "idea"
-    assert finished.summary == {"result": "저장 완료"}
+    assert finished.summary == {"kind": "result", "result": "저장 완료"}
     assert tool_turn[-1].text.endswith(text_of(tool_turn)[-10:])
 
 
@@ -69,10 +69,41 @@ def test_web_search_and_fetch_summaries():
     assert names == ["WebSearch", "WebFetch", "mcp__trailtalk__save_note"]
     search, fetch = called[0], called[1]
     assert search.input["query"]
-    assert finished[search.tool_use_id].summary["query"] == search.input["query"]
-    assert finished[search.tool_use_id].summary["links"][0]["url"].startswith("http")
+    summary = finished[search.tool_use_id].summary
+    assert summary["kind"] == "web_search" and summary["query"] == search.input["query"]
+    assert summary["links"][0]["url"].startswith("http")
+    # 출처는 링크의 호스트 이름(www. 뗌, 중복 없이 최대 3개, 링크 순서)
+    hosts = [host_of(link["url"]) for link in summary["links"]]
+    assert summary["sources"] == list(dict.fromkeys(hosts))[:3]
+    assert all(not h.startswith("www.") for h in summary["sources"])
     assert fetch.input["url"] == "https://docs.astral.sh/uv/"
-    assert finished[fetch.tool_use_id].summary == {"code": 200, "bytes": 83236}
+    assert finished[fetch.tool_use_id].summary == {
+        "kind": "web_fetch",
+        "code": 200,
+        "bytes": 83236,
+        "url": "https://docs.astral.sh/uv/",
+        "host": "docs.astral.sh",
+    }
+
+
+@pytest.mark.parametrize(
+    ("url", "host"),
+    [
+        ("https://www.example.com/a", "example.com"),
+        ("http://sub.example.co.kr:8080/x?y", "sub.example.co.kr"),
+        ("not a url", None),
+        ("http://[::1", None),
+        ("http://www./", None),
+        (None, None),
+    ],
+)
+def test_host_of(url, host):
+    assert host_of(url) == host
+
+
+def test_unknown_tool_result_has_no_summary():
+    assert _tool_summary({"something": 1}) is None
+    assert _tool_summary("text") is None
 
 
 def test_interrupted_turn():

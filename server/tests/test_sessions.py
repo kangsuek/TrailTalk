@@ -255,7 +255,8 @@ def test_tool_events_use_public_names(api, monkeypatch):
     assert {t.name for t in tools} == {"save_note"}
     assert len({t.tool_use_id for t in tools}) == 1
     assert tools[1].input == {"kind": "idea", "content": "등산로에 쓰레기통 지도를 만드는 아이디어"}
-    assert not tools[2].is_error and tools[2].summary == {"result": "저장 완료"}
+    assert not tools[2].is_error
+    assert tools[2].summary.model_dump() == {"kind": "result", "result": "저장 완료"}
     types = [e.type for e in events]
     assert types[0] == "turn" and types[-1] == "done"
     assert types.index("sentence") > types.index("tool")  # 답변 문장은 도구 뒤에 온다
@@ -269,7 +270,8 @@ def test_web_search_tool_event(api, monkeypatch):
     assert [t.phase for t in tools] == ["start", "call", "end"]
     assert tools[0].name == "web_search" and tools[0].input is None
     assert tools[1].input["query"] == "Claude Code latest version release"
-    assert tools[2].summary["query"] and tools[2].summary["links"]
+    summary = tools[2].summary
+    assert summary.kind == "web_search" and summary.query and summary.links and summary.sources
     sentences = [e.text for e in events if e.type == "sentence"]
     assert len(sentences) > 1 and events[-1].text.startswith(sentences[0])
 
