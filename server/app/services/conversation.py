@@ -34,7 +34,9 @@ from app.api.events import (
     ErrorEvent,
     SentenceEvent,
     ToolEvent,
+    TranscriptEvent,
     TurnEvent,
+    VoiceNotice,
     encode_sse,
     public_tool_name,
 )
@@ -462,8 +464,23 @@ def _error(exc: AppError) -> bytes:
     return encode_sse(ErrorEvent(code=exc.code, message=exc.message))
 
 
-async def stream_turn(app: FastAPI, session_id: str, text: str) -> AsyncIterator[bytes]:
+async def last_reply(db: AsyncSession, session_id: str, max_chars: int = 200) -> str | None:
+    """세션의 마지막 캐릭터 답변(뒤에서 max_chars자). 음성 인식에 문맥 힌트로 준다."""
+    text = await db.scalar(
+        select(Turn.text)
+        .where(Turn.session_id == session_id, Turn.role == TurnRole.ASSISTANT)
+        .order_by(Turn.seq.desc())
+        .limit(1)
+    )
+    return text[-max_chars:] if text else None
+
+
+async def stream_turn(
+    app: FastAPI, session_id: str, text: str, *, from_voice: bool = False
+) -> AsyncIterator[bytes]:
     """사용자 메시지 한 턴을 처리하며 SSE 바이트를 낸다.
+
+    from_voice: 음성 업로드의 인식 결과다. turn 바로 앞에 transcript 이벤트로 알린다.
 
     클라이언트가 끊기면 이 제너레이터가 닫히고 aclosing이 CLI 턴을 멈춘다. 이때 사용자 턴과
     보낸 문장까지의 답변(interrupted)이 남는다.
@@ -476,7 +493,8 @@ async def stream_turn(app: FastAPI, session_id: str, text: str) -> AsyncIterator
         db = app.state.session_factory()
         try:
             # 안쪽 제너레이터도 바로 닫아야 락을 풀기 전에 CLI 턴 정리(인터럽트)가 끝난다
-            async with aclosing(_run_turn(app, db, runtime, session_id, text)) as chunks:
+            turn = _run_turn(app, db, runtime, session_id, text, from_voice)
+            async with aclosing(turn) as chunks:
                 async for chunk in chunks:
                     yield chunk
         finally:
@@ -486,8 +504,17 @@ async def stream_turn(app: FastAPI, session_id: str, text: str) -> AsyncIterator
                 await db.close()
 
 
+# 캐릭터가 아무 말 없이 시작하면 검색 안내 음성을 대신 들려줄 도구
+_SEARCH_TOOLS = {"web_search", "web_fetch"}
+
+
 async def _run_turn(
-    app: FastAPI, db: AsyncSession, runtime: ConversationRuntime, session_id: str, text: str
+    app: FastAPI,
+    db: AsyncSession,
+    runtime: ConversationRuntime,
+    session_id: str,
+    text: str,
+    from_voice: bool,
 ) -> AsyncIterator[bytes]:
     """턴 락을 잡은 상태에서 한 턴을 처리한다.
 
@@ -516,15 +543,23 @@ async def _run_turn(
         return
 
     assistant_id = new_id()
+    if from_voice:
+        yield encode_sse(TranscriptEvent(text=text))
     yield encode_sse(TurnEvent(turn_id=assistant_id))
     runtime.requested_status = None
     runtime.current_user_turn_id = user_turn.id
+    # 합성 중이거나 보낼 차례를 기다리는 문장(순서대로). 분할기가 한 번에 내놓은 문장들의
+    # 소리는 동시에 만들고, 보낼 때는 순서를 지킨다
+    pending: list[tuple[str, asyncio.Task[str | None] | None]] = []
     try:
         with anyio.CancelScope(shield=True):
             await db.refresh(convo)  # 그사이 종료 API가 끝냈으면 CLI를 다시 띄우지 않는다
             if convo.status is SessionStatus.ENDED:
                 raise SessionEnded()
-            session, _ = await open_llm(app, db, convo)
+            session, loaded = await open_llm(app, db, convo)
+        # 음성 세션이면 문장마다 소리를 만든다(텍스트로 보낸 턴도 마찬가지)
+        voice = loaded.persona.voice if convo.mode is ConversationMode.VOICE else None
+        speech = app.state.speech
         splitter = SentenceSplitter()
         index = 0
         parts: list[str] = []
@@ -533,25 +568,44 @@ async def _run_turn(
         tool_names: dict[str, str] = {}
         finished: TurnFinished | None = None
 
-        async def sentences(items: list[str]) -> list[bytes]:
-            """문장을 먼저 커밋하고 보낸다. 클라이언트가 받은 문장은 서버가 죽어도 남는다(보내기
-            직전에 끊기면 못 받은 문장이 하나 더 남을 수 있다). 끝나기 전에는 interrupted로
-            둔다."""
-            nonlocal index, reply_saved
-            if not items:
-                return []
-            sent.extend(items)
+        def queue(items: list[str]) -> None:
+            for item in items:
+                task = asyncio.create_task(speech.synthesize(app, item, voice)) if voice else None
+                pending.append((item, task))
+
+        def head_ready() -> bool:
+            """맨 앞 문장을 기다리지 않고 바로 보낼 수 있는가(소리가 없거나 합성이 끝남)."""
+            return bool(pending) and (pending[0][1] is None or pending[0][1].done())
+
+        def drop_audio() -> None:
+            """남은 문장의 합성을 그만둔다(끊긴 턴: 들을 사람이 없다). 글은 그대로 보낸다."""
+            for i, (item, task) in enumerate(pending):
+                if task is not None and not task.done():  # 이미 만든 소리는 그대로 보낸다
+                    task.cancel()
+                    pending[i] = (item, None)
+
+        async def next_sentence() -> bytes:
+            """맨 앞 문장의 소리를 기다린 뒤 먼저 커밋하고 보낸다. 클라이언트가 받은 문장은 서버가
+            죽어도 남는다(보내기 직전에 끊기면 못 받은 문장이 하나 더 남을 수 있다). 끝나기 전에는
+            interrupted로 둔다."""
+            nonlocal index, reply_saved, spoken
+            item, task = pending[0]
+            audio = await task if task is not None else None
+            spoken = spoken or audio is not None
+            pending.pop(0)
+            sent.append(item)
             with anyio.CancelScope(shield=True):
                 await _save_reply(
                     db, assistant_id, session_id, seq + 1, " ".join(sent), True, reply_saved
                 )
                 await db.commit()
             reply_saved = True
-            out = []
-            for item in items:
-                out.append(encode_sse(SentenceEvent(index=index, text=item)))
-                index += 1
-            return out
+            chunk = encode_sse(SentenceEvent(index=index, text=item, audio=audio))
+            index += 1
+            return chunk
+
+        notice_sent = False
+        spoken = False  # 이번 턴에 소리 있는 문장을 보냈는가(검색 안내 조건)
 
         async with aclosing(session.send(text)) as stream:
             async for event in stream:
@@ -561,24 +615,38 @@ async def _run_turn(
                         with anyio.CancelScope(shield=True):
                             await db.commit()
                 elif isinstance(event, TextDelta):
+                    # 합성을 띄우기만 하고 CLI를 계속 읽는다. 소리가 다 된 문장은 아래에서 보낸다
+                    # (합성을 기다리는 시간이 턴 시간 제한에 더해지지 않게)
                     parts.append(event.text)
-                    for chunk in await sentences(splitter.feed(event.text)):
-                        yield chunk
+                    queue(splitter.feed(event.text))
                 elif isinstance(event, ToolStarted):
                     # 도구 앞의 말("잠깐 찾아볼게요")은 기다리지 않고 바로 문장으로 보낸다
-                    for chunk in await sentences(splitter.flush()):
-                        yield chunk
+                    queue(splitter.flush())
+                    while pending:
+                        yield await next_sentence()
                     if parts and not parts[-1][-1:].isspace():
                         parts.append("\n\n")
-                    tool_names[event.tool_use_id] = public_tool_name(event.name)
+                    name = public_tool_name(event.name)
+                    tool_names[event.tool_use_id] = name
+                    notice = None
+                    if voice and name in _SEARCH_TOOLS and not spoken and not notice_sent:
+                        # 아무 말 없이 검색을 시작했다: 기다리는 동안의 침묵을 안내로 메운다
+                        notice_sent = True
+                        notice = VoiceNotice(
+                            text=voice.search_notice,
+                            audio=await speech.cached(app, voice.search_notice, voice),
+                        )
                     yield encode_sse(
                         ToolEvent(
                             phase="start",
                             tool_use_id=event.tool_use_id,
-                            name=tool_names[event.tool_use_id],
+                            name=name,
+                            notice=notice,
                         )
                     )
                 elif isinstance(event, ToolCalled):
+                    while pending:  # 도구 이벤트보다 앞선 문장을 먼저 보낸다(순서 유지)
+                        yield await next_sentence()
                     name = tool_names.setdefault(event.tool_use_id, public_tool_name(event.name))
                     yield encode_sse(
                         ToolEvent(
@@ -589,6 +657,8 @@ async def _run_turn(
                         )
                     )
                 elif isinstance(event, ToolFinished):
+                    while pending:
+                        yield await next_sentence()
                     yield encode_sse(
                         ToolEvent(
                             phase="end",
@@ -600,8 +670,13 @@ async def _run_turn(
                     )
                 elif isinstance(event, TurnFinished):
                     finished = event
-        for chunk in await sentences(splitter.flush()):
-            yield chunk
+                while head_ready():
+                    yield await next_sentence()
+        queue(splitter.flush())
+        if finished is None or finished.interrupted:
+            drop_audio()  # 끝내기 API·끊김으로 멈춘 턴: 남은 문장은 글만 저장하고 보낸다
+        while pending:
+            yield await next_sentence()
 
         if finished is None or (finished.is_error and not finished.interrupted):
             detail = finished.error_message if finished else "응답 없음"
@@ -638,6 +713,10 @@ async def _run_turn(
         error = AppError("internal_error", "서버 내부 오류가 발생했습니다.", 500)
         yield _error(await _settle_after_error(app, db, runtime, session_id, error))
     finally:
+        # 끊김·오류로 끝났으면 아직 합성 중인 소리는 버린다
+        for _, task in pending:
+            if task is not None:
+                task.cancel()
         runtime.current_user_turn_id = None
         # 도구가 쉬기·끝내기를 요청한 뒤 턴이 오류나 연결 끊김으로 끝났어도 요청은 반영한다
         # (정상 종료면 위에서 이미 꺼냈다). 끊김으로 취소된 중에도 끝까지 처리한다

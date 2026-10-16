@@ -72,6 +72,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sessions/{session_id}/turns/audio": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Audio Turn
+         * @description 말 한 번(오디오)을 받아 인식한 뒤 텍스트 턴과 같은 SSE로 답한다(계획서 S3-03).
+         *
+         *     인식은 SSE를 열기 전에 하므로 오디오·인식 오류와 말 없음(no_speech)은 JSON 오류로 간다.
+         */
+        post: operations["create_audio_turn_api_sessions__session_id__turns_audio_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sessions/{session_id}/end": {
         parameters: {
             query?: never;
@@ -219,6 +241,8 @@ export interface components {
             turn_id: string;
             /** Text */
             text: string;
+            /** Audio */
+            audio: string | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -381,6 +405,8 @@ export interface components {
             session: components["schemas"]["SessionOut"];
             /** Closing */
             closing: string;
+            /** Closing Audio */
+            closing_audio: string | null;
             saved: components["schemas"]["SavedCounts"];
             /** Journal Status */
             journal_status: ("pending" | "done" | "failed") | null;
@@ -540,7 +566,9 @@ export interface components {
         };
         /**
          * SentenceEvent
-         * @description 캐릭터 답변의 한 문장. index는 턴 안에서 0부터 증가한다(3단계에서 audio 추가).
+         * @description 캐릭터 답변의 한 문장. index는 턴 안에서 0부터 증가한다.
+         *
+         *     audio는 그 문장의 MP3(base64)다. 음성 세션에서만 있고, 합성에 실패하면 null이다.
          */
         SentenceEvent: {
             /**
@@ -552,6 +580,11 @@ export interface components {
             index: number;
             /** Text */
             text: string;
+            /**
+             * Audio
+             * @default null
+             */
+            audio: string | null;
         };
         /**
          * ToolEvent
@@ -591,6 +624,21 @@ export interface components {
              * @default false
              */
             is_error: boolean;
+            /** @default null */
+            notice: components["schemas"]["VoiceNotice"] | null;
+        };
+        /**
+         * TranscriptEvent
+         * @description 음성 업로드의 인식 결과(사용자 메시지로 저장된 글). 음성 턴 스트림의 첫 이벤트다.
+         */
+        TranscriptEvent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "transcript";
+            /** Text */
+            text: string;
         };
         /**
          * TurnEvent
@@ -605,7 +653,17 @@ export interface components {
             /** Turn Id */
             turn_id: string;
         };
-        StreamEvent: components["schemas"]["TurnEvent"] | components["schemas"]["SentenceEvent"] | components["schemas"]["ToolEvent"] | components["schemas"]["DoneEvent"] | components["schemas"]["ErrorEvent"];
+        /**
+         * VoiceNotice
+         * @description 답변이 아닌 안내 음성(예: 검색 전 "잠깐 찾아볼게요"). audio는 MP3(base64) 또는 null.
+         */
+        VoiceNotice: {
+            /** Text */
+            text: string;
+            /** Audio */
+            audio: string | null;
+        };
+        StreamEvent: components["schemas"]["TranscriptEvent"] | components["schemas"]["TurnEvent"] | components["schemas"]["SentenceEvent"] | components["schemas"]["ToolEvent"] | components["schemas"]["DoneEvent"] | components["schemas"]["ErrorEvent"];
     };
     responses: never;
     parameters: never;
@@ -717,6 +775,45 @@ export interface operations {
         };
         responses: {
             /** @description 턴 이벤트 스트림(turn → sentence·tool → done 또는 error) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": components["schemas"]["StreamEvent"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_audio_turn_api_sessions__session_id__turns_audio_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "audio/webm": string;
+                "audio/ogg": string;
+                "audio/mp4": string;
+                "audio/wav": string;
+                "audio/mpeg": string;
+            };
+        };
+        responses: {
+            /** @description 음성 턴 이벤트 스트림(transcript → turn → sentence·tool → done 또는 error) */
             200: {
                 headers: {
                     [name: string]: unknown;

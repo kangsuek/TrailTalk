@@ -10,7 +10,9 @@ from app.persona.schema import VoiceStyle
 from app.voice.tts import OpenAiTts, speech_text
 
 KEY = "sk-test-secret-key"
-VOICE = VoiceStyle(tts_voice="coral", speaking_rate=1.05, instructions="밝게 말해요")
+VOICE = VoiceStyle(
+    tts_voice="coral", speaking_rate=1.05, instructions="밝게 말해요", search_notice="찾아볼게요"
+)
 MP3 = b"ID3fake-mp3"
 
 

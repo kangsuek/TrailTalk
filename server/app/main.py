@@ -22,6 +22,8 @@ from app.mcp.server import mount_mcp
 from app.request_context import RequestContextMiddleware, configure_logging
 from app.services import conversation
 from app.services.runtime import RuntimeRegistry
+from app.voice.fake import FakeStt, FakeTts
+from app.voice.speech import Speech
 from app.voice.stt import OpenAiStt
 from app.voice.tts import OpenAiTts
 
@@ -57,8 +59,15 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
         app.state.llm = llm
         # 음성 API(OpenAI) 호출에 같이 쓰는 연결. 아래 정리가 모두 끝난 뒤 닫힌다
         async with httpx2.AsyncClient() as http:
-            app.state.stt = OpenAiStt.from_settings(http, app_settings)
-            app.state.tts = OpenAiTts.from_settings(http, app_settings)
+            # 음성 합성 동시 수 제한·안내 캐시(app/voice/speech.py). 세마포어가 서버 루프에 묶이도록
+            # 여기서 만든다
+            app.state.speech = Speech()
+            if app_settings.voice_backend == "fake":
+                app.state.stt = FakeStt(app_settings.fake_stt_text)
+                app.state.tts = FakeTts()
+            else:
+                app.state.stt = OpenAiStt.from_settings(http, app_settings)
+                app.state.tts = OpenAiTts.from_settings(http, app_settings)
             idle_watch = asyncio.create_task(idle.run(app), name="idle-watch")
             try:
                 async with mcp.session_manager.run():

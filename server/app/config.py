@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, SecretStr, field_validator, model_validator
@@ -60,6 +61,10 @@ class Settings(BaseSettings):
     stt_max_bytes: int = 10 * 1024 * 1024
     tts_model: str = "gpt-4o-mini-tts"
     tts_timeout_s: float = 15
+    # openai: 실제 API, fake: 가짜(app/voice/fake.py, run.sh --fake·E2E용, 과금 없음)
+    voice_backend: Literal["openai", "fake"] = "openai"
+    # 가짜 음성 인식이 돌려줄 문장(업로드가 b"FAKE_STT:"로 시작하면 그 뒤 글을 쓴다)
+    fake_stt_text: str = "오늘 산책하면서 생각난 아이디어가 있어"
     # 업로드 오디오 변환(app/voice/audio.py)
     ffmpeg_path: str = "ffmpeg"
     ffmpeg_timeout_s: float = 10

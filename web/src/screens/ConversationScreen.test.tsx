@@ -21,7 +21,7 @@ function sseResponse(events: StreamEvent[]): Response {
 
 const TURN: StreamEvent[] = [
   { type: 'turn', turn_id: 'a1' },
-  { type: 'tool', phase: 'start', tool_use_id: 'u1', name: 'save_note', input: null, summary: null, is_error: false },
+  { type: 'tool', phase: 'start', tool_use_id: 'u1', name: 'save_note', input: null, summary: null, is_error: false, notice: null },
   {
     type: 'tool',
     phase: 'call',
@@ -30,10 +30,11 @@ const TURN: StreamEvent[] = [
     input: { kind: 'idea', content: '쓰레기통 지도' },
     summary: null,
     is_error: false,
+    notice: null,
   },
-  { type: 'tool', phase: 'end', tool_use_id: 'u1', name: 'save_note', input: null, summary: { result: 'ok' }, is_error: false },
-  { type: 'sentence', index: 0, text: '저장했어요!' },
-  { type: 'sentence', index: 1, text: '누가 쓰면 좋을까요?' },
+  { type: 'tool', phase: 'end', tool_use_id: 'u1', name: 'save_note', input: null, summary: { result: 'ok' }, is_error: false, notice: null },
+  { type: 'sentence', index: 0, text: '저장했어요!', audio: null },
+  { type: 'sentence', index: 1, text: '누가 쓰면 좋을까요?', audio: null },
   { type: 'done', turn_id: 'a1', text: '저장했어요! 누가 쓰면 좋을까요?', interrupted: false, session_status: 'active' },
 ]
 
@@ -260,7 +261,7 @@ describe('ConversationScreen', () => {
     const fetchMock = stubServer(() =>
       sseResponse([
         { type: 'turn', turn_id: 'a1' },
-        { type: 'sentence', index: 0, text: '오늘 즐거웠어요!' },
+        { type: 'sentence', index: 0, text: '오늘 즐거웠어요!', audio: null },
         { type: 'done', turn_id: 'a1', text: '오늘 즐거웠어요!', interrupted: false, session_status: 'ended' },
       ]),
     )

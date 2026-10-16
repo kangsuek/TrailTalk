@@ -10,9 +10,12 @@ from pydantic import BaseModel, Field
 from app.api.events import sse_response_doc
 from app.db.models import ConversationMode, ConversationSession
 from app.db.session import DbSession
+from app.errors import AppError
 from app.jobs import closing, extract
 from app.services import conversation
 from app.services.profile import profile_with_persona
+from app.voice.audio import prepare_for_stt
+from app.voice.tts import has_speech
 
 router = APIRouter(tags=["sessions"])
 
@@ -65,6 +68,7 @@ class SessionClosed(BaseModel):
 
     session: SessionOut
     closing: str
+    closing_audio: str | None  # 마무리 멘트 MP3(base64). 음성 세션에서만, 합성 실패면 null
     saved: SavedCounts
     journal_status: Literal["pending", "done", "failed"] | None
 
@@ -76,6 +80,7 @@ class SessionCreate(BaseModel):
 class GreetingOut(BaseModel):
     turn_id: str
     text: str
+    audio: str | None  # 인사말 MP3(base64). 음성 세션에서만, 합성 실패면 null
 
 
 class PersonaOut(BaseModel):
@@ -97,12 +102,14 @@ class TurnCreate(BaseModel):
 
 @router.post("/sessions", status_code=201)
 async def create_session(body: SessionCreate, request: Request, db: DbSession) -> SessionStarted:
-    convo, greeting, loaded = await conversation.start_session(
-        request.app, db, ConversationMode(body.mode)
-    )
+    app = request.app
+    convo, greeting, loaded = await conversation.start_session(app, db, ConversationMode(body.mode))
+    audio = None
+    if convo.mode is ConversationMode.VOICE:
+        audio = await app.state.speech.synthesize(app, greeting.text, loaded.persona.voice)
     return SessionStarted(
         session=SessionOut.of(convo),
-        greeting=GreetingOut(turn_id=greeting.id, text=greeting.text),
+        greeting=GreetingOut(turn_id=greeting.id, text=greeting.text, audio=audio),
         persona=PersonaOut(id=loaded.persona.id, name=loaded.persona.name),
     )
 
@@ -134,6 +141,71 @@ async def create_turn(
     )
 
 
+# 음성 업로드 본문(오디오 바이트 그대로). 웹 MediaRecorder는 audio/webm, 안드로이드는 audio/ogg
+_AUDIO_BODY = {"type": "string", "format": "binary"}
+_AUDIO_REQUEST = {
+    "requestBody": {
+        "required": True,
+        "content": {
+            mime: {"schema": _AUDIO_BODY}
+            for mime in ("audio/webm", "audio/ogg", "audio/mp4", "audio/wav", "audio/mpeg")
+        },
+    }
+}
+_TEXT_MAX = 4000  # 텍스트 턴(TurnCreate)과 같은 상한
+
+
+async def _read_body(request: Request, max_bytes: int) -> bytes:
+    """본문을 읽되 상한을 넘으면 끝까지 받지 않고 413을 낸다."""
+    too_large = AppError("audio_invalid", "오디오가 너무 큽니다.", 413)
+    length = request.headers.get("content-length")
+    if length is not None and length.isdigit() and int(length) > max_bytes:
+        raise too_large
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > max_bytes:
+            raise too_large
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+@router.post(
+    "/sessions/{session_id}/turns/audio",
+    response_class=StreamingResponse,
+    responses=sse_response_doc(
+        "음성 턴 이벤트 스트림(transcript → turn → sentence·tool → done 또는 error)"
+    ),
+    openapi_extra=_AUDIO_REQUEST,
+)
+async def create_audio_turn(session_id: str, request: Request, db: DbSession) -> StreamingResponse:
+    """말 한 번(오디오)을 받아 인식한 뒤 텍스트 턴과 같은 SSE로 답한다(계획서 S3-03).
+
+    인식은 SSE를 열기 전에 하므로 오디오·인식 오류와 말 없음(no_speech)은 JSON 오류로 간다."""
+    app = request.app
+    settings = app.state.settings
+    convo = await conversation.get_session(db, session_id)
+    conversation.check_turn_allowed(app, convo)
+    hint = await conversation.last_reply(db, session_id)
+    await db.close()  # 인식하는 동안 커넥션을 쥐지 않는다
+    audio = await prepare_for_stt(
+        await _read_body(request, settings.stt_max_bytes),
+        request.headers.get("content-type"),
+        max_bytes=settings.stt_max_bytes,
+        ffmpeg_path=settings.ffmpeg_path,
+        timeout_s=settings.ffmpeg_timeout_s,
+    )
+    text = (await app.state.stt.transcribe(audio, prompt=hint))[:_TEXT_MAX].strip()
+    if not has_speech(text):
+        raise AppError("no_speech", "말소리를 알아듣지 못했어요.", 422)
+    return EventStreamResponse(
+        conversation.stream_turn(app, session_id, text, from_voice=True),
+        media_type="text/event-stream",
+        headers=_SSE_HEADERS,
+    )
+
+
 @router.post("/sessions/{session_id}/end")
 async def end_session(session_id: str, request: Request, db: DbSession) -> SessionClosed:
     """세션을 끝내고 일지 정리를 띄운 뒤, 정리가 끝나길 잠깐 기다려 마무리 멘트를 준다(멱등)."""
@@ -147,9 +219,14 @@ async def end_session(session_id: str, request: Request, db: DbSession) -> Sessi
     counts = await closing.count_notes(db, session_id)
     _, loaded = await profile_with_persona(db, app.state.settings)
     await db.commit()
+    message = closing.closing_message(loaded.persona, counts)
+    audio = None
+    if convo.mode is ConversationMode.VOICE:
+        audio = await app.state.speech.synthesize(app, message, loaded.persona.voice)
     return SessionClosed(
         session=SessionOut.of(convo),
-        closing=closing.closing_message(loaded.persona, counts),
+        closing=message,
+        closing_audio=audio,
         saved=SavedCounts(**{kind.value: count for kind, count in counts.items()}),
         journal_status=convo.extract_status.value if convo.extract_status else None,
     )

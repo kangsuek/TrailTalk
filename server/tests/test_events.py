@@ -58,6 +58,7 @@ def test_openapi_includes_event_schemas(client):
     schemas = client.get("/openapi.json").json()["components"]["schemas"]
     for name in [
         "StreamEvent",
+        "TranscriptEvent",
         "TurnEvent",
         "SentenceEvent",
         "ToolEvent",
@@ -69,5 +70,5 @@ def test_openapi_includes_event_schemas(client):
             # 기본값이 있어도 항상 보내는 필드는 required(생성 타입의 type 좁히기)
             assert set(schemas[name]["required"]) == set(schemas[name]["properties"]), name
     mapping = schemas["StreamEvent"]["discriminator"]["mapping"]
-    assert set(mapping) == {"turn", "sentence", "tool", "done", "error"}
+    assert set(mapping) == {"transcript", "turn", "sentence", "tool", "done", "error"}
     assert schemas["ToolEvent"]["properties"]["phase"]["enum"] == ["start", "call", "end"]

@@ -1,7 +1,8 @@
 """턴 SSE 이벤트(클라이언트 규약 2절, 계획서 S1-09).
 
-`POST /api/sessions/{id}/turns`는 text/event-stream으로 아래 이벤트를 보낸다.
-첫 이벤트는 turn(turn_id), 마지막은 done 또는 error 하나다.
+`POST /api/sessions/{id}/turns`(텍스트)·`/turns/audio`(음성)는 text/event-stream으로 아래 이벤트를
+보낸다. 첫 이벤트는 turn(turn_id)이고 음성 업로드면 그 앞에 transcript(인식 결과)가 온다.
+마지막은 done 또는 error 하나다.
 각 메시지는 `event: <type>` 줄과 `data: <JSON>` 줄로 이뤄지고 JSON에도 type이 들어 있다.
 도구 이름은 CLI 이름 대신 클라이언트용 이름(save_note, web_search 등)으로 바꿔 보낸다.
 """
@@ -20,6 +21,13 @@ class _Event(BaseModel):
     model_config = ConfigDict(json_schema_serialization_defaults_required=True)
 
 
+class TranscriptEvent(_Event):
+    """음성 업로드의 인식 결과(사용자 메시지로 저장된 글). 음성 턴 스트림의 첫 이벤트다."""
+
+    type: Literal["transcript"] = "transcript"
+    text: str
+
+
 class TurnEvent(_Event):
     """스트림의 첫 이벤트. turn_id는 이번 답변(assistant 턴)의 ID로 끼어들기(S3-04)에 쓴다."""
 
@@ -28,11 +36,21 @@ class TurnEvent(_Event):
 
 
 class SentenceEvent(_Event):
-    """캐릭터 답변의 한 문장. index는 턴 안에서 0부터 증가한다(3단계에서 audio 추가)."""
+    """캐릭터 답변의 한 문장. index는 턴 안에서 0부터 증가한다.
+
+    audio는 그 문장의 MP3(base64)다. 음성 세션에서만 있고, 합성에 실패하면 null이다."""
 
     type: Literal["sentence"] = "sentence"
     index: int
     text: str
+    audio: str | None = None
+
+
+class VoiceNotice(BaseModel):
+    """답변이 아닌 안내 음성(예: 검색 전 "잠깐 찾아볼게요"). audio는 MP3(base64) 또는 null."""
+
+    text: str
+    audio: str | None
 
 
 class ToolEvent(_Event):
@@ -45,6 +63,8 @@ class ToolEvent(_Event):
     input: dict[str, Any] | None = None
     summary: dict[str, Any] | None = None
     is_error: bool = False
+    # 음성 세션에서 캐릭터가 아무 말 없이 검색을 시작하면 start에 안내 음성을 싣는다
+    notice: VoiceNotice | None = None
 
 
 class DoneEvent(_Event):
@@ -66,11 +86,12 @@ class ErrorEvent(_Event):
 
 
 StreamEvent = Annotated[
-    TurnEvent | SentenceEvent | ToolEvent | DoneEvent | ErrorEvent, Field(discriminator="type")
+    TranscriptEvent | TurnEvent | SentenceEvent | ToolEvent | DoneEvent | ErrorEvent,
+    Field(discriminator="type"),
 ]
 _STREAM_EVENT = TypeAdapter(StreamEvent)
-AnyEvent = TurnEvent | SentenceEvent | ToolEvent | DoneEvent | ErrorEvent
-EVENT_MODELS = (TurnEvent, SentenceEvent, ToolEvent, DoneEvent, ErrorEvent)
+AnyEvent = TranscriptEvent | TurnEvent | SentenceEvent | ToolEvent | DoneEvent | ErrorEvent
+EVENT_MODELS = (TranscriptEvent, TurnEvent, SentenceEvent, ToolEvent, DoneEvent, ErrorEvent)
 
 _MCP_PREFIX = "mcp__trailtalk__"
 _BUILTIN_TOOL_NAMES = {"WebSearch": "web_search", "WebFetch": "web_fetch"}

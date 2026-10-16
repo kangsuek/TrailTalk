@@ -10,30 +10,31 @@
 
 ## 2. SSE 이벤트
 
-턴 요청(`POST /api/sessions/{id}/turns`)의 응답은 `text/event-stream`이다. 메시지마다 `event: <type>` 줄과 `data: <한 줄 JSON>` 줄, 빈 줄로 이뤄지고 JSON에도 `type`이 들어 있다. 스키마는 OpenAPI components(`StreamEvent`, 서버 `app/api/events.py`)가 기준이다. 1단계 초안이며 3단계(S3-15)에서 확정한다.
+턴 요청(텍스트 `POST /api/sessions/{id}/turns`, 음성 `POST /api/sessions/{id}/turns/audio`)의 응답은 `text/event-stream`이다. 메시지마다 `event: <type>` 줄과 `data: <한 줄 JSON>` 줄, 빈 줄로 이뤄지고 JSON에도 `type`이 들어 있다. 스키마는 OpenAPI components(`StreamEvent`, 서버 `app/api/events.py`)가 기준이다. 1단계 초안이며 3단계(S3-15)에서 확정한다.
 
 | type | 필드 | 의미 |
 |---|---|---|
 | `turn` | `turn_id` | 스트림의 첫 이벤트. 이번 답변(assistant 턴)의 ID. 끼어들기 `POST /api/sessions/{id}/turns/{turn_id}/cancel`(3단계)에 쓴다 |
-| `sentence` | `index`, `text` | 답변 한 문장. `index`는 턴 안에서 0부터. 3단계에서 `audio`(문장 MP3) 추가 |
-| `tool` | `phase`(`start`/`call`/`end`), `tool_use_id`, `name`, `input`, `summary`, `is_error` | 도구 사용. `start`에는 이름만 온다(검색 중 표시용). `input`은 `call`에서만, `summary`·`is_error`는 `end`에서만 의미가 있고 나머지 단계에서는 `null`/`false` |
+| `sentence` | `index`, `text`, `audio` | 답변 한 문장. `index`는 턴 안에서 0부터. `audio`는 그 문장의 MP3(base64)로, 음성 세션에서만 오고 텍스트 세션이나 합성 실패면 `null`이다(클라이언트는 글자를 보이거나 기기 TTS로 대신한다) |
+| `tool` | `phase`(`start`/`call`/`end`), `tool_use_id`, `name`, `input`, `summary`, `is_error`, `notice` | 도구 사용. `start`에는 이름만 온다(검색 중 표시용). `input`은 `call`에서만, `summary`·`is_error`는 `end`에서만 의미가 있고 나머지 단계에서는 `null`/`false`. `notice`(`{text, audio}`)는 음성 세션에서 캐릭터가 아무 말 없이 `web_search`·`web_fetch`를 시작할 때만 `start`에 실리는 안내 음성이다(턴마다 한 번). 답변 문장이 아니라 `index`·`done.text`에 들어가지 않는다. 클라이언트는 문장처럼 재생 대기열에 넣는다 |
 | `done` | `turn_id`, `text`, `interrupted`, `session_status`(`active`/`paused`/`ended`) | 턴 끝. `turn_id`는 `turn` 이벤트와 같다. 전체 답변과 세션 상태 |
 | `error` | `code`, `message` | 스트림 도중 오류. 코드는 7절 공통 오류와 같다. 이 뒤에는 이벤트가 오지 않는다 |
-| `transcript` | `text` | 3단계에서 추가(현재 스키마에는 없음). 음성 업로드의 STT 결과 |
+| `transcript` | `text` | 음성 턴에서만 `turn` 바로 앞에 오는 첫 이벤트. 인식한 글(사용자 메시지로 저장된 글)이다 |
 
 **도구 이름(`name`)**: `save_note`, `search_notes`, `summarize_session`, `pause_session`, `end_session`, `web_search`, `web_fetch`. 결과 요약(`summary`)은 `web_search`면 `{query, links: [{title, url}]}`, `web_fetch`면 `{code, bytes}`, 앱 도구면 `{result}`다. 결과 형식을 알 수 없으면 `{}`가 온다.
 
-**세션 API**: 대화 화면이 "시작 전"·"끝남" 상태가 되면 `POST /api/sessions/prepare` `{mode}` → 204를 보낸다. 서버가 다음 대화의 CLI를 미리 띄워 인사말 대기를 약 1.4초 줄인다. 대화 탭이 보일 때만 보내고, 화면이 열려 있는 동안 4분마다 다시 보낸다. 결과를 기다리지 않고 실패해도 무시한다. 같은 조건이면 여러 번 불러도 하나만 준비된다. 준비된 지 5분이 지나면 다음 요청 때 새 시각으로 다시 띄우고, 요청이 끊겨 쓰지 않으면 닫힌다. 준비 뒤 프롬프트(호칭·페르소나 등)나 날짜·오전/오후가 바뀌면 시작할 때 새로 띄운다. `POST /api/sessions` `{mode: "text"|"voice"}` → 201 `{session, greeting: {turn_id, text}, persona: {id, name}}`. 화면의 캐릭터 이름은 `persona.name`을 쓰고 코드에 넣지 않는다(NFR-08). `POST /api/sessions/{id}/turns` `{text}`(1~4000자) → 위 SSE. `POST /api/sessions/{id}/end` → `{session, closing, saved: {idea, todo, memo}, journal_status}`(여러 번 불러도 같다). 서버는 세션을 끝내고 일지 정리(추출)를 띄운 뒤 최대 45초 기다려, 이 대화에서 저장한 노트 개수로 만든 마무리 멘트(`closing`, 캐릭터 말풍선으로 보인다)를 준다. `journal_status`가 `pending`이면 정리가 아직 끝나지 않은 것이다(개수가 나중에 늘 수 있다). 기다리는 동안 클라이언트는 정리 중 안내를 보인다. 끝내기 도구로 턴이 끝나 대화가 끝났을 때(`done`의 `session_status: ended`, 또는 `turn` 뒤 `session_ended` 오류)도 클라이언트는 이어서 이 API를 불러 마무리 멘트를 받는다. 쉬기(`paused`) 상태에서 턴을 보내면 다시 `active`가 된다. 마지막 발화 뒤 30분 동안 말이 없으면(쉬는 중 포함) 서버가 세션을 끝내고 일지를 정리한다(클라이언트 타이머의 안전망). 그 뒤 턴 요청은 `session_ended`가 된다. 서버는 사용자 메시지를 받자마자, 답변은 `sentence`를 보내기 전에 문장마다 저장한다. 그래서 턴 도중 연결이 끊기거나 오류가 나거나 서버가 죽어도 사용자 메시지와 클라이언트가 받은 문장은 모두 기록되고(보내려던 문장이 하나 더 남을 수 있다), 그 답변은 끊긴 답변(`interrupted`)으로 남는다. 첫 문장 전에 끊기면 사용자 메시지만 남는다. 쉬기·끝내기 도구가 불린 뒤 턴이 오류나 연결 끊김으로 끝나도 그 요청은 반영된다. 턴 요청이 `session_ended`·`session_not_found`로 실패하면(시작 전 JSON 오류든 SSE `error` 이벤트든) 클라이언트는 대화를 끝난 상태로 바꾼다. 끝내기 요청 뒤 턴이 오류로 끝나거나, 턴 도중 다른 곳(끝내기 API·무발화 감시)이 세션을 끝내면 서버는 `error` 이벤트를 `session_ended`("대화를 마쳤어요.")로 보낸다. 무발화로 끝난 세션의 `ended_at`은 마지막 발화 시각이다. `turn` 이벤트 전에 온 `error`는 서버가 사용자 메시지를 받지 못한 것이므로 클라이언트는 그 메시지를 목록에서 빼고 입력창으로 되돌린다.
+**세션 API**: 대화 화면이 "시작 전"·"끝남" 상태가 되면 `POST /api/sessions/prepare` `{mode}` → 204를 보낸다. 서버가 다음 대화의 CLI를 미리 띄워 인사말 대기를 약 1.4초 줄인다. 대화 탭이 보일 때만 보내고, 화면이 열려 있는 동안 4분마다 다시 보낸다. 결과를 기다리지 않고 실패해도 무시한다. 같은 조건이면 여러 번 불러도 하나만 준비된다. 준비된 지 5분이 지나면 다음 요청 때 새 시각으로 다시 띄우고, 요청이 끊겨 쓰지 않으면 닫힌다. 준비 뒤 프롬프트(호칭·페르소나 등)나 날짜·오전/오후가 바뀌면 시작할 때 새로 띄운다. `POST /api/sessions` `{mode: "text"|"voice"}` → 201 `{session, greeting: {turn_id, text, audio}, persona: {id, name}}`. `greeting.audio`는 인사말 MP3(base64)로 음성 세션에서만 오고, 합성에 실패하면 `null`이어도 세션은 시작된다. 화면의 캐릭터 이름은 `persona.name`을 쓰고 코드에 넣지 않는다(NFR-08). `POST /api/sessions/{id}/turns` `{text}`(1~4000자) → 위 SSE. **음성 턴**: `POST /api/sessions/{id}/turns/audio`, 본문은 말 한 번의 오디오 바이트 그대로(multipart 아님), `Content-Type`은 녹음 형식(웹 `audio/webm`, 안드로이드 `audio/ogg`. 3절) → 위 SSE(`transcript` → `turn` → …). 서버는 SSE를 열기 전에 인식하므로 오디오·인식 오류와 말 없음은 JSON 오류다: `audio_invalid`(400, 너무 크면 413), `no_speech`(422, 인식 결과에 말이 없음), `stt_failed`·`stt_timeout`·`voice_unavailable`. 이 오류들은 사용자 메시지를 만들지 않는다(상태 머신에는 `turn_error {turnId: null}`). 인식 뒤 스트림을 열 때 다른 턴이 진행 중이거나 세션이 끝났으면 `transcript` 없이 `error`(`turn_in_progress`·`session_ended`)가 첫 이벤트로 온다(인식한 글은 저장되지 않는다). 텍스트 세션에서도 음성 턴을 보낼 수 있고 그때 문장 `audio`는 `null`이다. `POST /api/sessions/{id}/end` → `{session, closing, closing_audio, saved: {idea, todo, memo}, journal_status}`(여러 번 불러도 같다. `closing_audio`는 마무리 멘트 MP3(base64)로 음성 세션에서만, 실패하면 `null`). 서버는 세션을 끝내고 일지 정리(추출)를 띄운 뒤 최대 45초 기다려, 이 대화에서 저장한 노트 개수로 만든 마무리 멘트(`closing`, 캐릭터 말풍선으로 보인다)를 준다. `journal_status`가 `pending`이면 정리가 아직 끝나지 않은 것이다(개수가 나중에 늘 수 있다). 기다리는 동안 클라이언트는 정리 중 안내를 보인다. 끝내기 도구로 턴이 끝나 대화가 끝났을 때(`done`의 `session_status: ended`, 또는 `turn` 뒤 `session_ended` 오류)도 클라이언트는 이어서 이 API를 불러 마무리 멘트를 받는다. 쉬기(`paused`) 상태에서 턴을 보내면 다시 `active`가 된다. 마지막 발화 뒤 30분 동안 말이 없으면(쉬는 중 포함) 서버가 세션을 끝내고 일지를 정리한다(클라이언트 타이머의 안전망). 그 뒤 턴 요청은 `session_ended`가 된다. 서버는 사용자 메시지를 받자마자, 답변은 `sentence`를 보내기 전에 문장마다 저장한다. 그래서 턴 도중 연결이 끊기거나 오류가 나거나 서버가 죽어도 사용자 메시지와 클라이언트가 받은 문장은 모두 기록되고(보내려던 문장이 하나 더 남을 수 있다), 그 답변은 끊긴 답변(`interrupted`)으로 남는다. 첫 문장 전에 끊기면 사용자 메시지만 남는다. 쉬기·끝내기 도구가 불린 뒤 턴이 오류나 연결 끊김으로 끝나도 그 요청은 반영된다. 턴 요청이 `session_ended`·`session_not_found`로 실패하면(시작 전 JSON 오류든 SSE `error` 이벤트든) 클라이언트는 대화를 끝난 상태로 바꾼다. 끝내기 요청 뒤 턴이 오류로 끝나거나, 턴 도중 다른 곳(끝내기 API·무발화 감시)이 세션을 끝내면 서버는 `error` 이벤트를 `session_ended`("대화를 마쳤어요.")로 보낸다. 무발화로 끝난 세션의 `ended_at`은 마지막 발화 시각이다. `turn` 이벤트 전에 온 `error`는 서버가 사용자 메시지를 받지 못한 것이므로 클라이언트는 그 메시지를 목록에서 빼고 입력창으로 되돌린다.
 
 **일지 API**: `GET /api/journal?from=YYYY-MM-DD&to=YYYY-MM-DD` → 일지 목록(최신순). 날짜는 서버 시간대의 현지 날짜이고 둘 다 포함하며, 생략하면 최근 30일이다(한 번에 366일까지, 2000-01-01~9998-12-31 밖이거나 범위가 틀리면 422 `invalid_range`). 사용자가 한마디도 하지 않은 대화는 빠진다. 항목은 `{id, date, started_at, ended_at, status, title, summary: [줄], tags, journal_status, counts: {idea, todo, memo}}`이고, 클라이언트는 `date`로 날짜별로 묶는다(시간대 계산을 하지 않는다). `journal_status`는 `pending`(정리 중)·`done`·`failed`(정리 실패)·`null`(정리 기록 없음: 아직 끝나지 않은 대화, 또는 일지 정리가 생기기 전에 끝난 대화)이다. `GET /api/journal/{id}` → `{session: 위 항목, persona_name, notes: [{id, kind, content, starred, done, created_at}], turns: [{id, seq, role, text, interrupted, created_at}]}`(없으면 404 `session_not_found`. 목록에서 빠지는 대화도 ID로는 조회된다). `turns`는 전문이고 `interrupted`는 끝까지 말하지 못한 답변이다. 전문의 캐릭터 화자 이름은 `persona_name`(현재 프로필의 페르소나 이름)을 쓴다(코드에 두지 않는다). `POST /api/journal/{id}/retry` → 202 일지 항목: 정리에 실패했거나(`failed`) 정리 기록이 없는(`null`) 끝난 대화를 다시 정리한다. 정리 중·완료면 아무것도 하지 않고 그대로 준다(끝나지 않은 대화는 409 `session_not_ended`). 클라이언트는 `journal_status`가 `pending`인 동안 목록·상세를 3초마다(최대 약 2분) 다시 불러와 정리가 끝난 것을 보여 준다. `PATCH /api/notes/{id}` `{starred?, done?, content?}` → 바뀐 노트. 아이디어의 `done`은 다 했거나 접은 아이디어를 닫는 데 쓴다(다음 대화의 기억에서 빠진다). 보낸 필드만 바꾸며 `content`는 앞뒤 공백을 빼고 1~500자이며 여러 줄도 된다(없으면 404 `note_not_found`).
 
 **프로필 API**: `GET /api/profile` → `{nickname, interests, persona_id, voice, keep_audio, client}`(처음 조회하면 기본값으로 만든다). `client`는 5절의 클라이언트 설정값이고 읽기 전용이다(`PUT`에 보내면 422). `PUT /api/profile`은 보낸 필드만 바꾼다. `nickname`은 앞뒤 공백을 빼고 1~20자 한 줄이고, `null`이면 기본 호칭으로 돌아간다. `interests`는 최대 10개, 각 1~30자이며 중복은 제거한다. 없는 `persona_id`는 404 `persona_not_found`다. 프로필을 바꾸면 다음 세션부터 반영된다. 진행 중인 세션의 프롬프트는 시작 때 고정돼(서버 `conversation_session.system_prompt`) CLI를 다시 띄우거나 서버를 재시작해도 그대로다.
 
-**순서**: 한 턴은 `turn`으로 시작해 `sentence`·`tool`이 섞여 오다가 `done` 또는 `error` 하나로 끝난다. 모든 필드는 항상 실려 온다(스키마상 required). `summary`의 도구별 타입은 3단계 확정 때 스키마로 고정한다. 시작 전 오류(세션 없음, 진행 중인 턴 등)는 SSE가 아니라 7절의 JSON 오류 응답으로 온다.
+**순서**: 한 턴은 `turn`으로 시작해(음성 턴은 그 앞에 `transcript`) `sentence`·`tool`이 섞여 오다가 `done` 또는 `error` 하나로 끝난다. 모든 필드는 항상 실려 온다(스키마상 required). `summary`의 도구별 타입은 3단계 확정 때 스키마로 고정한다. 시작 전 오류(세션 없음, 진행 중인 턴 등)는 SSE가 아니라 7절의 JSON 오류 응답으로 온다.
 
 ## 3. 오디오 형식
 
-업로드 16kHz 모노 Opus, 응답 문장별 MP3.
+- 업로드: 말 한 번을 하나의 오디오로 보낸다. 권장은 16kHz 모노 Opus(웹 MediaRecorder `audio/webm;codecs=opus`, 안드로이드 `audio/ogg`). 서버는 webm·wav·mp3·m4a(mp4)는 그대로 인식에 넘기고, 그 밖의 형식(ogg 등)은 16kHz 모노 webm/opus로 바꾼다. 최대 10MB, 변환은 앞 120초까지.
+- 응답: 문장별 MP3(base64, `sentence.audio`), 인사말·마무리 멘트도 MP3(base64)다.
 
 ## 4. 세션 상태 머신
 
@@ -111,7 +112,8 @@ VAD 수치는 시작값이며 S3-10과 실제 산책 측정에서 조정한다.
 | 502 | `llm_error` | 인사말·답변을 만들지 못함(SSE에서는 `error` 이벤트) |
 | 502 | `llm_process_exited` | Claude CLI 프로세스가 끝남. 다음 요청에서 맥락을 이어 다시 띄운다 |
 | 504 | `llm_timeout` | 답변 시간 초과 |
-| 400·413 | `audio_invalid` | 업로드 오디오가 비었거나, 너무 크거나(413), 읽을 수 없음(S3-03 음성 턴) |
+| 422 | `no_speech` | 음성 턴에서 인식 결과에 말이 없음(조용함·잡음). 사용자 메시지는 만들지 않는다 |
+| 400·413 | `audio_invalid` | 업로드 오디오가 비었거나, 너무 크거나(413), 읽을 수 없음(음성 턴) |
 | 503 | `voice_unavailable` | 음성 서비스를 쓸 수 없음(서버 키 없음·인증 실패·크레딧 소진·ffmpeg 없음). 다시 시도해도 풀리지 않는다 |
 | 502 | `stt_failed`·`tts_failed` | 음성 인식·합성 실패(일시 오류 포함) |
 | 504 | `stt_timeout`·`tts_timeout` | 음성 인식·합성 시간 초과 |

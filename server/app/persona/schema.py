@@ -27,6 +27,8 @@ class VoiceStyle(_Strict):
     tts_voice: Text  # OpenAI 보이스 이름(예: coral)
     speaking_rate: Annotated[float, Field(ge=0.25, le=4.0)]  # OpenAI speed
     instructions: Text  # 말투·톤·빠르기 지시(gpt-4o-mini-tts)
+    # 아무 말 없이 웹 검색을 시작할 때 서버가 대신 들려주는 안내(음성 세션)
+    search_notice: Text
 
 
 SAVED_PLACEHOLDER = "{저장}"

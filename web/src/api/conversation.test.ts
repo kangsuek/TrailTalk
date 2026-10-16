@@ -21,7 +21,7 @@ function sse(events: StreamEvent[]): string {
 
 const EVENTS: StreamEvent[] = [
   { type: 'turn', turn_id: 'a1' },
-  { type: 'sentence', index: 0, text: '바나나는 보통 노란색입니다.' },
+  { type: 'sentence', index: 0, text: '바나나는 보통 노란색입니다.', audio: null },
   { type: 'done', turn_id: 'a1', text: '바나나는 보통 노란색입니다.', interrupted: false, session_status: 'active' },
 ]
 

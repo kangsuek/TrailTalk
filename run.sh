@@ -56,6 +56,7 @@ if [ "$FAKE" = 1 ]; then
   export FAKE_CLAUDE_FIXTURE="${FAKE_CLAUDE_FIXTURE:-web_search}"
   export FAKE_CLAUDE_ONESHOT="$ROOT/server/tests/fixtures/claude_cli/extract.jsonl"  # 일지 정리 결과
   export CLI_ENV_PASSTHROUGH='["FAKE_CLAUDE_*"]'
+  export VOICE_BACKEND=fake  # 음성 인식·합성도 가짜(과금 없음, app/voice/fake.py)
   export DATABASE_URL="sqlite+aiosqlite:///$FAKE_DIR/fake.db"
   export CLI_WORK_DIR="$FAKE_DIR/cli"
   echo "가짜 CLI 모드(녹화 $FAKE_CLAUDE_FIXTURE): 답변은 녹화된 내용을 순서대로 재생합니다."

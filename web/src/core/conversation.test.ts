@@ -58,8 +58,8 @@ describe('conversationReducer', () => {
       ...started,
       { type: 'send', id: 'u-1', text: '안녕' },
       ev({ type: 'turn', turn_id: 'a1' }),
-      ev({ type: 'sentence', index: 0, text: '첫 문장.' }),
-      ev({ type: 'sentence', index: 1, text: '둘째 문장.' }),
+      ev({ type: 'sentence', index: 0, text: '첫 문장.', audio: null }),
+      ev({ type: 'sentence', index: 1, text: '둘째 문장.', audio: null }),
       ev({
         type: 'done',
         turn_id: 'a1',
