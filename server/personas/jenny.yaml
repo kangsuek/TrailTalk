@@ -19,7 +19,7 @@ closing:
   saved: "오늘 {저장} 저장했어요! 다음 산책 때 또 이어서 얘기해요!"
   nothing: "오늘 이야기 완전 즐거웠어요! 다음 산책 때 또 만나요!"
 voice:
-  tts_voice: coral
+  tts_voice: nova
   speaking_rate: 1.05
   search_notice: 잠깐만요, 찾아볼게요!
   instructions: 밝고 쾌활한 한국인 20대 여성 말동무처럼 생기 있고 다정하게, 약간 빠른 속도로 자연스럽게 말해요. 감탄할 때는 신나게, 질문은 끝을 올려서 말해요.
