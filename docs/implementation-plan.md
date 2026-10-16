@@ -30,7 +30,7 @@
 | [5. 다듬기·확장](#8-5단계--다듬기와-확장) | 대기 | 0/6 | 2주 | | | |
 | **전체** | | **38/56** | 약 10~13주 | | | |
 
-- **현재 작업**: 없음(S3-12 완료). 다음은 S3-14(결정 D1 필요)
+- **현재 작업**: S3-14 PWA·Tailscale HTTPS(결정 D1: 집 Mac + Tailscale Serve)
 - **다음 작업**: S3-14 PWA·HTTPS(결정 D1 서버 위치를 먼저 정함) → S3-15 → S3-16
 
 ## 3. 0단계 — 준비와 기술 검증
@@ -352,7 +352,7 @@
 | S3-11 | AudioOutput(이어 재생) | 완료 | `web/src/platform/audioOutput.ts` | `8c04f44` |
 | S3-12 | LocalQueue(오프라인 큐) | 완료 | `web/src/core/localQueue.ts`, `web/src/platform/localQueue.ts`, `web/src/screens/voiceController.ts`, `server/app/api/sessions.py` | `30b8576` |
 | S3-13 | 대화 화면 음성 모드 | 완료 | `web/src/screens/ConversationScreen.tsx`, `web/src/screens/voiceController.ts`, `web/src/screens/VoiceControls.tsx` | `0465493` |
-| S3-14 | PWA·정적 서빙·HTTPS 터널 | 대기 | `web/vite.config.ts`, 배포 설정 | |
+| S3-14 | PWA·정적 서빙·HTTPS 터널 | 진행 중 | `web/vite.config.ts`, 배포 설정 | |
 | S3-15 | 클라이언트 규약 확정 | 대기 | `docs/client-contract.md` | |
 | S3-16 | 음성 흐름 E2E | 대기 | `web/e2e/` | |
 
@@ -449,9 +449,9 @@
 - 발견·수정: 새 DB에서 `/api/profile` 동시 호출 시 persona UNIQUE 500(서버 `sync_persona` 세이브포인트), 처리 중 탭이 검색 안내 음성을 멈추지 않음(상태 머신·전이 표 수정)
 
 #### S3-14 PWA·정적 서빙·HTTPS 터널
-- [ ] vite-plugin-pwa 설정(앱 셸 캐시)
-- [ ] FastAPI 정적 서빙 확인
-- [ ] 결정 D1에 따른 서버 배치와 HTTPS 터널(Cloudflare Tunnel 또는 Tailscale). 앱 도구 MCP 경로 `/internal/*`는 터널·리버스 프록시에서 막는다(앱도 전달 헤더가 붙은 MCP 요청은 403). 서버 포트가 8000이 아니면 `INTERNAL_BASE_URL`을 맞춘다(틀리면 CLI가 도구 없이 대화한다)
+- [x] vite-plugin-pwa 1.3.0 설정(앱 셸 precache, `/vad/`는 처음 쓸 때 CacheFirst, `/api`·`/internal` 제외, 자동 새로 고침 없음), 앱 아이콘·manifest
+- [x] FastAPI 정적 서빙 확인(sw.js·webmanifest·wasm 형식, 오프라인 다시 열기)
+- [ ] 결정 D1(집 Mac + Tailscale Serve, `./run.sh --phone`, `docs/phone.md`)에 따른 서버 배치와 HTTPS 터널. 앱 도구 MCP 경로 `/internal/*`는 터널·리버스 프록시에서 막는다(앱도 전달 헤더가 붙은 MCP 요청은 403). 서버 포트가 8000이 아니면 `INTERNAL_BASE_URL`을 맞춘다(틀리면 CLI가 도구 없이 대화한다)
 - [ ] 폰 브라우저에서 마이크 권한 확인
 
 #### S3-15 클라이언트 규약 확정
@@ -664,7 +664,7 @@
 
 | ID | 결정 사항 | 필요 시점 | 상태 | 비고 | 결정 내용 |
 |---|---|---|---|---|---|
-| D1 | 서버 위치: 집 PC vs 클라우드 VM | 3단계 시작 전(S3-14) | 대기 | 1·2단계는 로컬 개발 PC로 충분 | |
+| D1 | 서버 위치: 집 PC vs 클라우드 VM | 3단계 시작 전(S3-14) | 결정 | 집 Mac + Tailscale Serve(tailnet 안에서만 HTTPS, 공개 안 함). 서버 API에 인증이 없어 공개 터널은 쓰지 않는다. 자주 끊기면 VM으로 옮긴다 | 2026-10-17 |
 | D2 | Whisper 운영: OpenAI API vs faster-whisper | 3단계 시작 전(S3-01) | 결정 | `SttProvider`로 두 구현 모두 수용 가능 | OpenAI 음성 인식 API(2026-10-16). 서버 PC가 Intel CPU라 로컬 큰 모델로는 3초 목표가 어렵다 |
 | D3 | TTS 보이스 서비스(샘플 청취) | 3단계 1주차(S3-02) | 결정 | 2단계 중 샘플 청취 | OpenAI TTS(2026-10-16, 인식과 같은 키). 보이스는 6종 샘플 청취로 `nova` 선택(2026-10-16) |
 | D4 | 제니가 먼저 말을 걸지 여부 | 3단계 종료 시 | 대기 | 산책 테스트 경험을 보고 결정 | |

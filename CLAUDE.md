@@ -55,6 +55,7 @@ docs/              설계서, 계획서, 규약, 인계(handoff.md), 검증 기�
 # 앱 실행(서버 8000 + 웹 5173, 브라우저 열기, Ctrl+C로 종료)
 ./run.sh                 # 실제 Claude CLI(구독 사용량 사용)
 ./run.sh --fake          # 가짜 CLI 녹화 재생, 임시 DB(.run-fake/). 화면 확인용
+./run.sh --phone         # 폰에서 쓰기: 빌드본을 서버(8000)가 서빙 + Tailscale Serve HTTPS(docs/phone.md)
 
 # 서버
 (cd server && uv run uvicorn app.main:app --reload)    # http://127.0.0.1:8000

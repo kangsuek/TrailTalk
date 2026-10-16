@@ -31,8 +31,18 @@ SERVER_NAME = "trailtalk"  # CLI 도구 이름 접두사 mcp__trailtalk__ 와 �
 MOUNT_PATH = "/internal/mcp"
 SESSION_HEADER = "x-trailtalk-session"
 _SEARCH_LIMIT = 10
-# 프록시·터널이 붙이는 헤더. CLI는 루프백으로 바로 접속하므로 이런 헤더가 오지 않는다
-_FORWARDED_HEADERS = ("forwarded", "x-forwarded-for", "x-real-ip", "cf-connecting-ip")
+# 프록시·터널이 붙이는 헤더. CLI는 루프백으로 바로 접속하므로 이런 헤더가 오지 않는다.
+# Tailscale Serve(폰 접속, docs/phone.md)는 X-Forwarded-Host를 늘 붙이고 X-Forwarded-For와
+# tailnet 사용자 신원 헤더(사람 계정 기기일 때)를 더한다
+_FORWARDED_HEADERS = (
+    "forwarded",
+    "x-forwarded-for",
+    "x-forwarded-host",
+    "x-forwarded-proto",
+    "x-real-ip",
+    "cf-connecting-ip",
+    "tailscale-user-login",
+)
 
 logger = logging.getLogger("trailtalk.mcp")
 

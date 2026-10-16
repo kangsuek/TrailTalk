@@ -113,8 +113,8 @@ describe('createAudioInput', () => {
     expect(options).toMatchObject({
       model: 'v5',
       startOnLoad: false,
-      baseAssetPath: '/vad/',
-      onnxWASMBasePath: '/vad/',
+      baseAssetPath: `/${__VAD_DIR__}`,
+      onnxWASMBasePath: `/${__VAD_DIR__}`,
       audioContext: contexts[0],
       positiveSpeechThreshold: DEFAULT_VAD_SETTINGS.speechThreshold,
       negativeSpeechThreshold: DEFAULT_VAD_SETTINGS.silenceThreshold,

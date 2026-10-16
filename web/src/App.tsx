@@ -4,6 +4,7 @@ import { ConversationScreen } from './screens/ConversationScreen'
 import { JournalDetailScreen } from './screens/JournalDetailScreen'
 import { JournalListScreen } from './screens/JournalListScreen'
 import { SettingsScreen } from './screens/SettingsScreen'
+import { UpdateBanner } from './screens/UpdateBanner'
 
 const SCREENS = [
   { id: 'conversation', label: '대화' },
@@ -101,6 +102,7 @@ function App() {
           {SERVER_LABELS[server]}
         </span>
       </header>
+      <UpdateBanner />
       <nav className="tabs" role="tablist" aria-label="화면">
         {SCREENS.map((s, index) => (
           <button

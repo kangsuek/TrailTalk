@@ -111,7 +111,17 @@ def test_rejects_token_of_another_session(mcp, client):
     )
 
 
-@pytest.mark.parametrize("header", ["X-Forwarded-For", "CF-Connecting-IP", "Forwarded"])
+@pytest.mark.parametrize(
+    "header",
+    [
+        "X-Forwarded-For",
+        "X-Forwarded-Host",
+        "X-Forwarded-Proto",
+        "CF-Connecting-IP",
+        "Forwarded",
+        "Tailscale-User-Login",
+    ],
+)
 def test_rejects_proxied_requests(mcp, header):
     response = mcp.request("tools/list", extra_headers={header: "203.0.113.7"})
     assert response.status_code == 403

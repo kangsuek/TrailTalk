@@ -1,4 +1,5 @@
 import asyncio
+import mimetypes
 import weakref
 from contextlib import asynccontextmanager
 
@@ -110,6 +111,9 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     # 빌드된 웹 앱이 있으면 같은 서버에서 정적 파일로 서빙한다(설계서 5장 배포).
     # 라우터는 모두 이 마운트보다 먼저 등록해야 한다(뒤에 붙인 라우트는 가려진다).
     if app_settings.web_dist_dir.is_dir():
+        # PWA manifest·음성 감지 wasm의 형식을 OS의 MIME 표에 기대지 않고 정한다(폰 모드, S3-14)
+        mimetypes.add_type("application/manifest+json", ".webmanifest")
+        mimetypes.add_type("application/wasm", ".wasm")
         static = StaticFiles(directory=app_settings.web_dist_dir, html=True)
         app.router.routes.append(WebMount("/", app=static, name="web"))
     return app

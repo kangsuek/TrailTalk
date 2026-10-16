@@ -1,5 +1,6 @@
 /// <reference lib="dom" />
 import { expect, test } from '@playwright/test'
+import { VAD_DIR } from '../vadAssets.ts'
 
 // 마이크 입력(S3-10)의 브라우저 부분. 서버 대화는 부르지 않는다(가짜 CLI 녹화 순서를 다른 테스트와 함께 쓴다).
 // 가짜 마이크로 발화를 넣는 흐름은 S3-16에서 다룬다.
@@ -28,7 +29,7 @@ test('음성 감지 모델·worklet·onnxruntime 파일을 앱이 직접 서빙�
     ['ort-wasm-simd-threaded.mjs', 'text/javascript'],
     ['ort-wasm-simd-threaded.wasm', 'application/wasm'],
   ]) {
-    const response = await request.get(`/vad/${name}`)
+    const response = await request.get(`/${VAD_DIR}${name}`) // 버전 폴더(vadAssets.ts)
     expect(response.status(), name).toBe(200)
     expect(response.headers()['content-type'], name).toBe(type)
   }

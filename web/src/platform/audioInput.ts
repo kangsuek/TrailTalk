@@ -12,8 +12,8 @@ import { encodeUtterance } from './encodeAudio'
 
 const SAMPLE_RATE = 16_000 // VAD가 주는 발화 오디오의 샘플레이트
 const PRE_SPEECH_PAD_MS = 300 // 말 시작 앞부분이 잘리지 않게 감지 전 소리를 붙인다
-// 모델·worklet·onnxruntime wasm은 CDN이 아니라 이 앱이 서빙한다(vite.config.ts의 vadAssets)
-const ASSET_PATH = `${import.meta.env.BASE_URL}vad/`
+// 모델·worklet·onnxruntime wasm은 CDN이 아니라 이 앱이 서빙한다(vite.config.ts의 vadAssets, 버전 폴더)
+const ASSET_PATH = `${import.meta.env.BASE_URL}${__VAD_DIR__}`
 
 const MIC_CONSTRAINTS: MediaStreamConstraints = {
   audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },

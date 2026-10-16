@@ -73,7 +73,15 @@ TrailTalk 작업을 이어서 진행합니다. 먼저 docs/handoff.md를 읽고,
   - 글 대화에서 답변을 기다리는 동안 "대화 끝내기"가 막혀 CLI가 멈추면 최대 2분 못 끝내던 문제. 받던 말풍선은 끊긴 답변으로 마무리한다.
   - **상태 머신·전이 표 변경(안드로이드도 반영 필요)**: 처리 중(답변 대기) `speech_end`는 버리지 않고 항상 `queueUtterance`로 큐 뒤에 넣는다. 턴이 끝나면 기존 규칙대로 큐부터 보낸다. 큐 순번은 말이 끝난 때 정해, 보내던 말이 나중에 실패해 큐에 들어가도 그사이 넣은 뒷말보다 앞에 선다(커밋 전 리뷰에서 발견). 화면은 연결돼 있으면 "이어서 한 말 N개 · 답변 뒤에/다음 차례에 보내요". `sendingQueued`는 이제 정보용이다. 처리 중 검색 안내 음성이 마이크에 잡히면 큐에 들어갈 수 있다(말소리 없음이면 버려짐) — 실기기에서 확인한다.
   - 점검했지만 그대로 둔 것: 말풍선 마크다운 원문 노출(4장 과제), 쉬기 안내의 "30분" 고정 문구(서버 기본값과 같음).
-- **테스트(현재)**: pytest 통과 523·건너뜀 4(실제 CLI·OpenAI), Vitest 220, E2E 6.
+- **테스트(현재)**: pytest 통과 525·건너뜀 4(실제 CLI·OpenAI), Vitest 220, E2E 6.
+- **S3-14 진행 중(10-17)**: 결정 D1 = 집 Mac + Tailscale Serve(tailnet 안에서만 HTTPS, 공개 Funnel 안 씀 — 서버 API에 인증이 없어서). 폰은 tailnet의 안드로이드 "강석의 A35"(Galaxy A35).
+  - `./run.sh --phone`: 웹을 `web/dist`로 빌드해 서버(8000)가 서빙, `caffeinate -is`로 잠자기 방지, `tailscale serve --bg --https=443`, Ctrl+C 때 serve off. 인증서가 꺼져 있으면 안내 후 종료, serve가 허용 링크를 내며 멈추면 15초 뒤 끊고 출력을 보여 준다. 사용법은 `docs/phone.md`.
+  - PWA: vite-plugin-pwa **1.3.0**(2.0.0은 배포 2주 미만이라 보류). `registerType: 'prompt'`(자동 새로 고침 없음), 앱 셸 precache, `/vad/`는 런타임 CacheFirst(첫 방문은 서비스 워커가 페이지를 아직 제어하지 않아 두 번째 열기부터 저장됨), `/api`·`/internal`·`/docs` 제외. 아이콘은 `web/public/icon.svg`에서 Playwright로 PNG를 만들었다(favicon도 교체).
+  - `/internal/*` 방어: MCP 미들웨어가 Tailscale Serve가 늘 붙이는 `X-Forwarded-Host`(그리고 `X-Forwarded-Proto`·`Tailscale-User-Login`)도 프록시 요청으로 보고 403(기존 X-Forwarded-For 검사와 함께).
+  - 음성 감지 자산은 버전 폴더 `/vad/<vad-web>-<onnxruntime>/`(`web/vadAssets.ts`, `__VAD_DIR__` define)에 둔다. 해시 없는 이름이라 CacheFirst가 의존성을 올린 뒤에도 옛 wasm을 줄 수 있어서다(커밋 전 리뷰).
+  - 새 버전: `registerType: 'prompt'` + `UpdateBanner`(useRegisterSW, 한 시간마다 확인) "새 버전 적용" 버튼. 홈 화면 앱은 잘 닫히지 않아 버튼 없이 두면 옛 앱에 갇힌다(커밋 전 리뷰).
+  - 알려진 위험(나중 과제): 인증 없는 `/api`가 tailnet에 열려, 폰 브라우저의 악성 사이트가 단순 POST(CSRF)로 부작용을 낼 여지가 있다(응답은 못 읽음). 필요하면 Origin·Content-Type 검사를 넣는다.
+  - localhost 실제 확인: 서비스 워커 등록·manifest·오프라인 다시 열기·제어 상태 음성 한 바퀴·vad 캐시 4개. **남은 것**: 사용자가 Tailscale Serve(HTTPS 인증서)를 허용한 뒤 ts.net 주소로 같은 확인과 `/internal/mcp/` 403 실측, A35 실기기(마이크·음성 한 바퀴·홈 화면 추가·이어폰 버튼).
 - **다음 작업**(사용자 요청: S3-04부터 계획서 순서대로 진행, 작업마다 Plan Mode 승인)
   1. S3-14 PWA·HTTPS 터널(폰에서 쓰기, 결정 D1 필요). 이때 iOS Safari 오디오·마이크, Media Session 이어폰 버튼을 실기기로 확인한다.
   2. S3-15 클라이언트 규약 확정, S3-16 음성 흐름 E2E, 이어서 3단계 마일스톤 종료 점검.

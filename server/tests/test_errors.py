@@ -93,6 +93,24 @@ def test_api_errors_unchanged_when_web_is_served(make_settings, tmp_path):
         assert_error(client.post("/api/health"), 405, "method_not_allowed")
 
 
+def test_pwa_files_are_served_with_their_types(make_settings, tmp_path):
+    """폰 모드(S3-14): 빌드본의 서비스 워커·manifest·음성 감지 자산을 알맞은 형식으로 서빙한다."""
+    dist = tmp_path / "dist"
+    (dist / "vad").mkdir(parents=True)
+    (dist / "index.html").write_text("<title>TrailTalk</title>", encoding="utf-8")
+    (dist / "sw.js").write_text("self.addEventListener('fetch', () => {})", encoding="utf-8")
+    (dist / "manifest.webmanifest").write_text('{"name":"TrailTalk"}', encoding="utf-8")
+    (dist / "vad" / "ort-wasm-simd-threaded.wasm").write_bytes(b"\0asm")
+    with TestClient(create_app(make_settings(web_dist_dir=dist))) as client:
+        types = {
+            path: client.get(path).headers["content-type"]
+            for path in ("/sw.js", "/manifest.webmanifest", "/vad/ort-wasm-simd-threaded.wasm")
+        }
+    assert types["/sw.js"].startswith("text/javascript")
+    assert types["/manifest.webmanifest"].startswith("application/manifest+json")
+    assert types["/vad/ort-wasm-simd-threaded.wasm"] == "application/wasm"
+
+
 def test_non_standard_http_exception(error_client):
     assert_error(error_client.get("/test/odd-status"), 599, "http_error")
 
