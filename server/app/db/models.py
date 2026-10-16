@@ -127,6 +127,34 @@ class Turn(Base):
     session: Mapped[ConversationSession] = relationship(back_populates="turns")
 
 
+class TurnLatency(Base):
+    """음성 턴의 지연 측정(계획서 S3-07, NFR-01). ms 단위, 서버가 요청 처리를 시작한 때 기준이다
+    (upload_ms에는 세션 확인 같은 앞 단계도 들어 있다). 웹이 말 끝 → 요청, 요청 → 첫 소리를 재서
+    보고한다.
+
+    turn_id는 캐릭터 답변 턴 ID다. 답변 행은 첫 문장 때 생기고 오류로 끝나면 없을 수도 있어
+    외래 키를 두지 않는다.
+    """
+
+    __tablename__ = "turn_latency"
+
+    turn_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("conversation_session.id", ondelete="CASCADE"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
+    audio_bytes: Mapped[int | None] = mapped_column(Integer)
+    upload_ms: Mapped[int | None] = mapped_column(Integer)
+    stt_ms: Mapped[int | None] = mapped_column(Integer)
+    first_token_ms: Mapped[int | None] = mapped_column(Integer)
+    first_sentence_ms: Mapped[int | None] = mapped_column(Integer)
+    done_ms: Mapped[int | None] = mapped_column(Integer)
+    speech_to_request_ms: Mapped[int | None] = mapped_column(Integer)
+    request_to_playback_ms: Mapped[int | None] = mapped_column(Integer)
+    # 첫 소리가 답변 문장이 아니라 검색 안내 음성이었다(검색 턴은 답변 지연이 가려진다)
+    first_sound_notice: Mapped[bool | None] = mapped_column(Boolean)
+
+
 class Note(Base):
     __tablename__ = "note"
     __table_args__ = (Index("ix_note_kind_done", "kind", "done"),)

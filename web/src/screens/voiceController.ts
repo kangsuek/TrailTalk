@@ -1,7 +1,14 @@
 // 음성 대화 컨트롤러(계획서 S3-13, 클라이언트 규약 4절 "플랫폼이 지킬 것").
 // 상태 머신(core/sessionMachine)에 이벤트를 넣고, 나온 명령을 마이크(AudioInput)·재생(AudioOutput)·
 // 서버 API로 실행한다. 말풍선은 텍스트 대화와 같은 리듀서(core/conversation)로 그린다.
-import { ApiError, cancelTurn, endSession, sendAudioTurn, startSession } from '../api/conversation'
+import {
+  ApiError,
+  cancelTurn,
+  endSession,
+  reportLatency,
+  sendAudioTurn,
+  startSession,
+} from '../api/conversation'
 import { getProfile } from '../api/profile'
 import {
   DEFAULT_SESSION_CONFIG,
@@ -32,8 +39,10 @@ export interface VoiceDeps {
   startSession: typeof startSession
   sendAudioTurn: typeof sendAudioTurn
   cancelTurn: typeof cancelTurn
+  reportLatency: typeof reportLatency
   endSession: typeof endSession
   getProfile: typeof getProfile
+  now: () => number // 지연 측정 시계(단조 ms, 말 끝 시각과 같은 기준)
 }
 
 const DEFAULT_DEPS: VoiceDeps = {
@@ -43,8 +52,10 @@ const DEFAULT_DEPS: VoiceDeps = {
   startSession,
   sendAudioTurn,
   cancelTurn,
+  reportLatency,
   endSession,
   getProfile,
+  now: () => performance.now(),
 }
 
 // 서버가 보내지 않는(또는 메시지를 못 받은) 오류의 문구
@@ -87,7 +98,15 @@ export function createVoiceController({
   let endAbort: AbortController | null = null
   let idleTimer: ReturnType<typeof setTimeout> | undefined
   let disposed = false
-  const utterances = new Map<string, RecordedAudio>()
+  const utterances = new Map<string, { audio: RecordedAudio; speechEndedAt: number }>()
+  // 지연 측정(S3-07): 이번 턴의 말 끝·요청 시각. 첫 소리가 나면 한 번 보고한다
+  // 소리 없이 끝난 턴(오류·합성 실패·문장 없음)이면 비운다(다른 소리에 붙지 않게)
+  let measuring: {
+    turnId: string | null
+    speechEndedAt: number
+    requestAt: number
+    hasAudio: boolean // 이 턴의 소리를 대기열에 넣었다
+  } | null = null
   let nextUtterance = 0
   const messages = new Map<string, string>() // 오류 코드 → 마지막으로 받은 문구
   // 대화가 끝난 이유(마이크 오류, 서버에서 세션이 끝남). 정리를 시작하면 오류 문구가 지워지므로
@@ -123,7 +142,22 @@ export function createVoiceController({
     }
   }
 
-  const output = d.createOutput((event) => send(event))
+  const output = d.createOutput((event) => {
+    if (event.type === 'started') return onPlaybackStarted(event.index === null)
+    send(event)
+  })
+
+  // notice: 번호 없는 소리(턴 중에는 검색 안내 음성)로 시작했다
+  const onPlaybackStarted = (notice: boolean) => {
+    if (measuring === null || measuring.turnId === null || sessionId === null) return
+    const { turnId, speechEndedAt, requestAt } = measuring
+    measuring = null // 턴마다 한 번(검색 안내 음성이 먼저 나와도 캐릭터 목소리가 처음 나온 때다)
+    const speechToRequest = Math.max(0, Math.round(requestAt - speechEndedAt))
+    const requestToPlayback = Math.max(0, Math.round(d.now() - requestAt))
+    void d
+      .reportLatency(sessionId, turnId, speechToRequest, requestToPlayback, notice)
+      .catch(() => {})
+  }
 
   const remember = (error: unknown): string => {
     if (error instanceof ApiError) {
@@ -140,7 +174,7 @@ export function createVoiceController({
         return
       case 'speech_end': {
         const id = `u${nextUtterance++}`
-        utterances.set(id, event.audio)
+        utterances.set(id, { audio: event.audio, speechEndedAt: event.speechEndedAt })
         send({ type: 'speech_end', utteranceId: id })
         utterances.delete(id) // 보냈으면 이미 꺼냈고, 머신이 버린 발화(처리 중)는 지운다
         return
@@ -186,9 +220,9 @@ export function createVoiceController({
   }
 
   const sendTurn = async (utteranceId: string) => {
-    const audio = utterances.get(utteranceId)
+    const utterance = utterances.get(utteranceId)
     utterances.delete(utteranceId)
-    if (!audio || sessionId === null) {
+    if (!utterance || sessionId === null) {
       send({ type: 'turn_error', turnId: null, code: 'audio_invalid' })
       return
     }
@@ -196,10 +230,20 @@ export function createVoiceController({
     turnAbort = abort
     const localId = `voice-${utteranceId}`
     let turnId: string | null = null
+    measuring = {
+      turnId: null,
+      speechEndedAt: utterance.speechEndedAt,
+      requestAt: d.now(),
+      hasAudio: false,
+    }
+    const enqueueAudio = (audio: string | null | undefined, index: number | null) => {
+      if (audio && measuring !== null) measuring.hasAudio = true
+      output.enqueue({ audio: audio ?? null, index })
+    }
     try {
       await d.sendAudioTurn(
         sessionId,
-        audio,
+        utterance.audio,
         (event) => {
           if (abort.signal.aborted || disposed) return // 끼어들어 취소한 턴의 늦은 이벤트
           switch (event.type) {
@@ -208,27 +252,30 @@ export function createVoiceController({
               return
             case 'turn':
               turnId = event.turn_id
+              if (measuring !== null) measuring.turnId = event.turn_id
               dispatch({ type: 'event', event })
               send({ type: 'turn', turnId: event.turn_id })
               return
             case 'sentence':
               dispatch({ type: 'event', event })
               // 소리를 대기열에 넣은 뒤 같은 흐름에서 머신에 알린다(규약 4절)
-              output.enqueue({ audio: event.audio ?? null, index: event.index })
+              enqueueAudio(event.audio, event.index)
               if (turnId) send({ type: 'sentence', turnId, index: event.index })
               return
             case 'tool':
               dispatch({ type: 'event', event })
-              if (event.notice) output.enqueue({ audio: event.notice.audio ?? null, index: null })
+              if (event.notice) enqueueAudio(event.notice.audio, null)
               if (event.name === 'save_note' && event.phase === 'end' && !event.is_error) {
                 send({ type: 'note_saved' })
               }
               return
             case 'done':
+              if (measuring !== null && !measuring.hasAudio) measuring = null // 들려줄 소리가 없다
               dispatch({ type: 'event', event })
               send({ type: 'turn_done', turnId: event.turn_id, sessionStatus: event.session_status })
               return
             case 'error':
+              measuring = null
               messages.set(event.code, event.message)
               if (SESSION_GONE.has(event.code)) closingReason = event.message
               // 턴 전 오류는 서버가 말을 저장하지 않았다: 사용자 말풍선을 뺀다
@@ -242,6 +289,7 @@ export function createVoiceController({
       )
     } catch (error) {
       if (abort.signal.aborted || disposed) return
+      measuring = null
       // 네트워크 오류도 여기서 알리고 다시 듣는다(오프라인 보관은 S3-12에서 send_failed로)
       const code = remember(error)
       if (SESSION_GONE.has(code)) closingReason = messageOf(code)
@@ -254,6 +302,7 @@ export function createVoiceController({
 
   const endConversation = async () => {
     turnAbort?.abort()
+    measuring = null // 마무리 멘트 소리는 재지 않는다
     if (sessionId === null) {
       // 시작 응답을 받기 전에 끝냈다
       startAbort?.abort()
@@ -307,6 +356,7 @@ export function createVoiceController({
         // 기다리지 않고 실패는 무시한다(연결이 끊긴 것만으로도 보낸 문장까지는 끊긴 답변으로 남는다)
         turnAbort?.abort()
         turnAbort = null
+        measuring = null // 끊은 턴은 재지 않는다
         if (sessionId !== null) {
           void d.cancelTurn(sessionId, command.turnId, command.lastPlayed).catch(() => {})
         }

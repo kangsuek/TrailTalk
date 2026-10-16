@@ -86,12 +86,14 @@ function deferred() {
 }
 
 function setup(onEvent?: (e: AudioOutputEvent) => void) {
-  const events: AudioOutputEvent[] = []
+  const events: AudioOutputEvent[] = [] // 머신에 가는 이벤트(재생 시작 알림은 started에 따로)
+  const started: (number | null)[] = []
   const output = createAudioOutput((e) => {
-    events.push(e)
+    if (e.type === 'started') started.push(e.index)
+    else events.push(e)
     onEvent?.(e)
   })
-  return { output, events }
+  return { output, events, started }
 }
 
 describe('createAudioOutput', () => {
@@ -113,6 +115,17 @@ describe('createAudioOutput', () => {
       { type: 'sentence_played', index: 1 },
       { type: 'playback_idle' },
     ])
+  })
+
+  it('소리마다 재생을 시작하면 started로 알린다(지연 측정용)', async () => {
+    const { output, started } = setup()
+    output.enqueue({ audio: b64('notice'), index: null })
+    output.enqueue({ audio: null, index: 0 }) // 소리 없는 문장은 재생하지 않는다
+    output.enqueue({ audio: b64('s1'), index: 1 })
+    await tick()
+    expect(started).toEqual([null])
+    await finish()
+    expect(started).toEqual([null, 1])
   })
 
   it('뒤 문장 디코드가 먼저 끝나도 순서를 지킨다', async () => {

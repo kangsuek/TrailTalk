@@ -161,14 +161,18 @@ describe('createAudioInput', () => {
     expect(options.onSpeechStart).toBeUndefined()
     expect(options.onVADMisfire).toBeUndefined()
     options.onSpeechRealStart()
+    vi.spyOn(performance, 'now').mockReturnValue(5000)
     await options.onSpeechEnd(new Float32Array(16000))
     expect(events).toEqual([
       { type: 'speech_start' },
       {
         type: 'speech_end',
         audio: { bytes: new Uint8Array(3), mimeType: 'audio/webm;codecs=opus', durationMs: 1000 },
+        // 끝을 알아채기까지 기다린 무음만큼 앞이 실제 말 끝이다
+        speechEndedAt: 5000 - DEFAULT_VAD_SETTINGS.endOfSpeechSilenceMs,
       },
     ])
+    vi.restoreAllMocks()
   })
 
   it('stop 뒤에는 늦게 끝난 발화도 넘기지 않는다', async () => {

@@ -60,7 +60,7 @@ export function createAudioOutput(
   }
 
   /** 끝까지 재생하거나, stop()되거나, 끝 알림이 오지 않으면 길이 + 여유 뒤에 끝난다 */
-  const play = (buffer: AudioBuffer) =>
+  const play = (buffer: AudioBuffer, index: number | null) =>
     new Promise<void>((resolve) => {
       const ctx = audioContext()
       const source = ctx.createBufferSource()
@@ -76,6 +76,7 @@ export function createAudioOutput(
       try {
         source.connect(ctx.destination)
         source.start()
+        emit({ type: 'started', index })
         // 오디오가 멈춰 끝 알림이 오지 않으면 넘어간다. 나중에 다시 켜져도 겹치지 않게 그 소리는 멈춘다
         timer = setTimeout(() => {
           try {
@@ -103,7 +104,7 @@ export function createAudioOutput(
         if (buffer) {
           await ready(audioContext())
           if (current !== generation) break
-          await play(buffer)
+          await play(buffer, item.index)
         }
         if (current !== generation) break
         queue.shift()

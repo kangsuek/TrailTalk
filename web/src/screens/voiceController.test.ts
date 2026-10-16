@@ -40,6 +40,7 @@ const tick = () => new Promise((r) => setTimeout(r, 0))
 afterEach(() => vi.useRealTimers())
 
 function setup(overrides: Partial<VoiceDeps> = {}) {
+  const clock = { now: 10_000 } // 지연 측정 시계(테스트가 움직인다)
   const log: string[] = [] // 대기열 넣기와 상태 변화의 순서
   const actions: ConversationAction[] = []
   const states: SessionState[] = []
@@ -78,6 +79,8 @@ function setup(overrides: Partial<VoiceDeps> = {}) {
     }),
     endSession: vi.fn(async () => CLOSED),
     cancelTurn: vi.fn(async () => {}),
+    reportLatency: vi.fn(async () => {}),
+    now: () => clock.now,
     getProfile: vi.fn(async () => {
       throw new ApiError('network_error', '서버에 연결할 수 없어요.', 0)
     }),
@@ -102,7 +105,9 @@ function setup(overrides: Partial<VoiceDeps> = {}) {
     actions,
     log,
     state,
-    speak: (audio = AUDIO) => inputEvent({ type: 'speech_end', audio }),
+    clock,
+    speak: (audio = AUDIO, speechEndedAt = clock.now - 1500) =>
+      inputEvent({ type: 'speech_end', audio, speechEndedAt }),
     micEvent: (e: AudioInputEvent) => inputEvent(e),
     played: (e: AudioOutputEvent) => outputEvent(e),
   }
@@ -436,5 +441,79 @@ describe('createVoiceController', () => {
     expect(t.state()).toBe('listening')
     expect(t.deps.cancelTurn).toHaveBeenCalledWith('s1', 'g1', -1)
     expect(t.actions.some((a) => a.type === 'interrupt')).toBe(false)
+  })
+
+  it('첫 소리가 나면 말 끝 → 요청, 요청 → 첫 소리를 한 번 보고한다', async () => {
+    const t = setup()
+    await startListening(t)
+    t.played({ type: 'started', index: null }) // 인사말 소리는 재지 않는다
+    t.clock.now = 20_000
+    t.speak(AUDIO, 18_800) // 말은 1.2초 전에 끝났다
+    await tick()
+    t.clock.now = 21_900
+    t.played({ type: 'started', index: 0 })
+    t.played({ type: 'started', index: 1 })
+    expect(t.deps.reportLatency).toHaveBeenCalledTimes(1)
+    expect(t.deps.reportLatency).toHaveBeenCalledWith('s1', 'a1', 1200, 1900, false)
+  })
+
+  it('검색 안내 음성으로 시작한 턴은 그렇다고 알린다', async () => {
+    const t = setup({
+      sendAudioTurn: vi.fn(async (_id, _audio, onEvent) => {
+        onEvent({ type: 'turn', turn_id: 'a1' })
+        onEvent({
+          type: 'tool',
+          phase: 'start',
+          tool_use_id: 'w1',
+          name: 'web_search',
+          input: null,
+          summary: null,
+          is_error: false,
+          notice: { text: '잠깐만요!', audio: 'Tk9USUNF' },
+        })
+      }),
+    })
+    await startListening(t)
+    t.speak()
+    await tick()
+    t.played({ type: 'started', index: null })
+    expect(t.deps.reportLatency).toHaveBeenCalledWith('s1', 'a1', expect.any(Number), expect.any(Number), true)
+  })
+
+  it('소리 없이 끝난 턴의 측정은 마무리 멘트 소리에 붙지 않는다', async () => {
+    const t = setup({
+      sendAudioTurn: vi.fn(async (_id, _audio, onEvent) => {
+        onEvent({ type: 'turn', turn_id: 'a1' })
+        onEvent({ type: 'error', code: 'llm_error', message: '답변을 만들지 못했습니다.' })
+      }),
+    })
+    await startListening(t)
+    t.speak()
+    await tick()
+    t.controller.longPress() // 끝내고 마무리 멘트를 들려준다
+    await tick()
+    t.played({ type: 'started', index: null })
+    expect(t.deps.reportLatency).not.toHaveBeenCalled()
+  })
+
+  it('끊은 턴은 재지 않는다', async () => {
+    let release = () => {}
+    const t = setup({
+      sendAudioTurn: vi.fn(async (_id, _audio, onEvent, s) => {
+        onEvent({ type: 'turn', turn_id: 'a1' })
+        onEvent({ type: 'sentence', index: 0, text: '정말요?', audio: 'UzA=' })
+        await new Promise<void>((resolve) => {
+          release = resolve
+          s?.addEventListener('abort', () => resolve())
+        })
+      }),
+    })
+    await startListening(t)
+    t.speak()
+    await tick()
+    t.controller.tap() // 소리가 나기 전에 끊었다
+    t.played({ type: 'started', index: 0 })
+    release()
+    expect(t.deps.reportLatency).not.toHaveBeenCalled()
   })
 })

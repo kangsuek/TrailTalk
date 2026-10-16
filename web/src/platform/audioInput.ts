@@ -85,8 +85,10 @@ export function createAudioInput(
         if (listening()) onEvent({ type: 'speech_start' })
       },
       onSpeechEnd: async (samples) => {
+        // 끝을 알아채기까지 무음을 기다렸으므로 실제로 말이 끝난 때는 그만큼 앞이다
+        const speechEndedAt = performance.now() - settings.endOfSpeechSilenceMs
         const audio = await encodeUtterance(samples, SAMPLE_RATE)
-        if (listening()) onEvent({ type: 'speech_end', audio })
+        if (listening()) onEvent({ type: 'speech_end', audio, speechEndedAt })
       },
     })
   }

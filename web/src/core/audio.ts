@@ -51,7 +51,8 @@ export type AudioInputErrorCode = 'mic_denied' | 'mic_unavailable' | 'vad_failed
 // stop·dispose 뒤에는 아무 이벤트도 오지 않는다
 export type AudioInputEvent =
   | { type: 'speech_start' }
-  | { type: 'speech_end'; audio: RecordedAudio }
+  // speechEndedAt: 말소리가 실제로 끝난 시각(무음 대기 전, 단조 시계 ms). 지연 측정(S3-07)
+  | { type: 'speech_end'; audio: RecordedAudio; speechEndedAt: number }
   | { type: 'error'; code: AudioInputErrorCode }
 
 /** 상태 머신 명령과 1:1: micOn → start, micOff → stop, setVadMode → setMode */
@@ -70,8 +71,12 @@ export interface PlaybackItem {
   index: number | null
 }
 
-// sentence_played: 그 문장을 끝까지 들려줬다. playback_idle: 보내는 순간 대기열이 비어 있다(규약 4절)
-export type AudioOutputEvent = { type: 'sentence_played'; index: number } | { type: 'playback_idle' }
+// sentence_played: 그 문장을 끝까지 들려줬다. playback_idle: 보내는 순간 대기열이 비어 있다(규약 4절).
+// started: 소리 하나가 재생을 시작했다(지연 측정용, 상태 머신에는 넘기지 않는다)
+export type AudioOutputEvent =
+  | { type: 'sentence_played'; index: number }
+  | { type: 'playback_idle' }
+  | { type: 'started'; index: number | null }
 
 /** 답변 소리 이어 재생. 상태 머신 명령 stopPlayback → stop, playSound → playEffect */
 export interface AudioOutput {

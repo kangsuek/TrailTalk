@@ -41,6 +41,27 @@ export async function cancelTurn(
   await post(path, { last_played: lastPlayed }, signal)
 }
 
+/** 음성 턴의 지연(ms)을 보고한다(S3-07): 말 끝 → 요청 시작, 요청 시작 → 첫 소리. */
+export async function reportLatency(
+  sessionId: string,
+  turnId: string,
+  speechToRequestMs: number,
+  requestToPlaybackMs: number,
+  firstSoundNotice: boolean, // 첫 소리가 검색 안내 음성이었다
+  signal?: AbortSignal,
+): Promise<void> {
+  const path = `/api/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(turnId)}/latency`
+  await post(
+    path,
+    {
+      speech_to_request_ms: speechToRequestMs,
+      request_to_playback_ms: requestToPlaybackMs,
+      first_sound_notice: firstSoundNotice,
+    },
+    signal,
+  )
+}
+
 /** 대화를 끝낸다. 서버가 일지 정리를 잠깐 기다린 뒤 마무리 멘트와 저장 개수를 준다(여러 번 불러도 같다). */
 export async function endSession(sessionId: string, signal?: AbortSignal): Promise<SessionClosed> {
   return (await post(`/api/sessions/${encodeURIComponent(sessionId)}/end`, {}, signal)).json()

@@ -1,5 +1,6 @@
 """대화 세션 API(설계서 4.6): 시작(인사말), 턴(SSE), 종료(마무리 멘트)."""
 
+import time
 from datetime import datetime
 from typing import Annotated, Literal
 
@@ -170,6 +171,7 @@ _AUDIO_REQUEST = {
     }
 }
 _TEXT_MAX = 4000  # 텍스트 턴(TurnCreate)과 같은 상한
+_LATENCY_MAX_MS = 10 * 60 * 1000  # 보고받는 지연의 상한(10분, 그보다 크면 잘못 잰 값)
 
 
 async def _read_body(request: Request, max_bytes: int) -> bytes:
@@ -202,29 +204,71 @@ async def create_audio_turn(session_id: str, request: Request, db: DbSession) ->
     인식은 SSE를 열기 전에 하므로 오디오·인식 오류와 말 없음(no_speech)은 JSON 오류로 간다."""
     app = request.app
     settings = app.state.settings
+    started = time.monotonic()  # 지연 측정(S3-07)의 기준: 서버가 요청 처리를 시작한 때
     convo = await conversation.get_session(db, session_id)
     conversation.check_turn_allowed(app, convo)
     hint = await conversation.last_reply(db, session_id)
     profile = await db.get(UserProfile, PROFILE_ID)  # 읽기만 한다(없으면 기본값: 보관 안 함)
     keep_audio = profile is not None and profile.keep_audio
     await db.close()  # 인식하는 동안 커넥션을 쥐지 않는다
+    body = await _read_body(request, settings.stt_max_bytes)
+    upload_ms = round((time.monotonic() - started) * 1000)
+    stt_started = time.monotonic()  # 인식 시간에는 형식 변환(ffmpeg)도 넣는다
     audio = await prepare_for_stt(
-        await _read_body(request, settings.stt_max_bytes),
+        body,
         request.headers.get("content-type"),
         max_bytes=settings.stt_max_bytes,
         ffmpeg_path=settings.ffmpeg_path,
         timeout_s=settings.ffmpeg_timeout_s,
     )
     text = (await app.state.stt.transcribe(audio, prompt=hint))[:_TEXT_MAX].strip()
+    timing = conversation.VoiceTiming(
+        started=started,
+        audio_bytes=len(body),
+        upload_ms=upload_ms,
+        stt_ms=round((time.monotonic() - stt_started) * 1000),
+    )
     if not has_speech(text):
         raise AppError("no_speech", "말소리를 알아듣지 못했어요.", 422)
     return EventStreamResponse(
         conversation.stream_turn(
-            app, session_id, text, from_voice=True, audio=audio if keep_audio else None
+            app,
+            session_id,
+            text,
+            from_voice=True,
+            audio=audio if keep_audio else None,
+            timing=timing,
         ),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )
+
+
+class LatencyReport(BaseModel):
+    """웹이 잰 지연(ms, S3-07): 말 끝 → 요청 시작, 요청 시작 → 첫 소리.
+    first_sound_notice: 첫 소리가 검색 안내 음성이었다."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    speech_to_request_ms: Annotated[int, Field(ge=0, le=_LATENCY_MAX_MS)]
+    request_to_playback_ms: Annotated[int, Field(ge=0, le=_LATENCY_MAX_MS)]
+    first_sound_notice: bool = False
+
+
+@router.post("/sessions/{session_id}/turns/{turn_id}/latency", status_code=204)
+async def report_latency(
+    session_id: str, turn_id: str, body: LatencyReport, db: DbSession
+) -> Response:
+    """음성 턴의 지연을 보고한다(계획서 S3-07). 측정 행이 없으면 404 turn_not_found."""
+    await conversation.report_latency(
+        db,
+        session_id,
+        turn_id,
+        body.speech_to_request_ms,
+        body.request_to_playback_ms,
+        body.first_sound_notice,
+    )
+    return Response(status_code=204)
 
 
 @router.post("/sessions/{session_id}/end")

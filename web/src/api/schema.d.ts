@@ -114,6 +114,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sessions/{session_id}/turns/{turn_id}/latency": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report Latency
+         * @description 음성 턴의 지연을 보고한다(계획서 S3-07). 측정 행이 없으면 404 turn_not_found.
+         */
+        post: operations["report_latency_api_sessions__session_id__turns__turn_id__latency_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sessions/{session_id}/end": {
         parameters: {
             query?: never;
@@ -233,6 +253,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/latency": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Latency
+         * @description 최근 음성 턴부터 limit개의 지연과 요약(중앙값·90% 값).
+         */
+        get: operations["latency_api_latency_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -309,6 +349,71 @@ export interface components {
             /** Journal Status */
             journal_status: ("pending" | "done" | "failed") | null;
             counts: components["schemas"]["NoteCounts"];
+        };
+        /** LatencyOut */
+        LatencyOut: {
+            /** Turns */
+            turns: components["schemas"]["LatencyTurn"][];
+            summary: components["schemas"]["LatencySummary"];
+        };
+        /**
+         * LatencyReport
+         * @description 웹이 잰 지연(ms, S3-07): 말 끝 → 요청 시작, 요청 시작 → 첫 소리.
+         *     first_sound_notice: 첫 소리가 검색 안내 음성이었다.
+         */
+        LatencyReport: {
+            /** Speech To Request Ms */
+            speech_to_request_ms: number;
+            /** Request To Playback Ms */
+            request_to_playback_ms: number;
+            /**
+             * First Sound Notice
+             * @default false
+             */
+            first_sound_notice: boolean;
+        };
+        /** LatencySummary */
+        LatencySummary: {
+            /** Count */
+            count: number;
+            total_ms: components["schemas"]["Spread"];
+            total_ms_reply: components["schemas"]["Spread"];
+            /** Stages */
+            stages: {
+                [key: string]: number | null;
+            };
+        };
+        /** LatencyTurn */
+        LatencyTurn: {
+            /** Turn Id */
+            turn_id: string;
+            /** Session Id */
+            session_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Audio Bytes */
+            audio_bytes: number | null;
+            /** Upload Ms */
+            upload_ms: number | null;
+            /** Stt Ms */
+            stt_ms: number | null;
+            /** First Token Ms */
+            first_token_ms: number | null;
+            /** First Sentence Ms */
+            first_sentence_ms: number | null;
+            /** Done Ms */
+            done_ms: number | null;
+            /** Speech To Request Ms */
+            speech_to_request_ms: number | null;
+            /** Request To Playback Ms */
+            request_to_playback_ms: number | null;
+            /** First Sound Notice */
+            first_sound_notice: boolean | null;
+            /** Total Ms */
+            total_ms: number | null;
         };
         /** NoteCounts */
         NoteCounts: {
@@ -467,6 +572,13 @@ export interface components {
             session: components["schemas"]["SessionOut"];
             greeting: components["schemas"]["GreetingOut"];
             persona: components["schemas"]["PersonaOut"];
+        };
+        /** Spread */
+        Spread: {
+            /** Median */
+            median: number | null;
+            /** P90 */
+            p90: number | null;
         };
         /**
          * TurnCancel
@@ -895,6 +1007,40 @@ export interface operations {
             };
         };
     };
+    report_latency_api_sessions__session_id__turns__turn_id__latency_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+                turn_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LatencyReport"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     end_session_api_sessions__session_id__end_post: {
         parameters: {
             query?: never;
@@ -1095,6 +1241,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JournalItem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    latency_api_latency_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LatencyOut"];
                 };
             };
             /** @description Validation Error */

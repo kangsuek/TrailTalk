@@ -20,6 +20,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import time
 from collections.abc import AsyncIterator
 from contextlib import aclosing
 from dataclasses import dataclass
@@ -50,6 +51,7 @@ from app.db.models import (
     ExtractStatus,
     SessionStatus,
     Turn,
+    TurnLatency,
     TurnRole,
     UserProfile,
 )
@@ -87,6 +89,22 @@ class SessionNotFound(AppError):
 class SessionEnded(AppError):
     def __init__(self) -> None:
         super().__init__("session_ended", "이미 끝난 대화입니다.", 409)
+
+
+@dataclass
+class VoiceTiming:
+    """음성 턴 지연 측정(S3-07). 시각은 요청 시작(time.monotonic) 기준 ms다."""
+
+    started: float
+    audio_bytes: int
+    upload_ms: int
+    stt_ms: int
+    first_token_ms: int | None = None
+    first_sentence_ms: int | None = None
+    done_ms: int | None = None  # 마지막 이벤트를 보내기 직전(없으면 정리 때)
+
+    def elapsed_ms(self) -> int:
+        return round((time.monotonic() - self.started) * 1000)
 
 
 class TurnNotFound(AppError):
@@ -491,11 +509,13 @@ async def stream_turn(
     *,
     from_voice: bool = False,
     audio: AudioFile | None = None,
+    timing: VoiceTiming | None = None,
 ) -> AsyncIterator[bytes]:
     """사용자 메시지 한 턴을 처리하며 SSE 바이트를 낸다.
 
     from_voice: 음성 업로드의 인식 결과다. turn 바로 앞에 transcript 이벤트로 알린다.
     audio: 보관할 녹음(프로필 keep_audio가 켜진 음성 턴, S3-05). 사용자 턴에 붙여 저장한다.
+    timing: 음성 턴의 지연 측정(S3-07). 단계별 시각을 turn_latency에 남긴다.
 
     클라이언트가 끊기면 이 제너레이터가 닫히고 aclosing이 CLI 턴을 멈춘다. 이때 사용자 턴과
     보낸 문장까지의 답변(interrupted)이 남는다.
@@ -508,7 +528,7 @@ async def stream_turn(
         db = app.state.session_factory()
         try:
             # 안쪽 제너레이터도 바로 닫아야 락을 풀기 전에 CLI 턴 정리(인터럽트)가 끝난다
-            turn = _run_turn(app, db, runtime, session_id, text, from_voice, audio)
+            turn = _run_turn(app, db, runtime, session_id, text, from_voice, audio, timing)
             async with aclosing(turn) as chunks:
                 async for chunk in chunks:
                     yield chunk
@@ -531,6 +551,7 @@ async def _run_turn(
     text: str,
     from_voice: bool,
     audio: AudioFile | None = None,
+    timing: VoiceTiming | None = None,
 ) -> AsyncIterator[bytes]:
     """턴 락을 잡은 상태에서 한 턴을 처리한다.
 
@@ -562,6 +583,8 @@ async def _run_turn(
         await _keep_audio(app, db, session_id, user_turn_id, audio)
 
     assistant_id = new_id()
+    if timing is not None:
+        await _start_latency(db, session_id, assistant_id, timing)
     if from_voice:
         yield encode_sse(TranscriptEvent(text=text))
     yield encode_sse(TurnEvent(turn_id=assistant_id))
@@ -625,6 +648,8 @@ async def _run_turn(
             reply_saved = True
             chunk = encode_sse(SentenceEvent(index=index, text=item, audio=audio))
             index += 1
+            if timing is not None and timing.first_sentence_ms is None:
+                timing.first_sentence_ms = timing.elapsed_ms()
             return chunk
 
         notice_sent = False
@@ -642,6 +667,8 @@ async def _run_turn(
                 elif isinstance(event, TextDelta):
                     # 합성을 띄우기만 하고 CLI를 계속 읽는다. 소리가 다 된 문장은 아래에서 보낸다
                     # (합성을 기다리는 시간이 턴 시간 제한에 더해지지 않게)
+                    if timing is not None and timing.first_token_ms is None:
+                        timing.first_token_ms = timing.elapsed_ms()
                     parts.append(event.text)
                     queue(splitter.feed(event.text))
                 elif isinstance(event, ToolStarted):
@@ -722,6 +749,8 @@ async def _run_turn(
             if requested is SessionStatus.ENDED:
                 await teardown(app, session_id, convo.cli_session_id)
                 extract.ensure_extraction(app, session_id)
+        if timing is not None:
+            timing.done_ms = timing.elapsed_ms()  # 클라이언트가 마지막 이벤트를 읽는 시간은 뺀다
         yield encode_sse(
             DoneEvent(
                 turn_id=assistant_id,
@@ -744,6 +773,8 @@ async def _run_turn(
                 task.cancel()
         runtime.current_user_turn_id = None
         runtime.active_turn = None
+        if timing is not None:
+            await _finish_latency(db, assistant_id, timing)
         # 도구가 쉬기·끝내기를 요청한 뒤 턴이 오류나 연결 끊김으로 끝났어도 요청은 반영한다
         # (정상 종료면 위에서 이미 꺼냈다). 끊김으로 취소된 중에도 끝까지 처리한다
         leftover = runtime.pop_requested_status()
@@ -852,6 +883,69 @@ def _heard_note(heard: list[str]) -> str:
     last = heard[-1][-_HEARD_MAX_CHARS:]
     last = last.replace('"', "'").translate(str.maketrans("", "", "()[]{}"))
     return INTERRUPTED_HEARD.format(heard=last)
+
+
+async def _start_latency(
+    db: AsyncSession, session_id: str, turn_id: str, timing: VoiceTiming
+) -> None:
+    """측정 행을 턴 시작 때 만든다(웹 보고가 턴이 끝나기 전에 올 수 있다). 실패해도 계속한다."""
+    try:
+        with anyio.CancelScope(shield=True):
+            db.add(
+                TurnLatency(
+                    turn_id=turn_id,
+                    session_id=session_id,
+                    audio_bytes=timing.audio_bytes,
+                    upload_ms=timing.upload_ms,
+                    stt_ms=timing.stt_ms,
+                )
+            )
+            await db.commit()
+    except Exception:
+        logger.exception("지연 측정 기록 실패(session=%s)", session_id)
+        with anyio.CancelScope(shield=True), contextlib.suppress(Exception):
+            await db.rollback()
+
+
+async def _finish_latency(db: AsyncSession, turn_id: str, timing: VoiceTiming) -> None:
+    """첫 글자·첫 문장·끝 시각을 채운다(정상·오류·끊긴 턴 모두). 실패해도 로그만 남긴다."""
+    done_ms = timing.done_ms if timing.done_ms is not None else timing.elapsed_ms()
+    try:
+        with anyio.CancelScope(shield=True):
+            await db.execute(
+                update(TurnLatency)
+                .where(TurnLatency.turn_id == turn_id)
+                .values(
+                    first_token_ms=timing.first_token_ms,
+                    first_sentence_ms=timing.first_sentence_ms,
+                    done_ms=done_ms,
+                )
+                .execution_options(synchronize_session=False)
+            )
+            await db.commit()
+    except Exception:
+        logger.exception("지연 측정 기록 실패(turn=%s)", turn_id)
+        with anyio.CancelScope(shield=True), contextlib.suppress(Exception):
+            await db.rollback()
+
+
+async def report_latency(
+    db: AsyncSession,
+    session_id: str,
+    turn_id: str,
+    speech_to_request_ms: int,
+    request_to_playback_ms: int,
+    first_sound_notice: bool = False,
+) -> None:
+    """웹이 잰 말 끝 → 요청, 요청 → 첫 소리를 남긴다(다시 보내면 덮어쓴다)."""
+    await get_session(db, session_id)
+    row = await db.get(TurnLatency, turn_id)
+    if row is None or row.session_id != session_id:
+        raise TurnNotFound()
+    row.speech_to_request_ms = speech_to_request_ms
+    row.request_to_playback_ms = request_to_playback_ms
+    row.first_sound_notice = first_sound_notice
+    await db.commit()
 
 
 def _write_audio(path: Path, data: bytes) -> None:
