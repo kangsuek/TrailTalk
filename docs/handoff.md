@@ -16,18 +16,22 @@ TrailTalk 작업을 이어서 진행합니다. 먼저 docs/handoff.md를 읽고,
 
 ## 1. 지금 어디까지 왔나
 
-- **0·1·2단계 완료**(2단계는 2026-10-16 사용자 확인, 마일스톤 `5749ea3`). **3단계(웹 음성 대화) 진행 중 3/16**, 전체 28/56.
+- **0·1·2단계 완료**(2단계는 2026-10-16 사용자 확인, 마일스톤 `5749ea3`). **3단계(웹 음성 대화) 진행 중 4/16**, 전체 29/56.
 - **3단계에서 끝낸 것**: S3-08 세션 상태 머신·S3-09 상태 전이 표(`9202e04`), S3-06 클라이언트 설정값(`2b643a9`).
   - S3-06: `GET/PUT /api/profile`이 `client`(VAD·세션·오디오·오프라인 안내, 읽기 전용)를 준다. 서버가 시작할 때 `shared/client-defaults.json`을 `app/client_config.py`로 검증하고 틀리면 시작하지 않는다. `idle_timeout_minutes`는 서버 `IDLE_TIMEOUT_S`로 덮어쓴다. VAD 수치(0.5/0.35, 재생 중 0.8/0.65)는 시작값이라 S3-10에서 `@ricky0123/vad-web` 옵션에 맞춰 조정한다. 웹은 아직 프로필을 받아 쓰지 않는다(S3-10·S3-13).
   - `web/src/core/sessionMachine.ts`: 이벤트 → 다음 상태 + 명령을 내는 순수 함수다. 마이크·재생·서버 호출은 하지 않는다.
   - `shared/fixtures/transitions.json`: 사례 22개. 안드로이드 테스트도 이 파일을 읽는다.
   - 아직 화면에 연결하지 않았다(S3-13에서 연결). 플랫폼이 지킬 약속은 규약 4절에 있다(인사말은 `session_started {turnId}`, `sentence`·`turn_done`에 턴 ID, 모든 요청은 성공·실패 이벤트로 끝냄, 큐 비우기 결과는 `queue_flushed {remaining}`).
-- **S3-01·S3-02(`f89057b`, 진행 중)**: `app/voice/stt.py`·`tts.py`·`audio.py`·`openai_http.py`. 앱에서 `app.state.stt`·`app.state.tts`로 쓴다(S3-03에서 연결).
+- **S3-01·S3-02(`f89057b`, 진행 중)**: `app/voice/stt.py`·`tts.py`·`audio.py`·`openai_http.py`. 앱에서 `app.state.stt`·`app.state.tts`로 쓴다.
   - 남은 것: OpenAI 계정 크레딧이 없어(429 `insufficient_quota`) 실제 호출을 못 했다. 충전 뒤 `RUN_REAL_OPENAI=1 uv run pytest tests/test_voice_real.py -q -s`(TTS 1회·STT 2회)로 확인한다. 특히 `gpt-transcribe`의 multipart `languages` 필드 이름이 맞는지(SDK식 `languages[]`일 수도 있음) 본다.
   - 그 다음 `uv run python -m tests.voice_samples`로 보이스 6종 샘플(`server/data/voice-samples/`)을 만들어 사용자가 고르게 하고 `jenny.yaml`의 `tts_voice`·`instructions`를 확정한다(지금 임시 `coral`).
   - OpenAI TTS에는 피치가 없어 페르소나 `voice.pitch`를 지우고 `instructions`(말투 지시)를 넣었다. `gpt-4o-mini-tts`는 `speed`를 무시한다는 보고가 있어, 빠르기는 `instructions`에도 적었다.
   - TTS 전처리 `speech_text`는 음성에만 쓰고 화면 문장(`sentence.text`)은 그대로 둔다.
   - 그대로 못 보내는 업로드(ogg 등)는 WAV가 아니라 16kHz 모노 webm/opus(24kbps)로 바꾼다(업로드 크기가 응답 지연에 더해지므로). 설정은 빈 값(`KEY=`)을 없는 것으로 본다(`env_ignore_empty`).
+- **S3-03 음성 턴(`bafcea9`, 완료)**: `POST /api/sessions/{id}/turns/audio`(오디오 바이트 본문) → SSE 전에 인식 → `transcript`·`turn`·`sentence(audio)`·`done`. 합성은 `app.state.speech`(`app/voice/speech.py`, 동시 3개·실패는 null·안내 캐시)로만 한다.
+  - `_run_turn`은 문장 합성을 띄워 두고 CLI를 계속 읽는다. 소리가 된 맨 앞 문장부터 보내고, 도구 이벤트 앞과 답변 끝에서만 남은 문장을 끝까지 기다린다(순서 유지). 끊긴 턴(`interrupted`)은 남은 합성을 취소하고 글만 보낸다.
+  - 가짜 음성 백엔드 `VOICE_BACKEND=fake`(`app/voice/fake.py`): 업로드가 `FAKE_STT:<글>`로 시작하면 그 글을, 아니면 `FAKE_STT_TEXT`를 인식 결과로 돌려준다. 합성은 0.3초 무음 MP3. `run.sh --fake`·E2E가 쓰고, S3-13 화면 작업과 실제 구동 확인 때도 쓴다(handoff 2장 명령에 `VOICE_BACKEND=fake`를 더한다).
+  - 남은 한계: CLI 오류(시간 초과·크래시)로 끝나면 합성 대기 중이던 문장은 보내지 않는다. 맨 앞 소리가 다 돼도 다음 CLI 이벤트가 와야 나간다(보통 짧다).
 - **결정(2026-10-16)**
   - D2 음성 인식은 OpenAI API다. 서버 PC가 Intel CPU라 로컬 큰 모델로는 3초 목표가 어렵다.
   - D3 목소리는 OpenAI TTS다. 인식과 같은 OpenAI 키를 쓰고, 보이스는 S3-02에서 같은 문장으로 샘플을 만들어 사용자가 듣고 고른다.
@@ -43,11 +47,11 @@ TrailTalk 작업을 이어서 진행합니다. 먼저 docs/handoff.md를 읽고,
   - 무발화 종료의 `ended_at`을 마지막 활동 시각으로 기록한다.
   - 끝내기 응답이 `pending`이면 정리 중 안내를 보인다.
   - 진행 중 대화의 일지 상세에 안내를 보인다.
-- **테스트(현재)**: pytest 459(4개는 실제 CLI·OpenAI라 건너뜀), Vitest 138, E2E 3.
+- **테스트(현재)**: pytest 485(4개는 실제 CLI·OpenAI라 건너뜀), Vitest 138, E2E 3.
 - **다음 작업**(사용자에게 먼저 고르게 한다)
   - S3-01·S3-02 마무리: OpenAI 크레딧을 충전하면 실제 확인과 보이스 선택을 한다(과금되므로 쓸 때 사용자에게 알린다).
-  - S3-03 음성 턴 스트리밍: S3-01·S3-02 provider를 턴 SSE에 연결한다. 테스트는 모의 provider로 할 수 있다.
-  - 키가 필요 없는 것: S3-10 AudioInput(vad-web·녹음·Opus 인코딩, S3-06 설정값을 쓴다), S3-11 AudioOutput(이어 재생). 다만 실제 음성 턴(S3-03) 없이 만들면 끝까지 이어 보기 어렵다.
+  - S3-04 끼어들기 API(재생한 문장까지 기록, 끝난 턴의 cancel 처리).
+  - 웹: S3-10 AudioInput(vad-web·녹음·Opus 인코딩, S3-06 설정값을 쓴다), S3-11 AudioOutput(base64 MP3 이어 재생). 가짜 음성 백엔드로 끝까지 이어 볼 수 있다.
   - 작업마다 Plan Mode로 계획을 승인받는다.
 
 ## 2. 3단계를 진행할 때 알아야 할 것
@@ -56,7 +60,7 @@ TrailTalk 작업을 이어서 진행합니다. 먼저 docs/handoff.md를 읽고,
   - 답변은 `sentence`를 보내기 전에 문장마다 DB에 커밋된다(`conversation._run_turn`의 `sentences()`·`_save_reply`). 끝나기 전에는 `interrupted=True`이고 `done` 때 최종 텍스트로 바뀐다.
   - 지금은 보낸 문장 기준이고, 음성에서는 **재생한 문장** 기준이 필요하다. 상태 머신은 `cancelTurn {turnId, lastPlayed}`(다 들려준 마지막 문장 번호, 없으면 -1)를 보낸다.
   - 상태 머신은 이미 끝난 턴(인사말, `done` 뒤 재생 중 끼어들기)에도 `cancelTurn`을 보낸다. 서버가 이를 멱등으로 받아 `lastPlayed`로 자를지 S3-04에서 정한다(계획서 S3-04 체크박스).
-- **인사말**: 시작 응답(`POST /api/sessions`)의 JSON으로 오고 SSE가 아니다. 음성 모드에서는 인사말 TTS를 어떻게 줄지(시작 응답에 오디오를 실을지, 따로 받을지)를 S3-03에서 정한다.
+- **인사말**: 시작 응답(`POST /api/sessions`)의 JSON으로 오고 SSE가 아니다. 음성 세션이면 `greeting.audio`(MP3 base64)가 함께 온다(S3-03). 마무리 멘트도 `closing_audio`로 온다.
 - **마무리 멘트**: `POST /api/sessions/{id}/end`가 일지 정리를 최대 45초 기다린 뒤 `closing`(페르소나 YAML 문구)을 준다. 음성에서 이 문장을 읽힐지, 기다리는 동안 효과음·안내를 낼지 정해야 한다.
 - **오프라인 큐(S3-12)**: 큐 항목이 어느 세션에 속하는지, 끝내기 전에 큐를 비울지는 아직 정하지 않았다(규약 4절에 미정으로 적음).
 - **기억 블록**: 기억이 있으면 첫인사에서 지난 아이디어를 먼저 꺼낸다(`prompt.py`의 "앱 안내"). 음성 인사말이 길어지지 않는지 확인한다.
@@ -115,7 +119,6 @@ TrailTalk 작업을 이어서 진행합니다. 먼저 docs/handoff.md를 읽고,
 | `web/src/core`의 브라우저 API 비의존을 린트로 강제 | 필요 시 |
 | 결정 D1(서버 위치) | S3-14 전 |
 | OpenAI TTS 보이스 선택(샘플 청취) | S3-02 |
-| 인사말·마무리 멘트의 음성 처리 | S3-03 |
 | 오프라인 큐의 세션 소속, 끝내기 전 큐 비우기 | S3-12 |
 | 상태 머신을 대화 화면에 연결 | S3-13 |
 | 오프라인 안내 문구(`client.offline_notice`)가 캐릭터 말투인데 공유 JSON에 있음. 페르소나 YAML에 두고 프로필 응답에서 덮어쓰기(S3-06 리뷰) | S5-01 페르소나 전환 전 |
