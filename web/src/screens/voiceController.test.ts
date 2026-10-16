@@ -9,6 +9,7 @@ import type {
   VadSettings,
 } from '../core'
 import type { ConversationAction, StreamEvent } from '../core/conversation'
+import { createMemoryQueue } from '../core'
 import { createVoiceController, type VoiceDeps } from './voiceController'
 
 const STARTED = {
@@ -41,6 +42,8 @@ afterEach(() => vi.useRealTimers())
 
 function setup(overrides: Partial<VoiceDeps> = {}) {
   const clock = { now: 10_000 } // 지연 측정 시계(테스트가 움직인다)
+  const queue = overrides.queue ?? createMemoryQueue()
+  let online = () => {}
   const log: string[] = [] // 대기열 넣기와 상태 변화의 순서
   const actions: ConversationAction[] = []
   const states: SessionState[] = []
@@ -84,6 +87,15 @@ function setup(overrides: Partial<VoiceDeps> = {}) {
     getProfile: vi.fn(async () => {
       throw new ApiError('network_error', '서버에 연결할 수 없어요.', 0)
     }),
+    queue,
+    recordAudioTurn: vi.fn(async () => ({ text: '기록함' })),
+    speak: vi.fn(async () => {}),
+    checkHealth: vi.fn(async () => true),
+    cancelSpeech: vi.fn(),
+    watchOnline: (cb) => {
+      online = cb
+      return () => {}
+    },
     ...overrides,
   }
   const controller = createVoiceController({
@@ -106,6 +118,8 @@ function setup(overrides: Partial<VoiceDeps> = {}) {
     log,
     state,
     clock,
+    queue,
+    goOnline: () => online(),
     speak: (audio = AUDIO, speechEndedAt = clock.now - 1500) =>
       inputEvent({ type: 'speech_end', audio, speechEndedAt }),
     micEvent: (e: AudioInputEvent) => inputEvent(e),
@@ -515,5 +529,306 @@ describe('createVoiceController', () => {
     t.played({ type: 'started', index: 0 })
     release()
     expect(t.deps.reportLatency).not.toHaveBeenCalled()
+  })
+
+  describe('오프라인 보관(S3-12)', () => {
+    const unreachable = () => new ApiError('network_error', '서버에 연결할 수 없어요.', 0)
+
+    /** 첫 전송은 서버에 닿지 않고, 그다음부터는 TURN을 낸다 */
+    function offlineOnce(times = 1) {
+      let failures = times
+      return vi.fn(async (_id: string, _audio: unknown, onEvent: (e: StreamEvent) => void) => {
+        if (failures-- > 0) throw unreachable()
+        for (const event of TURN) onEvent(event)
+      })
+    }
+
+    it('서버에 닿지 않으면 보관하고 안내한 뒤, 연결되면 보관한 말을 보내 대답을 듣는다', async () => {
+      let noticeDone = () => {}
+      const t = setup({
+        sendAudioTurn: offlineOnce(),
+        speak: vi.fn(() => new Promise<void>((resolve) => (noticeDone = resolve))),
+      })
+      await startListening(t)
+      t.speak()
+      await tick()
+      expect(t.state()).toBe('offline')
+      expect(await t.queue.count('s1')).toBe(1)
+      expect(t.deps.speak).toHaveBeenCalledWith('지금은 산이 깊어서 메모만 해둘게요!')
+      expect(t.output.playEffect).toHaveBeenCalledWith('offline')
+      noticeDone()
+      await tick()
+      expect(t.state()).toBe('listening') // 안내가 끝났다
+
+      t.goOnline()
+      await tick()
+      expect(t.deps.sendAudioTurn).toHaveBeenCalledTimes(2)
+      const sent = (t.deps.sendAudioTurn as ReturnType<typeof vi.fn>).mock.calls[1][1]
+      expect(sent).toMatchObject({ bytes: AUDIO.bytes, mimeType: AUDIO.mimeType })
+      expect(await t.queue.count('s1')).toBe(0)
+      expect(t.state()).toBe('speaking') // 보관한 말의 대답을 들려준다
+      t.played({ type: 'playback_idle' })
+      expect(t.state()).toBe('listening')
+    })
+
+    it('큐가 남아 있는 동안 한 새 말은 큐 뒤에 넣고 차례로 보낸다', async () => {
+      const t = setup({ sendAudioTurn: offlineOnce(2) })
+      await startListening(t)
+      t.speak()
+      await tick()
+      await tick() // 안내 뒤 듣기
+      const second: RecordedAudio = { ...AUDIO, bytes: new Uint8Array([9, 9]) }
+      t.speak(second) // 연결이 없으니 보관만 한다
+      await tick()
+      expect(t.state()).toBe('listening')
+      expect(await t.queue.count('s1')).toBe(2)
+
+      t.goOnline() // 첫 재전송도 실패(offlineOnce(2))
+      await tick()
+      expect(t.state()).toBe('listening')
+      expect((await t.queue.oldest('s1'))?.attempts).toBe(1)
+
+      t.goOnline()
+      await tick()
+      const calls = (t.deps.sendAudioTurn as ReturnType<typeof vi.fn>).mock.calls
+      expect(calls[2][1].bytes).toEqual(AUDIO.bytes) // 먼저 한 말부터
+      t.played({ type: 'playback_idle' })
+      await tick()
+      expect(calls[3][1].bytes).toEqual(second.bytes)
+    })
+
+    it('끊긴 동안 30초마다 다시 시도한다', async () => {
+      vi.useFakeTimers()
+      const t = setup({ sendAudioTurn: offlineOnce() })
+      t.controller.tap()
+      await vi.advanceTimersByTimeAsync(0)
+      t.played({ type: 'playback_idle' })
+      t.speak()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(t.state()).toBe('listening')
+      await vi.advanceTimersByTimeAsync(30_000)
+      expect(t.deps.sendAudioTurn).toHaveBeenCalledTimes(2)
+    })
+
+    it('보관한 말을 보낼 때 서버가 대화를 끝냈으면 기록만 남기고 정리로 간다', async () => {
+      let calls = 0
+      const t = setup({
+        sendAudioTurn: vi.fn(async () => {
+          if (calls++ === 0) throw unreachable()
+          throw new ApiError('session_ended', '이미 끝난 대화입니다.', 409)
+        }),
+      })
+      await startListening(t)
+      t.speak()
+      await tick()
+      await tick()
+      t.goOnline()
+      await tick()
+      expect(t.deps.recordAudioTurn).toHaveBeenCalledWith('s1', expect.objectContaining({ bytes: AUDIO.bytes }))
+      expect(await t.queue.count('s1')).toBe(0)
+      expect(t.deps.endSession).toHaveBeenCalled()
+    })
+
+    it('보관한 말이 말소리가 없으면 버리고, 서버 일시 오류면 남겨 둔다', async () => {
+      let calls = 0
+      const errors = [unreachable(), new ApiError('llm_error', '답변을 만들지 못했습니다.', 502), new ApiError('no_speech', '말소리를 알아듣지 못했어요.', 422)]
+      const t = setup({
+        sendAudioTurn: vi.fn(async () => {
+          throw errors[Math.min(calls++, errors.length - 1)]
+        }),
+      })
+      await startListening(t)
+      t.speak()
+      await tick()
+      await tick()
+      t.goOnline() // 일시 오류: 남겨 두고 조용히 듣는다
+      await tick()
+      expect(await t.queue.count('s1')).toBe(1)
+      expect(t.state()).toBe('listening')
+      t.goOnline() // 말소리 없음: 버린다
+      await tick()
+      expect(await t.queue.count('s1')).toBe(0)
+      expect(t.actions.at(-1)).toMatchObject({ type: 'failed', code: 'no_speech' })
+    })
+
+    it('새로 말한 것도 서버가 대화를 끝냈으면 기록만 남긴다', async () => {
+      const t = setup({
+        sendAudioTurn: vi.fn(async () => {
+          throw new ApiError('session_ended', '이미 끝난 대화입니다.', 409)
+        }),
+      })
+      await startListening(t)
+      t.speak()
+      await tick()
+      expect(t.deps.recordAudioTurn).toHaveBeenCalledWith('s1', AUDIO)
+    })
+
+    it('끊긴 채 대화를 끝내면 남은 말은 연결이 돌아온 뒤 기록만 남긴다', async () => {
+      let online = false
+      const record = vi.fn(async (): Promise<{ text: string }> => {
+        if (!online) throw unreachable()
+        return { text: '기록함' }
+      })
+      const t = setup({
+        sendAudioTurn: offlineOnce(),
+        recordAudioTurn: record,
+        endSession: vi.fn(async () => {
+          throw unreachable()
+        }),
+      })
+      await startListening(t)
+      t.speak()
+      await tick()
+      await tick()
+      t.controller.longPress() // 끊긴 채 끝낸다(끝내기도 실패한다)
+      await tick()
+      expect(t.state()).toBe('idle')
+      expect(await t.queue.count('s1')).toBe(1) // 연결이 없어 아직 남아 있다
+
+      online = true
+      t.goOnline()
+      await tick()
+      expect(record).toHaveBeenLastCalledWith('s1', expect.objectContaining({ sessionId: 's1' }))
+      expect(await t.queue.count('s1')).toBe(0)
+    })
+
+    it('30일이 지난 녹음과 계속 실패하는 말은 기기에 남기지 않는다', async () => {
+      const queue = createMemoryQueue()
+      const day = 24 * 60 * 60 * 1000
+      const base = { mimeType: 'audio/webm', bytes: new Uint8Array([1]), attempts: 0 }
+      await queue.add({ ...base, id: 'stale', sessionId: 'old', createdAt: Date.now() - 31 * day })
+      await queue.add({ ...base, id: 'tired', sessionId: 'old', createdAt: Date.now(), recordAttempts: 4 })
+      const record = vi.fn(async (): Promise<{ text: string }> => {
+        throw new ApiError('stt_failed', '음성 인식 실패', 502)
+      })
+      setup({ queue, recordAudioTurn: record })
+      await tick()
+      expect(record).toHaveBeenCalledTimes(1) // 기한이 지난 말은 보내지도 않는다
+      expect(await queue.others(null)).toEqual([]) // 다섯 번째 실패로 지웠다
+    })
+
+    it('다섯 번째로 보내지 못한 말은 대답을 포기하고 기록만 남긴다(다시 보내지 않는다)', async () => {
+      const queue = createMemoryQueue()
+      let calls = 0
+      const t = setup({
+        queue,
+        sendAudioTurn: vi.fn(async () => {
+          if (calls++ === 0) throw unreachable()
+          throw new ApiError('llm_error', '답변을 만들지 못했습니다.', 502)
+        }),
+      })
+      await startListening(t)
+      t.speak()
+      await tick()
+      await tick()
+      const item = (await queue.oldest('s1'))!
+      await queue.update(item.id, { attempts: 4 }) // 이미 네 번 실패했다
+      t.goOnline()
+      await tick()
+      await tick()
+      expect(t.deps.recordAudioTurn).toHaveBeenCalledWith('s1', expect.objectContaining({ id: item.id }))
+      expect(await queue.others(null)).toEqual([])
+      expect(t.state()).toBe('listening')
+      t.goOnline()
+      await tick()
+      expect(t.deps.sendAudioTurn).toHaveBeenCalledTimes(2) // 포기한 말을 다시 보내지 않는다
+    })
+
+    it('기록이 진행 중인 턴과 겹쳐도(409) 실패로 세지 않는다', async () => {
+      const queue = createMemoryQueue()
+      await queue.add({ id: 'busy', sessionId: 'old', mimeType: 'audio/webm', bytes: new Uint8Array([1]), createdAt: Date.now(), attempts: 0 })
+      const record = vi.fn(async (): Promise<{ text: string }> => {
+        throw new ApiError('turn_in_progress', '이전 답변이 아직 끝나지 않았습니다.', 409)
+      })
+      setup({ queue, recordAudioTurn: record })
+      await tick()
+      expect(record).toHaveBeenCalled()
+      expect((await queue.others(null))[0].recordAttempts ?? 0).toBe(0)
+    })
+
+    it('처리 중 보관함을 읽지 못해도 멈추지 않는다', async () => {
+      const queue = createMemoryQueue()
+      const t = setup({ queue, sendAudioTurn: offlineOnce() })
+      await startListening(t)
+      t.speak()
+      await tick()
+      await tick()
+      queue.oldest = async () => {
+        throw new Error('IndexedDB 오류')
+      }
+      t.goOnline()
+      await tick()
+      expect(t.state()).toBe('listening')
+    })
+
+    it('끊긴 동안의 재시도는 서버에 닿을 때만 다시 보낸다', async () => {
+      vi.useFakeTimers()
+      let reachable = false
+      const t = setup({ sendAudioTurn: offlineOnce(), checkHealth: vi.fn(async () => reachable) })
+      t.controller.tap()
+      await vi.advanceTimersByTimeAsync(0)
+      t.played({ type: 'playback_idle' })
+      t.speak()
+      await vi.advanceTimersByTimeAsync(0)
+      const listenSounds = () => (t.output.playEffect as ReturnType<typeof vi.fn>).mock.calls.filter(([n]) => n === 'listen').length
+      const before = listenSounds()
+      await vi.advanceTimersByTimeAsync(90_000)
+      expect(t.deps.sendAudioTurn).toHaveBeenCalledTimes(1) // 닿지 않으니 다시 보내지 않는다
+      expect(listenSounds()).toBe(before) // 효과음도 되풀이하지 않는다
+      reachable = true
+      await vi.advanceTimersByTimeAsync(30_000)
+      expect(t.deps.sendAudioTurn).toHaveBeenCalledTimes(2)
+    })
+
+    it('서버가 붙잡고 답하지 않으면 30초 뒤 닿지 않은 것으로 보고 보관한다', async () => {
+      vi.useFakeTimers()
+      const t = setup({
+        sendAudioTurn: vi.fn(
+          (_id: string, _audio: unknown, _onEvent: unknown, signal?: AbortSignal) =>
+            new Promise<void>((_, reject) => signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))),
+        ),
+      })
+      t.controller.tap()
+      await vi.advanceTimersByTimeAsync(0)
+      t.played({ type: 'playback_idle' })
+      t.speak()
+      await vi.advanceTimersByTimeAsync(30_000)
+      expect(t.deps.speak).toHaveBeenCalled() // 오프라인 안내를 했다
+      expect(await t.queue.count('s1')).toBe(1)
+    })
+
+    it('보내는 중에 끝내면 그 말을 보관해 기록만 남긴다', async () => {
+      const t = setup({
+        sendAudioTurn: vi.fn(
+          (_id: string, _audio: unknown, _onEvent: unknown, signal?: AbortSignal) =>
+            new Promise<void>((_, reject) => signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))),
+        ),
+      })
+      await startListening(t)
+      t.speak()
+      await tick()
+      t.controller.longPress()
+      await tick()
+      await tick()
+      expect(t.deps.recordAudioTurn).toHaveBeenCalledWith('s1', expect.objectContaining({ bytes: AUDIO.bytes }))
+    })
+
+    it('이전 대화의 남은 말은 시작할 때 기록만 남기고, 연결이 없으면 남겨 둔다', async () => {
+      const queue = createMemoryQueue()
+      await queue.add({ id: 'old', sessionId: 'old-session', mimeType: 'audio/webm', bytes: new Uint8Array([1]), createdAt: Date.now(), attempts: 0 })
+      const record = vi.fn(async (): Promise<{ text: string }> => {
+        throw unreachable()
+      })
+      setup({ queue, recordAudioTurn: record })
+      await tick()
+      expect(record).toHaveBeenCalledWith('old-session', expect.objectContaining({ id: 'old' }))
+      expect(await queue.count('old-session')).toBe(1)
+
+      record.mockImplementation(async () => ({ text: '기록함' }))
+      const t = setup({ queue, recordAudioTurn: record })
+      await tick()
+      expect(await queue.count('old-session')).toBe(0)
+      t.goOnline()
+    })
   })
 })

@@ -244,6 +244,37 @@ async def create_audio_turn(session_id: str, request: Request, db: DbSession) ->
     )
 
 
+class RecordedTurn(BaseModel):
+    text: str  # 인식해 저장한 말
+
+
+@router.post(
+    "/sessions/{session_id}/turns/audio/record",
+    status_code=201,
+    openapi_extra=_AUDIO_REQUEST,
+)
+async def record_audio_turn(session_id: str, request: Request, db: DbSession) -> RecordedTurn:
+    """오프라인 큐의 말을 대답 없이 기록만 남긴다(계획서 S3-12). 끝난 대화도 받는다.
+
+    서버가 이미 대화를 끝냈거나(30분 넘게 끊김) 페이지를 새로 열어 대답할 수 없는 말의
+    유실을 막는다."""
+    app = request.app
+    settings = app.state.settings
+    await conversation.get_session(db, session_id)
+    audio = await prepare_for_stt(
+        await _read_body(request, settings.stt_max_bytes),
+        request.headers.get("content-type"),
+        max_bytes=settings.stt_max_bytes,
+        ffmpeg_path=settings.ffmpeg_path,
+        timeout_s=settings.ffmpeg_timeout_s,
+    )
+    text = (await app.state.stt.transcribe(audio))[:_TEXT_MAX].strip()
+    if not has_speech(text):
+        raise AppError("no_speech", "말소리를 알아듣지 못했어요.", 422)
+    await conversation.record_offline_turn(app, db, session_id, text)
+    return RecordedTurn(text=text)
+
+
 class LatencyReport(BaseModel):
     """웹이 잰 지연(ms, S3-07): 말 끝 → 요청 시작, 요청 시작 → 첫 소리.
     first_sound_notice: 첫 소리가 검색 안내 음성이었다."""

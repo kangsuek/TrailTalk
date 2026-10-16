@@ -21,6 +21,7 @@ import contextlib
 import logging
 import os
 import time
+import weakref
 from collections.abc import AsyncIterator
 from contextlib import aclosing
 from dataclasses import dataclass
@@ -927,6 +928,49 @@ async def _finish_latency(db: AsyncSession, turn_id: str, timing: VoiceTiming) -
         logger.exception("지연 측정 기록 실패(turn=%s)", turn_id)
         with anyio.CancelScope(shield=True), contextlib.suppress(Exception):
             await db.rollback()
+
+
+async def record_offline_turn(app: FastAPI, db: AsyncSession, session_id: str, text: str) -> None:
+    """오프라인 큐의 말을 대답 없이 사용자 턴으로만 남긴다(S3-12). 끝난 대화도 받는다.
+
+    대답할 수 없는 경우(서버가 이미 대화를 끝냄, 페이지를 새로 열어 대화가 사라짐)의 기록
+    보존용이다. 끝난 대화면 일지를 다시 정리한다(새 말에서 나온 노트만 더해진다: 기존 노트와
+    겹치면 거른다). 같은 대화의 기록·턴은 세션별 잠금으로 줄을 세워 순번(seq)이 겹치지 않게 한다.
+    """
+    await get_session(db, session_id)
+    runtime = app.state.runtimes.get(session_id)
+    if runtime is not None and runtime.turn_lock.locked():
+        raise TurnBusy()
+    # 런타임이 없으면(끝난 대화·서버 재시작) 기록끼리만 줄을 세운다
+    lock = runtime.turn_lock if runtime is not None else _record_lock(app, session_id)
+    async with lock:
+        last_seq = await db.scalar(select(func.max(Turn.seq)).where(Turn.session_id == session_id))
+        seq = (last_seq if last_seq is not None else -1) + 1
+        db.add(Turn(session_id=session_id, seq=seq, role=TurnRole.USER, text=text))
+        # 끝남 여부는 커밋 직전에 읽는다(그사이 끝내기 API가 끝냈을 수 있다)
+        status = await db.scalar(
+            select(ConversationSession.status).where(ConversationSession.id == session_id)
+        )
+        ended = status is SessionStatus.ENDED
+        if ended:
+            await db.execute(
+                update(ConversationSession)
+                .where(ConversationSession.id == session_id)
+                .values(extract_status=ExtractStatus.PENDING)
+                .execution_options(synchronize_session=False)
+            )
+        await db.commit()
+    if ended:
+        extract.ensure_extraction(app, session_id)
+
+
+def _record_lock(app: FastAPI, session_id: str) -> asyncio.Lock:
+    # 약한 참조 사전이라 기다리거나 쥔 곳이 없어진 잠금은 저절로 사라진다
+    locks: weakref.WeakValueDictionary[str, asyncio.Lock] = app.state.record_locks
+    lock = locks.get(session_id)
+    if lock is None:
+        lock = locks[session_id] = asyncio.Lock()
+    return lock
 
 
 async def report_latency(

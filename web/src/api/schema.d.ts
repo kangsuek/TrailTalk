@@ -114,6 +114,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sessions/{session_id}/turns/audio/record": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record Audio Turn
+         * @description 오프라인 큐의 말을 대답 없이 기록만 남긴다(계획서 S3-12). 끝난 대화도 받는다.
+         *
+         *     서버가 이미 대화를 끝냈거나(30분 넘게 끊김) 페이지를 새로 열어 대답할 수 없는 말의
+         *     유실을 막는다.
+         */
+        post: operations["record_audio_turn_api_sessions__session_id__turns_audio_record_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sessions/{session_id}/turns/{turn_id}/latency": {
         parameters: {
             query?: never;
@@ -502,6 +525,11 @@ export interface components {
              * @default false
              */
             keep_audio: boolean;
+        };
+        /** RecordedTurn */
+        RecordedTurn: {
+            /** Text */
+            text: string;
         };
         /** ResponseAudioConfig */
         ResponseAudioConfig: {
@@ -994,6 +1022,45 @@ export interface operations {
                 };
                 content: {
                     "text/event-stream": components["schemas"]["StreamEvent"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    record_audio_turn_api_sessions__session_id__turns_audio_record_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "audio/webm": string;
+                "audio/ogg": string;
+                "audio/mp4": string;
+                "audio/wav": string;
+                "audio/mpeg": string;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordedTurn"];
                 };
             };
             /** @description Validation Error */

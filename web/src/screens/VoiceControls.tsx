@@ -18,11 +18,13 @@ const STATUS: Record<SessionStateName, { label: string; hint: string }> = {
 export function VoiceControls({
   state,
   connecting,
+  queued = 0,
   onTap,
   onLongPress,
 }: {
   state: SessionStateName
   connecting: boolean // 시작 응답을 기다리는 중
+  queued?: number // 연결이 끊겨 보관한 말 수(S3-12)
   onTap: () => void
   onLongPress: () => void
 }) {
@@ -73,6 +75,11 @@ export function VoiceControls({
         {status.label}
       </p>
       {status.hint && <p className="voice-hint">{status.hint}</p>}
+      {queued > 0 && (
+        <p className="voice-hint" data-testid="queued">
+          보관한 말 {queued}개 · 연결되면 차례로 보내요
+        </p>
+      )}
       {/* 정리 중에는 끝내기 응답을 기다리지 않고 나오는 탈출구(서버 끝내기는 멱등이다) */}
       <button type="button" className="secondary" onClick={onLongPress}>
         {state === 'closing' ? '그만 기다리기' : '대화 끝내기'}

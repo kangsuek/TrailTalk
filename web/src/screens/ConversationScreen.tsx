@@ -351,6 +351,7 @@ export function ConversationScreen({
         <VoiceControls
           state={voice.machine.name}
           connecting={state.status === 'starting'}
+          queued={voice.machine.queued}
           onTap={voice.tap}
           onLongPress={voice.longPress}
         />

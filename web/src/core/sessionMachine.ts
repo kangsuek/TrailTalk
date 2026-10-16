@@ -24,7 +24,9 @@ export interface SessionState {
   turnFinished: boolean // 이번 턴의 done을 받았다
   playbackIdle: boolean // 받은 문장을 다 재생했다(done이 재생보다 늦게 와도 바로 넘어가게)
   endStatus: EndStatus // done이 알려 준 세션 상태(재생이 끝나면 이 상태로 간다)
-  queued: number // 오프라인 큐에 남은 발화 수
+  queued: number // 오프라인 큐에 남은 발화 수(이번 대화)
+  connected: boolean // 서버에 닿는가(전송 실패면 false, online·성공한 턴이면 true)
+  sendingQueued: boolean // 지금 처리 중인 턴이 보관한 말이다(사용자가 막 말을 마친 것이 아니다)
 }
 
 export type SessionEvent =
@@ -45,10 +47,11 @@ export type SessionEvent =
   | { type: 'note_saved' }
   | { type: 'sentence_played'; index: number }
   | { type: 'playback_idle' }
-  | { type: 'send_failed'; utteranceId: string }
+  | { type: 'send_failed'; utteranceId: string } // 새 말을 보내다 네트워크 실패
   | { type: 'offline_notice_done' }
   | { type: 'online' }
-  | { type: 'queue_flushed'; remaining: number } // 큐 비우기가 끝났다(remaining: 아직 남은 발화 수)
+  | { type: 'queue_sent'; remaining: number } // 큐의 말 하나를 서버가 받았다(remaining: 남은 수)
+  | { type: 'queue_send_failed' } // 큐의 말을 보내다 네트워크 실패(말은 큐에 그대로)
   | { type: 'idle_timeout' }
   | { type: 'session_closed' }
   | { type: 'end_failed'; code: string }
@@ -64,7 +67,7 @@ export type SessionCommand =
   | { type: 'stopPlayback' }
   | { type: 'queueUtterance'; utteranceId: string }
   | { type: 'speakOfflineNotice' }
-  | { type: 'flushQueue' }
+  | { type: 'sendQueued' } // 큐의 가장 오래된 말을 보통 턴으로 보낸다(결과 이벤트는 sendTurn과 같다)
   | { type: 'playSound'; name: 'listen' | 'saved' | 'offline' }
   | { type: 'notifyError'; code: string }
   | { type: 'startIdleTimer'; minutes: number }
@@ -93,6 +96,8 @@ export const initialSession: SessionState = {
   playbackIdle: true,
   endStatus: 'active',
   queued: 0,
+  connected: true,
+  sendingQueued: false,
 }
 
 // 세션이 서버에서 이미 끝났다는 오류(규약 2절: 클라이언트는 끝난 상태로 간다)
@@ -104,6 +109,7 @@ const NEW_TURN = {
   turnFinished: false,
   playbackIdle: true,
   endStatus: 'active',
+  sendingQueued: false,
 } as const
 
 function enterListening(state: SessionState, config: SessionConfig, commands: SessionCommand[]): Transition {
@@ -133,11 +139,26 @@ function enterClosing(state: SessionState, commands: SessionCommand[]): Transiti
   }
 }
 
+/** 큐의 가장 오래된 말을 보통 턴으로 보낸다(연결이 돌아오면 제니가 차례로 대답한다, S3-12). */
+function sendQueued(state: SessionState, commands: SessionCommand[]): Transition {
+  return {
+    state: { ...state, ...NEW_TURN, name: 'processing', sendingQueued: true },
+    commands: [...commands, { type: 'clearIdleTimer' }, { type: 'sendQueued' }],
+  }
+}
+
+/** 연결돼 있고 보관한 말이 있으면 그것부터 보내고, 아니면 듣는다. 끼어들기에는 쓰지 않는다
+ * (사용자가 말하려는 것이므로 바로 듣는다). */
+function listenOrSendQueued(state: SessionState, config: SessionConfig, commands: SessionCommand[]): Transition {
+  if (state.connected && state.queued > 0) return sendQueued(state, commands)
+  return enterListening(state, config, commands)
+}
+
 /** 턴이 끝나고 들려줄 것도 다 들려줬다: done의 세션 상태로 간다(쉬기·끝내기 도구 반영). */
 function finishTurn(state: SessionState, config: SessionConfig): Transition {
   if (state.endStatus === 'paused') return enterPaused(state, config)
   if (state.endStatus === 'ended') return enterClosing(state, [])
-  return enterListening(state, config, [])
+  return listenOrSendQueued(state, config, [])
 }
 
 /** 진행 중인 답변을 멈추는 명령(끼어들기·종료). 들려준 문장까지만 기록하도록 마지막 재생 번호를 보낸다. */
@@ -155,10 +176,14 @@ export function transition(
 ): Transition {
   // 어느 상태에서나 같은 이벤트
   switch (event.type) {
-    case 'online':
-      return { state, commands: state.queued > 0 ? [{ type: 'flushQueue' }] : [] }
-    case 'queue_flushed':
-      return { state: { ...state, queued: Math.max(event.remaining, 0) }, commands: [] }
+    case 'online': {
+      const online = { ...state, connected: true }
+      // 듣는 중이면 보관한 말부터 보낸다(다른 상태는 그 상태가 끝날 때 보낸다)
+      if (state.name === 'listening' && state.queued > 0) return sendQueued(online, [])
+      return { state: online, commands: [] }
+    }
+    case 'queue_sent':
+      return { state: { ...state, queued: Math.max(event.remaining, 0), connected: true }, commands: [] }
     case 'note_saved':
       return state.name === 'idle' ? unchanged(state) : { state, commands: [{ type: 'playSound', name: 'saved' }] }
     case 'long_press':
@@ -174,21 +199,22 @@ export function transition(
   switch (state.name) {
     case 'idle':
       if (event.type === 'tap') {
-        return { state: { ...initialSession, queued: state.queued, name: 'processing' }, commands: [{ type: 'startSession' }] }
+        // 큐는 대화마다 따로다(이전 대화의 남은 말은 플랫폼이 기록만 남기기로 보낸다)
+        return { state: { ...initialSession, connected: state.connected, name: 'processing' }, commands: [{ type: 'startSession' }] }
       }
       return unchanged(state)
 
     case 'listening':
       if (event.type === 'speech_end') {
         if (state.queued > 0) {
-          // 앞선 발화가 큐에 남아 있으면 순서를 지키려고 이 발화도 큐 뒤에 넣는다
+          // 앞선 발화가 큐에 남아 있으면 순서를 지키려고 이 발화도 큐 뒤에 넣고, 연결돼 있으면
+          // 가장 오래된 것부터 보낸다
+          const queued = { ...state, queued: state.queued + 1 }
+          const enqueue: SessionCommand = { type: 'queueUtterance', utteranceId: event.utteranceId }
+          if (state.connected) return sendQueued(queued, [enqueue])
           return {
-            state: { ...state, queued: state.queued + 1 },
-            commands: [
-              { type: 'queueUtterance', utteranceId: event.utteranceId },
-              { type: 'flushQueue' },
-              { type: 'startIdleTimer', minutes: config.idleTimeoutMinutes },
-            ],
+            state: queued,
+            commands: [enqueue, { type: 'startIdleTimer', minutes: config.idleTimeoutMinutes }],
           }
         }
         return {
@@ -210,7 +236,10 @@ export function transition(
         case 'start_failed':
           return { state: { ...initialSession, queued: state.queued }, commands: [{ type: 'notifyError', code: event.code }] }
         case 'turn':
-          return { state: { ...state, ...NEW_TURN, turnId: event.turnId }, commands: [] }
+          return {
+            state: { ...state, ...NEW_TURN, turnId: event.turnId, connected: true, sendingQueued: state.sendingQueued },
+            commands: [],
+          }
         case 'sentence':
           if (event.turnId !== state.turnId) return unchanged(state)
           return {
@@ -226,7 +255,7 @@ export function transition(
           return failTurn(state, event.code, config, [])
         case 'send_failed':
           return {
-            state: { ...state, ...NEW_TURN, name: 'offline', queued: state.queued + 1 },
+            state: { ...state, ...NEW_TURN, name: 'offline', queued: state.queued + 1, connected: false },
             commands: [
               { type: 'queueUtterance', utteranceId: event.utteranceId },
               // 안내 음성을 발화로 잡지 않게 재생 중 임계값을 쓴다
@@ -235,6 +264,17 @@ export function transition(
               { type: 'speakOfflineNotice' },
             ],
           }
+        case 'speech_end':
+          // 보관한 말을 보내는 중(연결 복구·재시도·턴 끝 연쇄로 사용자 뜻과 상관없이 처리 중이 된 때)에
+          // 한 말은 버리지 않고 큐 뒤에 넣는다. 사용자가 막 말을 마친 처리 중이면 지금처럼 버린다
+          if (!state.sendingQueued) return unchanged(state)
+          return {
+            state: { ...state, queued: state.queued + 1 },
+            commands: [{ type: 'queueUtterance', utteranceId: event.utteranceId }],
+          }
+        case 'queue_send_failed':
+          // 보관한 말을 다시 보내지 못했다: 이미 안내했으므로 조용히 다시 듣는다(말은 큐에 그대로)
+          return enterListening({ ...state, connected: false }, config, [])
         case 'tap':
           // 답변을 기다리는 중 버튼: 이번 답변을 취소하고 다시 듣는다(턴 시작 전이면 기다린다).
           // 검색 안내 음성(tool.notice)이 나오는 중일 수 있어 재생도 멈춘다
@@ -273,12 +313,12 @@ export function transition(
       }
 
     case 'paused':
-      if (event.type === 'tap') return enterListening(state, config, [])
+      if (event.type === 'tap') return listenOrSendQueued(state, config, [])
       if (event.type === 'idle_timeout') return enterClosing(state, [])
       return unchanged(state)
 
     case 'offline':
-      if (event.type === 'offline_notice_done') return enterListening(state, config, [])
+      if (event.type === 'offline_notice_done') return listenOrSendQueued(state, config, [])
       if (event.type === 'speech_end') {
         // 안내를 듣는 중에 한 말도 큐에 넣는다
         return {
@@ -300,5 +340,5 @@ export function transition(
 
 function failTurn(state: SessionState, code: string, config: SessionConfig, commands: SessionCommand[]): Transition {
   if (SESSION_GONE.has(code)) return enterClosing(state, commands)
-  return enterListening(state, config, [...commands, { type: 'notifyError', code }])
+  return listenOrSendQueued(state, config, [...commands, { type: 'notifyError', code }])
 }

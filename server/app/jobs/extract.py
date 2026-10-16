@@ -14,7 +14,7 @@ from typing import Annotated
 
 from fastapi import FastAPI
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.db.models import ConversationSession, ExtractStatus, Note, NoteKind, Turn, TurnRole
 from app.jobs.dedupe import matches_saved, new_items
@@ -205,7 +205,13 @@ async def run_extraction(app: FastAPI, session_id: str) -> Extraction | None:
                 for content in new_items(existing, fresh):
                     db.add(Note(session_id=session_id, kind=kind, content=content))
                     existing.append(content)
-            convo.extract_status = ExtractStatus.DONE
+            # 정리하는 사이 새 턴(오프라인 큐의 기록 등, S3-12)이 들어왔으면 끝내지 않고 한 번 더
+            # 돈다(_guarded가 pending을 보고 다시 부른다)
+            now_turns = await db.scalar(
+                select(func.count()).select_from(Turn).where(Turn.session_id == session_id)
+            )
+            done = now_turns == len(turns)
+            convo.extract_status = ExtractStatus.DONE if done else ExtractStatus.PENDING
             await db.commit()
 
     await _shielded(app, save())
@@ -222,7 +228,7 @@ def ensure_extraction(app: FastAPI, session_id: str) -> asyncio.Task | None:
         return None
     tasks: dict[str, asyncio.Task] = app.state.extractions
     task = tasks.get(session_id)
-    if task is None:
+    if task is None or task.done():  # 끝난(잊기 직전의) 작업은 새 요청을 받을 수 없다
         task = asyncio.create_task(_guarded(app, session_id), name=f"extract-{session_id}")
         tasks[session_id] = task
 
@@ -254,12 +260,18 @@ async def _status(app: FastAPI, session_id: str) -> ExtractStatus | None:
         )
 
 
+_RERUNS = 5
+
+
 async def _guarded(app: FastAPI, session_id: str) -> Extraction | None:
     try:
         result = await run_extraction(app, session_id)
-        # 이 작업이 끝나는 사이에 다시 정리 요청(retry)이 pending으로 바꿨으면 한 번 더 돈다
-        # (그 요청의 ensure_extraction은 끝나 가던 이 작업을 받아 새로 띄우지 않았다)
-        if await _status(app, session_id) is ExtractStatus.PENDING:
+        # 이 작업이 도는 사이에 다시 정리 요청(retry)이나 새 턴(오프라인 큐의 기록)이 pending으로
+        # 바꿨으면 다시 돈다(그 요청의 ensure_extraction은 돌던 이 작업을 받아 새로 띄우지 않았다).
+        # 기록이 계속 들어와도 끝나도록 횟수에 상한을 둔다(남으면 다음 기록이나 앱 시작 때 정리)
+        for _ in range(_RERUNS):
+            if await _status(app, session_id) is not ExtractStatus.PENDING:
+                break
             result = await run_extraction(app, session_id)
         return result
     except asyncio.CancelledError:

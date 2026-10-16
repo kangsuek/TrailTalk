@@ -1,4 +1,5 @@
 import asyncio
+import weakref
 from contextlib import asynccontextmanager
 
 import httpx2
@@ -90,6 +91,8 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     app.state.extractions = {}  # 세션별 추출 작업(app/jobs/extract.py)
     app.state.extract_writes = set()  # 취소에서 보호하는 추출 결과 쓰기
     app.state.extract_closed = False
+    # 런타임 없는 대화의 기록만 남기기 잠금(services/conversation.py, 약한 참조)
+    app.state.record_locks = weakref.WeakValueDictionary()
     app.add_middleware(RequestContextMiddleware)
     install_error_handlers(app)
     register_event_schemas(app)

@@ -10,6 +10,7 @@ export { ApiError }
 export type SessionStarted = components['schemas']['SessionStarted']
 export type SessionOut = components['schemas']['SessionOut']
 export type SessionClosed = components['schemas']['SessionClosed']
+export type RecordedTurn = components['schemas']['RecordedTurn']
 
 function post(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
   return request(path, 'POST', body, signal)
@@ -39,6 +40,17 @@ export async function cancelTurn(
 ): Promise<void> {
   const path = `/api/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(turnId)}/cancel`
   await post(path, { last_played: lastPlayed }, signal)
+}
+
+/** 대답 없이 기록만 남긴다(S3-12): 서버가 대화를 끝냈거나 새로 고쳐 대답할 수 없는 보관한 말.
+ * 끝난 대화도 받는다(서버가 일지를 다시 정리한다). */
+export async function recordAudioTurn(
+  sessionId: string,
+  audio: { bytes: Uint8Array<ArrayBuffer>; mimeType: string },
+  signal?: AbortSignal,
+): Promise<RecordedTurn> {
+  const path = `/api/sessions/${encodeURIComponent(sessionId)}/turns/audio/record`
+  return (await post(path, new RawBody(audio.bytes, audio.mimeType), signal)).json()
 }
 
 /** 음성 턴의 지연(ms)을 보고한다(S3-07): 말 끝 → 요청 시작, 요청 시작 → 첫 소리. */
