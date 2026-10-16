@@ -25,13 +25,13 @@
 | [0. 준비·기술 검증](#3-0단계--준비와-기술-검증) | 완료 | 5/5 | 3~5일 | 2026-10-12 | 2026-10-12 | `a9b2970` |
 | [1. 제니 텍스트 대화](#4-1단계--제니-텍스트-대화) | 완료 | 11/11 | 1~2주 | 2026-10-12 | 2026-10-15 | `4dac567` |
 | [2. 대화 기록](#5-2단계--대화-기록) | 완료 | 9/9 | 1~2주 | 2026-10-15 | 2026-10-16 | `5749ea3` |
-| [3. 웹 음성 대화](#6-3단계--웹-음성-대화) | 진행 중 | 6/16 | 2~3주 | 2026-10-16 | | |
+| [3. 웹 음성 대화](#6-3단계--웹-음성-대화) | 진행 중 | 7/16 | 2~3주 | 2026-10-16 | | |
 | [4. 안드로이드 포팅](#7-4단계--안드로이드-포팅) | 대기 | 0/9 | 3주 | | | |
 | [5. 다듬기·확장](#8-5단계--다듬기와-확장) | 대기 | 0/6 | 2주 | | | |
-| **전체** | | **31/56** | 약 10~13주 | | | |
+| **전체** | | **32/56** | 약 10~13주 | | | |
 
-- **현재 작업**: 없음(S3-01·S3-02·S3-03 완료, 실제 OpenAI 확인 끝)
-- **다음 작업**: S3-04 끼어들기 API, 또는 S3-10 AudioInput·S3-11 AudioOutput(웹). 결정 D1(서버 위치)은 S3-14 전에
+- **현재 작업**: 없음(S3-10 완료). 웹 음성 대화는 S3-11·S3-13이 남음
+- **다음 작업**: S3-11 AudioOutput → S3-13 대화 화면 음성 모드(앱에서 음성 대화), 또는 S3-04 끼어들기 API. 결정 D1(서버 위치)은 S3-14 전에
 
 ## 3. 0단계 — 준비와 기술 검증
 
@@ -348,7 +348,7 @@
 |---|---|---|---|---|
 | S3-08 | 세션 상태 머신 | 완료 | `web/src/core/sessionMachine.ts` | `9202e04` |
 | S3-09 | 상태 전이 표 픽스처 | 완료 | `shared/fixtures/transitions.json` | `9202e04` |
-| S3-10 | AudioInput(VAD·녹음·인코딩) | 대기 | `web/src/platform/` | |
+| S3-10 | AudioInput(VAD·녹음·인코딩) | 완료 | `web/src/platform/audioInput.ts`, `web/src/platform/encodeAudio.ts`, `web/src/core/audio.ts` | `20cd16a` |
 | S3-11 | AudioOutput(이어 재생) | 대기 | `web/src/platform/` | |
 | S3-12 | LocalQueue(오프라인 큐) | 대기 | `web/src/core/`, `web/src/platform/` | |
 | S3-13 | 대화 화면 음성 모드 | 대기 | `web/src/screens/ConversationScreen.tsx` | |
@@ -393,7 +393,7 @@
 #### S3-06 클라이언트 설정값 제공
 - [x] `/api/profile` 응답에 VAD 임계값, 무음 1.2초, 소음 0.3초 무시, 재생 중 임계값 상향치 포함(`client` 필드, 읽기 전용. 재생 중 상향은 불리언 대신 `playback_*` 임계값 수치)
 - [x] 기본값은 `shared/client-defaults.json`에서 읽기(서버 시작 때 검증, 틀리면 시작하지 않음. `idle_timeout_minutes`는 서버 `IDLE_TIMEOUT_S`로 덮어씀)
-- 참고: VAD 수치(0.5/0.35, 재생 중 0.8/0.65)는 시작값이다. S3-10과 실제 산책 측정에서 조정한다
+- 참고: VAD 수치(0.5/0.35, 재생 중 0.8/0.65)는 시작값이다. 실제 산책 측정에서 조정한다
 
 #### S3-07 지연 측정 로그
 - [ ] STT, 첫 토큰, 첫 문장 TTS 완료 시각 기록
@@ -411,10 +411,14 @@
 - [x] 4단계 Kotlin 테스트가 같은 파일을 읽도록 형식 고정(`version: 1`, 이벤트·명령은 `type` 구분 객체, 값 없음은 null)
 
 #### S3-10 AudioInput(VAD·녹음·인코딩)
-- [ ] `getUserMedia`(에코 캔슬·노이즈 억제)
-- [ ] `@ricky0123/vad-web`, 서버 설정값 적용
-- [ ] 16kHz 모노 → Opus(WebCodecs `AudioEncoder`), 미지원 시 WAV
-- [ ] 재생 중 VAD 임계값 상향
+- [x] `getUserMedia`(에코 캔슬·노이즈 억제·자동 게인). 권한은 모델을 불러오기 전에 받는다. HTTPS가 아니면 `mic_unavailable`
+- [x] `@ricky0123/vad-web` 0.0.31(Silero v5), 서버 설정값 적용. 모델·worklet·onnxruntime wasm은 `/vad/`에서 직접 서빙(약 16MB, CDN 없음). `speech_start`는 `min_speech_ms`가 이어진 뒤(`onSpeechRealStart`)
+- [x] 16kHz 모노 → Opus(WebCodecs `AudioEncoder`, mediabunny 1.61.0로 webm), 미지원 시 WAV. 9.3초 발화 28.8KB(WAV 298KB), 서버 인식 응답 0.87초(WAV 1.57초)
+- [x] 재생 중 VAD 임계값 상향(`setOptions`)
+- [x] 음성 턴 업로드 `sendAudioTurn`(`web/src/api/conversation.ts`)
+- 확인: Playwright 가짜 마이크(유나 목소리 wav)로 발화 감지 → Opus → 실제 OpenAI 인식 원문 일치, `stop` 뒤 15초 이벤트 없음. E2E `e2e/audioInput.spec.ts`(Opus 인코딩·디코드, `/vad/` 서빙)
+- 발견·수정: mediabunny `new Quality(24000)`은 비트레이트가 아니라 품질 배수라 조용히 WAV로 떨어졌다(실제 구동에서 발견, `{bitrate}`로 수정)
+- 남은 것: 화면 연결과 오류(`mic_denied` 등) 표시는 S3-13. iOS Safari는 사용자 동작 안에서 오디오를 열어야 하므로 S3-13 실기기 확인 때 본다
 
 #### S3-11 AudioOutput(이어 재생)
 - [ ] Web Audio API로 문장 MP3를 순서대로 이어 재생
@@ -631,7 +635,7 @@
 | FR-20 | S1-03, S1-04, S1-05, S1-09, S1-10, S3-03 | 1, 3 | 진행 중 |
 | NFR-01 | S3-03, S3-07 | 3 | 대기 |
 | NFR-02 | S4-06, S4-07 | 4 | 대기 |
-| NFR-03 | S3-01, S3-10, S4-03 | 3, 4 | 대기 |
+| NFR-03 | S3-01, S3-10, S4-03 | 3, 4 | 진행 중 |
 | NFR-04 | S2-01, S3-12, S4-05 | 2, 3, 4 | 진행 중 |
 | NFR-05 | S4-09 | 4 | 대기 |
 | NFR-06 | S0-05, S3-14 | 0, 3 | 진행 중 |
@@ -719,3 +723,4 @@
 | 2026-10-16 | S3-01·S3-02 점검 수정: 빈 `OPENAI_API_KEY=`가 실제 키를 가리던 문제, `FFMPEG_PATH`의 `~`, TTS 전처리(목록 기호·범위 `~`), `tts-1`에 `instructions` 미전송, ogg 등 변환을 webm/opus로(업로드 약 1/10), 규약 7절 음성 오류 코드 | `42278ac` |
 | 2026-10-16 | S3-03 음성 턴 스트리밍: 오디오 업로드 API, 문장별 MP3, 검색 안내 음성, 인사말·마무리 소리, 가짜 음성 백엔드 | `bafcea9` |
 | 2026-10-16 | S3-01·S3-02 완료: OpenAI 크레딧 충전 뒤 실제 인식·합성 확인(`languages` 필드 확인), 보이스 `nova` 확정, S3-03 음성 턴 실제 OpenAI 확인 | `ef035e2` |
+| 2026-10-16 | S3-10 AudioInput 완료: vad-web(Silero v5)·WebCodecs Opus(webm)·WAV 대체, VAD 자산 자체 서빙, `sendAudioTurn` | `20cd16a` |

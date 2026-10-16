@@ -1,4 +1,4 @@
-# 작업 인계 (2026-10-16, 3단계 진행 중: S3-01·S3-02·S3-03·S3-06·S3-08·S3-09 완료)
+# 작업 인계 (2026-10-16, 3단계 진행 중: S3-01·S3-02·S3-03·S3-06·S3-08·S3-09·S3-10 완료)
 
 새 세션은 이 문서부터 읽는다. 작업 규칙과 명령은 [CLAUDE.md](../CLAUDE.md)에 있다. 진행 상태의 기준은 [구현 계획서](implementation-plan.md)의 진행 대시보드(2장)다. 이 문서에는 계획서·설계서에 없는 맥락만 둔다. 상태가 바뀌면 이 문서도 갱신하거나 지운다.
 
@@ -8,7 +8,7 @@
 
 ```text
 TrailTalk 작업을 이어서 진행합니다. 먼저 docs/handoff.md를 읽고, 구현 계획서(docs/implementation-plan.md)의 진행 대시보드(2장)와 3단계 절(6장)을 확인하세요.
-지금은 3단계(웹 음성 대화) 진행 중이고 S3-01·S3-02·S3-03·S3-06·S3-08·S3-09가 끝났습니다. 다음 작업 후보는 handoff 1장 "다음 작업"에 있습니다.
+지금은 3단계(웹 음성 대화) 진행 중이고 S3-01·S3-02·S3-03·S3-06·S3-08·S3-09·S3-10이 끝났습니다. 다음 작업 후보는 handoff 1장 "다음 작업"에 있습니다.
 작업 규칙: 응답은 한글, 소스 수정 전 Plan Mode로 계획 승인, 유닛 테스트에 더해 Playwright 실제 구동 검증, 커밋 전 서브에이전트 diff 리뷰, 이 저장소는 자동 커밋·push 허용, 작업 시작·끝에 계획서 상태 갱신.
 주의: .env 값은 열어 보지 마세요. 포트 8000에 떠 있는 사용자 서버(실제 DB)는 건드리지 말고, 실제 구동 검증은 handoff 2장의 방법대로 다른 포트에서 하세요. 실제 Claude CLI(구독 사용량)와 OpenAI API(과금)는 필요할 때만 쓰고 쓸 때 알려 주세요.
 다음 작업을 무엇으로 할지 제게 먼저 확인한 뒤 계획을 세우세요.
@@ -16,9 +16,9 @@ TrailTalk 작업을 이어서 진행합니다. 먼저 docs/handoff.md를 읽고,
 
 ## 1. 지금 어디까지 왔나
 
-- **0·1·2단계 완료**(2단계는 2026-10-16 사용자 확인, 마일스톤 `5749ea3`). **3단계(웹 음성 대화) 진행 중 6/16**, 전체 31/56.
+- **0·1·2단계 완료**(2단계는 2026-10-16 사용자 확인, 마일스톤 `5749ea3`). **3단계(웹 음성 대화) 진행 중 7/16**, 전체 32/56. 앱 화면에서 음성 대화를 하려면 S3-11(재생)·S3-13(화면 연결)이 남았다.
 - **3단계에서 끝낸 것**: S3-08 세션 상태 머신·S3-09 상태 전이 표(`9202e04`), S3-06 클라이언트 설정값(`2b643a9`). S3-01·S3-02·S3-03은 아래 절에 따로 적었다.
-  - S3-06: `GET/PUT /api/profile`이 `client`(VAD·세션·오디오·오프라인 안내, 읽기 전용)를 준다. 서버가 시작할 때 `shared/client-defaults.json`을 `app/client_config.py`로 검증하고 틀리면 시작하지 않는다. `idle_timeout_minutes`는 서버 `IDLE_TIMEOUT_S`로 덮어쓴다. VAD 수치(0.5/0.35, 재생 중 0.8/0.65)는 시작값이라 S3-10에서 `@ricky0123/vad-web` 옵션에 맞춰 조정한다. 웹은 아직 프로필을 받아 쓰지 않는다(S3-10·S3-13).
+  - S3-06: `GET/PUT /api/profile`이 `client`(VAD·세션·오디오·오프라인 안내, 읽기 전용)를 준다. 서버가 시작할 때 `shared/client-defaults.json`을 `app/client_config.py`로 검증하고 틀리면 시작하지 않는다. `idle_timeout_minutes`는 서버 `IDLE_TIMEOUT_S`로 덮어쓴다. VAD 수치(0.5/0.35, 재생 중 0.8/0.65)는 시작값이라 실제 산책 측정에서 조정한다. 웹은 아직 프로필을 받아 쓰지 않는다(S3-13에서 `vadSettingsFrom(client.vad)`로 넘긴다).
   - `web/src/core/sessionMachine.ts`: 이벤트 → 다음 상태 + 명령을 내는 순수 함수다. 마이크·재생·서버 호출은 하지 않는다.
   - `shared/fixtures/transitions.json`: 사례 22개. 안드로이드 테스트도 이 파일을 읽는다.
   - 아직 화면에 연결하지 않았다(S3-13에서 연결). 플랫폼이 지킬 약속은 규약 4절에 있다(인사말은 `session_started {turnId}`, `sentence`·`turn_done`에 턴 ID, 모든 요청은 성공·실패 이벤트로 끝냄, 큐 비우기 결과는 `queue_flushed {remaining}`).
@@ -48,10 +48,15 @@ TrailTalk 작업을 이어서 진행합니다. 먼저 docs/handoff.md를 읽고,
   - 무발화 종료의 `ended_at`을 마지막 활동 시각으로 기록한다.
   - 끝내기 응답이 `pending`이면 정리 중 안내를 보인다.
   - 진행 중 대화의 일지 상세에 안내를 보인다.
-- **테스트(현재)**: pytest 485(4개는 실제 CLI·OpenAI라 건너뜀), Vitest 138, E2E 3.
+- **S3-10 AudioInput(`20cd16a`, 완료)**: `createAudioInput(settings, onEvent)`(`web/src/platform/audioInput.ts`)이 상태 머신 명령 `micOn`/`micOff`/`setVadMode`를 `start`/`stop`/`setMode`로 받고 `speech_start`·`speech_end {audio}`·`error`를 낸다. 인코딩은 `encodeAudio.ts`(Opus webm, 안 되면 WAV).
+  - vad-web은 첫 `start()`가 실패하면 "errored"로 굳어 다시 못 쓴다. 그래서 마이크·AudioContext를 직접 열고, 실패하면 VAD를 버리고 다음 `start()`에 새로 만든다.
+  - 재생 중 짧은 소음으로 답변이 끊기지 않게 `speech_start`는 `onSpeechRealStart`(말이 0.3초 이어진 뒤)에 연결했다.
+  - 실제 구동 확인은 Vite 개발 서버를 다른 포트(예: 5299, `VITE_API_TARGET=http://127.0.0.1:8300`)로 띄우고 페이지에서 `import('/src/platform/audioInput.ts')`로 한다. Chromium 가짜 마이크 인자: `--use-fake-ui-for-media-stream --use-fake-device-for-media-stream --use-file-for-fake-audio-capture=<wav>`(파일을 반복 재생하므로 앞뒤 무음을 넣는다). Vite는 `localhost`(IPv6)에만 붙으니 `127.0.0.1`이 아니라 `localhost`로 연다. 헤드리스 Chromium은 마이크 권한이 없으면 `NotAllowedError`가 아니라 `NotSupportedError`를 준다.
+  - onnxruntime wasm이 14MB(압축 3.7MB)라 S3-14 PWA 캐시 설정 때 고려한다.
+- **테스트(현재)**: pytest 485(4개는 실제 CLI·OpenAI라 건너뜀), Vitest 155, E2E 5.
 - **다음 작업**(사용자에게 먼저 고르게 한다)
   - S3-04 끼어들기 API(재생한 문장까지 기록, 끝난 턴의 cancel 처리).
-  - 웹: S3-10 AudioInput(vad-web·녹음·Opus 인코딩, S3-06 설정값을 쓴다), S3-11 AudioOutput(base64 MP3 이어 재생). 가짜 음성 백엔드로 끝까지 이어 볼 수 있다.
+  - 웹: S3-11 AudioOutput(base64 MP3 이어 재생, 재생한 문장 번호, 즉시 정지) → S3-13 대화 화면 음성 모드(상태 머신·AudioInput·AudioOutput 연결). 이 둘이 끝나면 PC 브라우저에서 음성 대화가 된다. 가짜 음성 백엔드로 끝까지 이어 볼 수 있다.
   - 작업마다 Plan Mode로 계획을 승인받는다.
 
 ## 2. 3단계를 진행할 때 알아야 할 것
