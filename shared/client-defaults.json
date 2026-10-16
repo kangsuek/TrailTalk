@@ -14,5 +14,5 @@
     "upload": { "codec": "opus", "sample_rate_hz": 16000, "channels": 1 },
     "response": { "codec": "mp3" }
   },
-  "offline_notice": "지금은 산이 깊어서 메모만 해둘게요!"
+  "offline_notice": "네트워크 연결이 불안하여 메모만 해둘게요."
 }

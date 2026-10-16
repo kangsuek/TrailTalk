@@ -554,7 +554,7 @@ describe('createVoiceController', () => {
       await tick()
       expect(t.state()).toBe('offline')
       expect(await t.queue.count('s1')).toBe(1)
-      expect(t.deps.speak).toHaveBeenCalledWith('지금은 산이 깊어서 메모만 해둘게요!')
+      expect(t.deps.speak).toHaveBeenCalledWith('네트워크 연결이 불안하여 메모만 해둘게요.')
       expect(t.output.playEffect).toHaveBeenCalledWith('offline')
       noticeDone()
       await tick()

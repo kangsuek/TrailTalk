@@ -82,7 +82,7 @@
 | `session.idle_timeout_minutes` | 30 | 듣기·쉬기에서 이 시간 동안 말이 없으면 정리로 간다(4절). 소수일 수 있다 |
 | `audio.upload` | `{codec: "opus", sample_rate_hz: 16000, channels: 1}` | 발화 업로드 형식(3절) |
 | `audio.response` | `{codec: "mp3"}` | 답변 문장 오디오 형식(3절) |
-| `offline_notice` | "지금은 산이 깊어서 메모만 해둘게요!" | 오프라인 보관 때 기기 TTS로 읽는 안내 문구 |
+| `offline_notice` | "네트워크 연결이 불안하여 메모만 해둘게요." | 오프라인 보관 때 기기 TTS로 읽는 안내 문구 |
 
 VAD 수치는 시작값이며 실제 산책 측정에서 조정한다. 웹은 `@ricky0123/vad-web`(Silero `v5` 모델)에 `speech/silence_threshold` → `positive/negativeSpeechThreshold`, `end_of_speech_silence_ms` → `redemptionMs`, `min_speech_ms` → `minSpeechMs`로 넘기고, 재생 중(`setVadMode playback`)에는 `playback_*` 값으로 바꾼다. 감지 전 소리 300ms를 발화 앞에 붙인다(웹 상수 `PRE_SPEECH_PAD_MS`). 모델·worklet·onnxruntime wasm은 CDN이 아니라 앱이 `/vad/`에서 서빙한다(약 16MB, wasm이 대부분).
 

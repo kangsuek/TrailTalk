@@ -152,7 +152,7 @@ stateDiagram-v2
 | 끼어들기 | 말하기 중 VAD 감지 또는 화면 버튼 → 재생 중단 + cancel API. 들려준 문장까지만 기록 | 같은 처리, 이어폰 버튼 추가 |
 | 알림음 | `shared/sounds/`의 효과음(듣기 시작·저장 완료·오프라인 전환) | 같은 파일을 앱 리소스로 복사 |
 | 백그라운드 | 지원하지 않음. Screen Wake Lock으로 화면을 켜 둔다 | Foreground Service(microphone) + 상단 알림. 화면이 꺼져도 세션 유지 |
-| 오프라인 | IndexedDB 큐에 발화 보관, 브라우저 `speechSynthesis`로 "지금은 산이 깊어서 메모만 해둘게요!" 안내, 온라인 복구 시 순서대로 전송 | 파일 큐 + WorkManager 재전송, 안드로이드 기본 TTS 안내 |
+| 오프라인 | IndexedDB 큐에 발화 보관, 브라우저 `speechSynthesis`로 "네트워크 연결이 불안하여 메모만 해둘게요." 안내, 온라인 복구 시 순서대로 전송 | 파일 큐 + WorkManager 재전송, 안드로이드 기본 TTS 안내 |
 
 음성 명령은 별도 엔진 없이 Claude 도구 호출로 처리한다. "이거 저장해줘" → `save_note`, "오늘은 여기까지" → `end_session`, "잠깐 쉬자" → `pause_session`(버튼으로 재개).
 
