@@ -357,7 +357,7 @@
 | S3-16 | 음성 흐름 E2E | 완료 | `web/e2e/voice.spec.ts`, `web/e2e/fixtures/` | `fad7711` |
 | S3-17 | 일지 정렬·아이디어별 보기(사용자 요청 추가) | 진행 중 | `server/app/jobs/extract.py`, `server/app/jobs/topics_backfill.py`, `web/src/core/journal.ts`, `web/src/screens/JournalListScreen.tsx` | |
 | S3-18 | 웹 설정 화면(S5-01 웹 부분 앞당김, 사용자 요청 추가) | 완료 | `web/src/screens/SettingsScreen.tsx`, `server/app/api/profile.py`, `server/app/services/profile.py` | `c96fcca` |
-| S3-19 | 일지 목록에서 대화 제목 수정·삭제(사용자 요청 추가) | 완료 | `web/src/screens/JournalListScreen.tsx`, `server/app/api/journal.py` | (커밋 후 기입) |
+| S3-19 | 일지 목록에서 대화 제목 수정·삭제(사용자 요청 추가) | 완료 | `web/src/screens/JournalListScreen.tsx`, `server/app/api/journal.py`, `server/app/services/conversation.py` | `ffad91e` |
 
 #### S3-01 STT(Whisper)
 - [x] `SttProvider` 인터페이스
@@ -776,3 +776,4 @@
 | 2026-10-17 | S3-15 클라이언트 규약 확정: 도구 `summary`를 `kind` 타입으로 고정, 출처 호스트를 서버로, `docs/client-contract.md` 확정본 | `033b8aa` |
 | 2026-10-17 | S3-16 음성 흐름 E2E 완료: Playwright 가짜 마이크(`voice` 프로젝트)로 발화·답변·끼어들기·오프라인 복구·끝내기 | `fad7711` |
 | 2026-10-17 | 문서 정리(토큰 절약): 인계 문서를 현재 상태·검증 방법·배운 것만 남기게 재작성(32KB→11KB), 추출 평가 이전 회차 리포트 4개 삭제(회차 표는 최신 리포트), 규약은 필요한 절만 읽기, README 현재화 | `837ad43` |
+| 2026-10-17 | S3-19 일지 목록에서 대화 제목 수정·삭제(사용자 요청 추가): 제목을 눌러 고치고 포커스가 떠나면 저장(다시 정리해도 유지), 쓰레기통은 확인 뒤 삭제(턴 잠금·정리 취소), 모바일 우선 UI | `ffad91e` |
