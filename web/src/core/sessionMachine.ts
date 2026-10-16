@@ -236,9 +236,10 @@ export function transition(
             ],
           }
         case 'tap':
-          // 답변을 기다리는 중 버튼: 이번 답변을 취소하고 다시 듣는다(턴 시작 전이면 기다린다)
+          // 답변을 기다리는 중 버튼: 이번 답변을 취소하고 다시 듣는다(턴 시작 전이면 기다린다).
+          // 검색 안내 음성(tool.notice)이 나오는 중일 수 있어 재생도 멈춘다
           if (state.turnId === null) return unchanged(state)
-          return enterListening(state, config, cancelCurrent(state))
+          return enterListening(state, config, [{ type: 'stopPlayback' }, ...cancelCurrent(state)])
         default:
           return unchanged(state)
       }

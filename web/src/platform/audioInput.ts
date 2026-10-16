@@ -126,9 +126,10 @@ export function createAudioInput(
       // vad-web은 처음 시작이 실패하면 다시 시작할 수 없으므로 버리고 다음 start()에 새로 만든다
       if (vad.errored) throw new Error(vad.errored)
     } catch (error) {
+      const wanted = listening() // 실패를 기다리는 사이 stop·dispose가 왔으면 알리지 않는다
       active = false
       await drop()
-      onEvent({ type: 'error', code: errorCode(error) })
+      if (wanted) onEvent({ type: 'error', code: errorCode(error) })
     }
   }
 

@@ -6,6 +6,20 @@ import {
   toolNotice,
   type AssistantMessage,
 } from '../core/conversation'
+import { useVoiceConversation } from './useVoiceConversation'
+import { VoiceControls } from './VoiceControls'
+
+type Mode = 'text' | 'voice'
+const MODE_KEY = 'trailtalk.mode'
+
+/** 마지막으로 고른 대화 방식(미리 준비를 같은 방식으로 하려고 기억한다). 처음에는 음성 */
+function savedMode(): Mode {
+  try {
+    return localStorage.getItem(MODE_KEY) === 'text' ? 'text' : 'voice'
+  } catch {
+    return 'voice'
+  }
+}
 
 const PREPARE_INTERVAL_MS = 4 * 60 * 1000 // 서버 준비분 만료(5분)보다 짧게
 
@@ -66,6 +80,10 @@ function AssistantBubble({ message, name }: { message: AssistantMessage; name: s
   )
 }
 
+function VoiceUnavailable() {
+  return <p className="conversation-note">음성 기능을 불러오지 못했어요. 글로 대화하거나 새로 고침해 주세요.</p>
+}
+
 /** visible: 탭에서 지금 보이는지. 숨겨져 있어도 대화를 유지하려고 언마운트하지 않는다(App).
  * onOpenJournal: 끝난 대화의 일지 상세를 연다(App이 탭을 옮긴다). */
 export function ConversationScreen({
@@ -82,26 +100,40 @@ export function ConversationScreen({
   const listEnd = useRef<HTMLLIElement>(null)
   const input = useRef<HTMLTextAreaElement>(null)
   const pageVisible = usePageVisible()
+  const [mode, setMode] = useState<Mode>(savedMode)
+  const voice = useVoiceConversation(dispatch)
+  // 음성 대화가 진행 중(상태 머신이 대기가 아님)이면 큰 버튼을 보인다
+  const voiceActive = mode === 'voice' && voice.machine.name !== 'idle'
+
+  const chooseMode = (next: Mode) => {
+    setMode(next)
+    try {
+      localStorage.setItem(MODE_KEY, next)
+    } catch {
+      // 저장하지 못해도 이번 대화에는 지장이 없다
+    }
+  }
 
   // 화면을 떠나면 진행 중인 요청을 멈춘다(서버는 연결이 끊기면 CLI 턴을 정리한다)
   useEffect(() => () => controller.current?.abort(), [])
 
   // 대화 탭이 보이고 대화 시작 전·끝난 뒤이면 서버가 다음 대화의 CLI를 미리 띄워 두게 한다
   // (인사말 대기 단축). 서버는 쓰지 않으면 5분 뒤 닫으므로, 화면이 열려 있는 동안 4분마다 다시
-  // 알린다(같은 조건이면 만료만 미룬다). 결과를 기다리지 않고 실패해도 무시한다
+  // 알린다(같은 조건이면 만료만 미룬다). 결과를 기다리지 않고 실패해도 무시한다.
+  // 준비분은 대화 방식(글·음성)마다 다르므로 마지막으로 고른 방식으로 준비한다
   const waitingToStart =
-    visible && pageVisible && (state.status === 'idle' || state.status === 'ended')
+    visible && pageVisible && !voiceActive && (state.status === 'idle' || state.status === 'ended')
   useEffect(() => {
     if (!waitingToStart) return
     const prepare = new AbortController()
-    const ping = () => prepareSession('text', prepare.signal).catch(() => {})
+    const ping = () => prepareSession(mode, prepare.signal).catch(() => {})
     void ping()
     const timer = setInterval(ping, PREPARE_INTERVAL_MS)
     return () => {
       clearInterval(timer)
       prepare.abort()
     }
-  }, [waitingToStart])
+  }, [waitingToStart, mode])
 
   // 새 말풍선·문장이 오면 아래로 내린다. 위로 올려 읽는 중이면 끌어내리지 않는다
   const stickToBottom = useRef(true)
@@ -149,7 +181,18 @@ export function ConversationScreen({
     }
   }
 
-  const start = () =>
+  const startVoice = () => {
+    chooseMode('voice')
+    stickToBottom.current = true
+    voice.tap() // 버튼을 누른 동작 안에서 오디오를 연다
+  }
+
+  const start = () => {
+    chooseMode('text')
+    void startText()
+  }
+
+  const startText = () =>
     run(async (signal) => {
       dispatch({ type: 'start' })
       const body = await startSession('text', signal)
@@ -252,12 +295,27 @@ export function ConversationScreen({
   return (
     <section className="conversation">
       <h2>대화</h2>
-      {(state.status === 'idle' || state.status === 'starting') && (
+      {(state.status === 'idle' || state.status === 'starting') && !voiceActive && (
         <div className="conversation-start">
           <p>걸으면서 떠오르는 생각을 같이 이야기해 봐요.</p>
-          <button type="button" onClick={start} disabled={state.status === 'starting'}>
-            {state.status === 'starting' ? '연결하는 중…' : '대화 시작'}
-          </button>
+          <div className="composer-actions">
+            <button
+              type="button"
+              onClick={startVoice}
+              disabled={state.status === 'starting' || voice.ready !== true}
+            >
+              {voice.ready === null ? '음성 준비 중…' : '음성으로 대화'}
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              onClick={start}
+              disabled={state.status === 'starting'}
+            >
+              {state.status === 'starting' ? '연결하는 중…' : '글로 대화'}
+            </button>
+          </div>
+          {voice.ready === false && <VoiceUnavailable />}
         </div>
       )}
 
@@ -285,11 +343,20 @@ export function ConversationScreen({
       <p className="conversation-note" aria-live="polite" hidden={!state.ending}>
         {state.ending ? '오늘 대화를 일지로 정리하는 중이에요…' : ''}
       </p>
-      {state.status === 'paused' && (
+      {state.status === 'paused' && mode === 'text' && (
         <p className="conversation-note">쉬는 중이에요. 말을 걸면 다시 이어 가요. 30분 동안 말이 없으면 대화를 마쳐요.</p>
       )}
 
-      {inConversation && (
+      {voiceActive && (
+        <VoiceControls
+          state={voice.machine.name}
+          connecting={state.status === 'starting'}
+          onTap={voice.tap}
+          onLongPress={voice.longPress}
+        />
+      )}
+
+      {inConversation && mode === 'text' && (
         <form className="composer" onSubmit={send}>
           <textarea
             ref={input}
@@ -312,7 +379,7 @@ export function ConversationScreen({
         </form>
       )}
 
-      {state.status === 'ended' && !state.ending && (
+      {state.status === 'ended' && !state.ending && !voiceActive && (
         <div className="conversation-start">
           <p className="conversation-note">대화가 끝났어요.</p>
           {state.journalPending && (
@@ -328,8 +395,11 @@ export function ConversationScreen({
                 일지 보기
               </button>
             )}
-            <button type="button" onClick={start}>
-              새 대화 시작
+            <button type="button" onClick={startVoice} disabled={voice.ready !== true}>
+              음성으로 새 대화
+            </button>
+            <button type="button" className="secondary" onClick={start}>
+              글로 새 대화
             </button>
           </div>
         </div>

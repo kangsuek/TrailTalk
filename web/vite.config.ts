@@ -50,6 +50,8 @@ export default defineConfig({
   plugins: [react(), vadAssets()],
   // 음성 모듈은 나중에 불러오므로, 처음 쓸 때 개발 서버가 의존성을 다시 묶으며 페이지를 새로 고치지 않게 한다
   optimizeDeps: { include: ['@ricky0123/vad-web', 'mediabunny'] },
+  // 음성 모듈 청크(platform, 화면이 열린 뒤 따로 불러온다)가 약 550KB다
+  build: { chunkSizeWarningLimit: 600 },
   server: {
     // 개발 중 /api 요청은 FastAPI(uvicorn, 기본 8000번)로 넘긴다.
     // E2E는 가짜 CLI를 쓰는 전용 서버로 넘기도록 VITE_API_TARGET을 준다(playwright.config.ts).

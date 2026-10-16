@@ -1071,6 +1071,9 @@
             "state": "listening",
             "commands": [
               {
+                "type": "stopPlayback"
+              },
+              {
                 "type": "cancelTurn",
                 "turnId": "t1",
                 "lastPlayed": -1

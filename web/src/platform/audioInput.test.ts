@@ -239,6 +239,20 @@ describe('createAudioInput', () => {
     expect(events).toEqual([{ type: 'error', code: 'mic_unavailable' }])
   })
 
+  it('권한 창을 기다리는 사이 stop이 오면 거부 오류를 알리지 않는다', async () => {
+    let deny = () => {}
+    getUserMedia.mockImplementationOnce(
+      () => new Promise((_, reject) => (deny = () => reject(new DOMException('denied', 'NotAllowedError')))),
+    )
+    const { input, events } = setup()
+    const started = input.start()
+    await vi.waitFor(() => expect(getUserMedia).toHaveBeenCalled())
+    const stopped = input.stop()
+    deny()
+    await Promise.all([started, stopped])
+    expect(events).toEqual([])
+  })
+
   it('장치가 없으면 mic_unavailable', async () => {
     const { input, events } = setup()
     mic.error = new DOMException('none', 'NotFoundError')

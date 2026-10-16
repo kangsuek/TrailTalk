@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { StreamEvent } from '../core/conversation'
 import { ConversationScreen } from './ConversationScreen'
 
@@ -65,7 +65,7 @@ const turnCalls = (fetchMock: ReturnType<typeof vi.fn>) => calls(fetchMock, '/tu
 
 async function startConversation() {
   render(<ConversationScreen />)
-  fireEvent.click(screen.getByRole('button', { name: '대화 시작' }))
+  fireEvent.click(screen.getByRole('button', { name: '글로 대화' }))
   await screen.findByText('안녕하세요, 오늘 어떤 이야기를 할까요?')
 }
 
@@ -230,7 +230,7 @@ describe('ConversationScreen', () => {
     await startConversation()
     fireEvent.change(screen.getByRole('textbox', { name: '메시지' }), { target: { value: '안녕' } })
     fireEvent.click(screen.getByRole('button', { name: '보내기' }))
-    expect(await screen.findByRole('button', { name: '새 대화 시작' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '글로 새 대화' })).toBeInTheDocument()
     expect(screen.queryByRole('textbox', { name: '메시지' })).not.toBeInTheDocument()
   })
 
@@ -331,21 +331,21 @@ describe('ConversationScreen', () => {
     await startConversation()
     fireEvent.click(screen.getByRole('button', { name: '대화 끝내기' }))
     expect(await screen.findByText('오늘 대화를 일지로 정리하는 중이에요…')).toBeVisible()
-    expect(screen.queryByRole('button', { name: '새 대화 시작' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '글로 새 대화' })).not.toBeInTheDocument()
     release()
     const log = screen.getByRole('log', { name: '대화 내용' })
     expect(await within(log).findByText('오늘 아이디어 1개 저장했어요!')).toBeInTheDocument()
     expect(screen.queryByText('오늘 대화를 일지로 정리하는 중이에요…')).toBeNull()
     expect(await screen.findByText('대화가 끝났어요.')).toBeInTheDocument()
     expect(screen.queryByRole('textbox', { name: '메시지' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '새 대화 시작' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '글로 새 대화' })).toBeInTheDocument()
   })
 
   it('끝난 대화에서 일지 보기를 누르면 그 세션의 일지를 연다', async () => {
     stubServer()
     const onOpenJournal = vi.fn()
     render(<ConversationScreen onOpenJournal={onOpenJournal} />)
-    fireEvent.click(screen.getByRole('button', { name: '대화 시작' }))
+    fireEvent.click(screen.getByRole('button', { name: '글로 대화' }))
     await screen.findByText('안녕하세요, 오늘 어떤 이야기를 할까요?')
     expect(screen.queryByRole('button', { name: '일지 보기' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '대화 끝내기' }))
@@ -359,8 +359,31 @@ describe('ConversationScreen', () => {
       vi.fn(async () => new Response(JSON.stringify({ error: { code: 'llm_error', message: '인사말을 받지 못했습니다.' } }), { status: 502 })),
     )
     render(<ConversationScreen />)
-    fireEvent.click(screen.getByRole('button', { name: '대화 시작' }))
+    fireEvent.click(screen.getByRole('button', { name: '글로 대화' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('인사말을 받지 못했습니다.')
-    expect(screen.getByRole('button', { name: '대화 시작' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '글로 대화' })).toBeEnabled()
+  })
+})
+
+describe('대화 방식', () => {
+  beforeEach(() => localStorage.clear()) // 다른 테스트가 글로 대화를 골라 남긴 값을 지운다
+
+  it('처음에는 음성으로 미리 준비하고, 글로 대화를 고르면 그 방식을 기억한다', async () => {
+    const fetchMock = stubServer()
+    render(<ConversationScreen />)
+    expect(screen.getByRole('button', { name: '음성 준비 중…' })).toBeDisabled() // 음성 모듈을 불러오는 중
+    expect(await screen.findByRole('button', { name: '음성으로 대화' })).toBeEnabled()
+    const requests = () => fetchMock.mock.calls as unknown as [string, RequestInit][]
+    const preparedModes = () =>
+      requests()
+        .filter(([url]) => url.endsWith('/prepare'))
+        .map(([, init]) => JSON.parse(init.body as string).mode)
+    await waitFor(() => expect(preparedModes()).toEqual(['voice']))
+
+    fireEvent.click(screen.getByRole('button', { name: '글로 대화' }))
+    await screen.findByText('안녕하세요, 오늘 어떤 이야기를 할까요?')
+    expect(localStorage.getItem('trailtalk.mode')).toBe('text')
+    const started = requests().find(([url]) => url === '/api/sessions')
+    expect(JSON.parse(started![1].body as string)).toEqual({ mode: 'text' })
   })
 })

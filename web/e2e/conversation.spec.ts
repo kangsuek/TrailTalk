@@ -5,7 +5,7 @@ test('텍스트 대화: 인사말, 문장 말풍선, 도구 알림, 끝내기', 
   await page.goto('/')
   await expect(page.getByRole('status')).toHaveText('서버 연결됨')
 
-  await page.getByRole('button', { name: '대화 시작' }).click()
+  await page.getByRole('button', { name: '글로 대화' }).click()
   const log = page.getByRole('log', { name: '대화 내용' })
   await expect(log.getByText('날씨 좋은 날엔 산책이 최고죠!')).toBeVisible()
   // 캐릭터 이름은 서버(페르소나 YAML)가 준 값을 쓴다. 코드에 이름을 두지 않으므로 비어 있지 않은지만 본다

@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 // 대화를 끝내면 서버가 일지를 정리한다(가짜 CLI 추출 픽스처 extract.jsonl: 아이디어·할 일·메모 1개씩)
 test('일지: 목록 → 상세, 별표·완료(할 일·아이디어) 표시가 저장된다', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: '대화 시작' }).click()
+  await page.getByRole('button', { name: '글로 대화' }).click()
   const log = page.getByRole('log', { name: '대화 내용' })
   await expect(log.locator('.message.assistant').first()).toBeVisible()
   await page.getByRole('textbox', { name: '메시지' }).fill('Claude Code 최신 버전 알려줘')

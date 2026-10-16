@@ -123,3 +123,31 @@ def test_client_config_follows_server_idle_timeout(make_settings):
 def test_client_config_is_read_only(client):
     response = client.put("/api/profile", json={"client": {"vad": {}}})
     assert response.status_code == 422
+
+
+async def test_persona_row_inserted_concurrently_is_reused(db_session, make_settings, monkeypatch):
+    """다른 요청이 같은 페르소나 행을 먼저 넣었어도 실패하지 않는다(새 DB에서 동시에 부를 때)."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app.services.profile import sync_persona
+
+    settings = make_settings()
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+    async with factory() as other:
+        other.add(Persona(id="jenny", yaml_path="old.yaml", version="old"))
+        await other.commit()
+
+    # 이 요청은 행이 없다고 본 뒤(첫 조회) 넣으려 한다
+    original = db_session.get
+    calls = 0
+
+    async def first_get_misses(entity, ident, **kwargs):
+        nonlocal calls
+        calls += 1
+        return None if calls == 1 else await original(entity, ident, **kwargs)
+
+    monkeypatch.setattr(db_session, "get", first_get_misses)
+    loaded = await sync_persona(db_session, settings, "jenny")
+    await db_session.commit()
+    row = await original(Persona, "jenny")
+    assert row.version == loaded.version and row.yaml_path == str(loaded.path)

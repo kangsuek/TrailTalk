@@ -16,8 +16,18 @@ async def sync_persona(db: AsyncSession, settings: Settings, persona_id: str) ->
     loaded = load_persona(settings.persona_dir, persona_id)
     row = await db.get(PersonaRow, persona_id)
     if row is None:
-        db.add(PersonaRow(id=persona_id, yaml_path=str(loaded.path), version=loaded.version))
-    elif row.version != loaded.version or row.yaml_path != str(loaded.path):
+        try:
+            # 세이브포인트: 동시에 온 다른 요청(화면이 프로필을 두 번 부르는 경우 등)이
+            # 먼저 넣었어도 실패하지 않고 그 행을 쓴다
+            async with db.begin_nested():
+                db.add(
+                    PersonaRow(id=persona_id, yaml_path=str(loaded.path), version=loaded.version)
+                )
+        except IntegrityError:
+            pass
+        row = await db.get(PersonaRow, persona_id)
+        assert row is not None
+    if row.version != loaded.version or row.yaml_path != str(loaded.path):
         row.version = loaded.version
         row.yaml_path = str(loaded.path)
     await db.flush()

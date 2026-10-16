@@ -409,3 +409,73 @@ body {
   font-size: 0.85rem;
   white-space: nowrap;
 }
+
+/* 음성 대화(S3-13): 화면 아래에 붙는 큰 둥근 버튼과 상태 문구 */
+.voice-controls {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 16px 0 calc(16px + env(safe-area-inset-bottom));
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+}
+
+.conversation button.voice-button {
+  display: grid;
+  place-items: center;
+  width: 112px;
+  height: 112px;
+  padding: 0;
+  border-radius: 50%;
+  touch-action: none; /* 길게 누르는 중 손가락이 조금 움직여도 스크롤로 취소되지 않게 */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.voice-dot {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--bg);
+}
+
+.voice-controls[data-state='listening'] .voice-dot {
+  animation: voice-pulse 1.4s ease-in-out infinite;
+}
+
+.voice-controls[data-state='speaking'] .voice-dot {
+  border-radius: 8px;
+}
+
+.voice-controls[data-state='paused'] .voice-button,
+.voice-controls[data-state='processing'] .voice-button {
+  background: var(--muted);
+}
+
+.voice-status {
+  margin: 0;
+  font-weight: 600;
+}
+
+.voice-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9em;
+  text-align: center;
+}
+
+@keyframes voice-pulse {
+  50% {
+    transform: scale(1.25);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-controls[data-state='listening'] .voice-dot {
+    animation: none;
+  }
+}

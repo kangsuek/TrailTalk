@@ -108,7 +108,7 @@ describe('App', () => {
       ),
     )
     render(<App />)
-    fireEvent.click(screen.getByRole('button', { name: '대화 시작' }))
+    fireEvent.click(screen.getByRole('button', { name: '글로 대화' }))
     expect(await screen.findByText('반가워요!')).toBeVisible()
     fireEvent.click(screen.getByRole('tab', { name: '설정' }))
     expect(screen.getByText('반가워요!')).not.toBeVisible()
