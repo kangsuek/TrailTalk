@@ -354,7 +354,7 @@
 | S3-13 | 대화 화면 음성 모드 | 완료 | `web/src/screens/ConversationScreen.tsx`, `web/src/screens/voiceController.ts`, `web/src/screens/VoiceControls.tsx` | `0465493` |
 | S3-14 | PWA·정적 서빙·HTTPS 터널 | 완료 | `web/vite.config.ts`, `run.sh --phone`, `stop.sh`, `docs/phone.md` | `0c1af0c`, `dc127a0`, `615f01b` |
 | S3-15 | 클라이언트 규약 확정 | 완료 | `docs/client-contract.md`, `server/app/api/events.py`, `server/app/llm/parser.py` | `033b8aa` |
-| S3-16 | 음성 흐름 E2E | 완료 | `web/e2e/` | |
+| S3-16 | 음성 흐름 E2E | 완료 | `web/e2e/voice.spec.ts`, `web/e2e/fixtures/` | `fad7711` |
 | S3-17 | 일지 정렬·아이디어별 보기(사용자 요청 추가) | 진행 중 | `server/app/jobs/extract.py`, `server/app/jobs/topics_backfill.py`, `web/src/core/journal.ts`, `web/src/screens/JournalListScreen.tsx` | |
 | S3-18 | 웹 설정 화면(S5-01 웹 부분 앞당김, 사용자 요청 추가) | 완료 | `web/src/screens/SettingsScreen.tsx`, `server/app/api/profile.py`, `server/app/services/profile.py` | `c96fcca` |
 
@@ -766,4 +766,4 @@
 | 2026-10-17 | S3-14 완료: 결정 D1(집 Mac + Tailscale Serve), PWA, `./run.sh --phone`·`./stop.sh`, 폰(A35)에서 음성 대화 확인(사용자) | `0c1af0c` |
 | 2026-10-17 | S3-18 웹 설정 화면 완료(S5-01 웹 부분 앞당김): 호칭·관심사·보이스(미리 듣기)·말 속도·음성 원본 보관, 프로필 보이스·속도를 음성 합성에 적용, 실제 TTS 속도 측정 | `c96fcca` |
 | 2026-10-17 | S3-15 클라이언트 규약 확정: 도구 `summary`를 `kind` 타입으로 고정, 출처 호스트를 서버로, `docs/client-contract.md` 확정본 | `033b8aa` |
-| 2026-10-17 | S3-16 음성 흐름 E2E 완료: Playwright 가짜 마이크(`voice` 프로젝트)로 발화·답변·끼어들기·오프라인 복구·끝내기 | (커밋 후 기입) |
+| 2026-10-17 | S3-16 음성 흐름 E2E 완료: Playwright 가짜 마이크(`voice` 프로젝트)로 발화·답변·끼어들기·오프라인 복구·끝내기 | `fad7711` |
