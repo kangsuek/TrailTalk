@@ -7,7 +7,7 @@
 #   ./run.sh --phone    폰에서 쓰기: 웹을 빌드해 서버(8000)가 함께 서빙하고, Tailscale Serve로
 #                       tailnet 안에만 HTTPS로 연다(docs/phone.md). Mac이 잠들지 않게 한다
 #
-# Ctrl+C로 둘 다 종료한다.
+# Ctrl+C로 둘 다 종료한다. 다른 터미널에서 끄려면 ./stop.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"

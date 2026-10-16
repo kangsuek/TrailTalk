@@ -16,10 +16,11 @@
 ./run.sh --phone --fake   # 가짜 CLI·가짜 음성(화면 확인용, 사용량 없음)
 ```
 
-- 웹을 빌드해 서버(8000)가 함께 서빙하고, `https://<Mac 이름>.<tailnet>.ts.net/` 주소를 출력한다.
-- 포트 8000을 쓰는 다른 서버(`./run.sh` 등)가 떠 있으면 먼저 끈다.
+- 웹을 빌드해 서버(8000)가 함께 서빙하고, `https://<Mac 이름>.<tailnet>.ts.net/` 주소를 출력한다. 이 주소는 실행할 때마다 바뀌지 않는다(Mac의 Tailscale 기기 이름). 바꾸려면 관리 콘솔 Machines에서 기기 이름을 바꾼다(예: `trailtalk` → `https://trailtalk.<tailnet>.ts.net/`).
+- 포트 8000을 쓰는 다른 서버(`./run.sh` 등)가 떠 있으면 먼저 끈다(`./stop.sh`).
 - 실행 중에는 Mac이 잠들지 않게 한다(`caffeinate`). 덮개를 닫고 배터리로 쓰면 그래도 잠들 수 있으니 전원을 연결해 둔다.
-- Ctrl+C로 끝내면 HTTPS 주소도 닫힌다(`tailscale serve --https=443 off`). 이 Mac의 443에 다른 Serve 설정이 있으면 덮어쓰고 지운다. 스크립트가 강제로 죽어 설정이 남았으면(502) 직접 `tailscale serve --https=443 off`를 실행한다.
+- Ctrl+C로 끝내면 HTTPS 주소도 닫힌다(`tailscale serve --https=443 off`). 이 Mac의 443에 다른 Serve 설정이 있으면 덮어쓰고 지운다.
+- 다른 터미널에서 끄거나, 스크립트가 강제로 죽어 서버·Serve 설정이 남았으면(502) `./stop.sh`를 실행한다. 이 저장소의 프로세스만 끄고, 443이 이 서버를 가리킬 때만 Serve를 닫는다.
 
 ## 폰에서
 
