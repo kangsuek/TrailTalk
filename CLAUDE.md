@@ -4,13 +4,11 @@
 - 구현 계획서: [docs/implementation-plan.md](docs/implementation-plan.md) — 작업은 계획서의 작업 ID(예: `S1-03`) 단위로 진행한다
 - 클라이언트 규약: [docs/client-contract.md](docs/client-contract.md)
 
-위 문서는 자동으로 불러오지 않는다(`@` import 금지). 필요한 절만 읽는다: 계획서는 진행 대시보드(2장)와 해당 작업이 속한 단계 절, 설계서는 관련 장만 `grep -n "^#"`으로 위치를 찾아 범위를 지정해 읽는다. 클라이언트 규약은 짧으므로 전체를 읽는다.
-
-새 세션은 [docs/handoff.md](docs/handoff.md)(현재 상태·다음 작업·주의점)를 먼저 읽는다.
+위 문서는 자동으로 불러오지 않는다(`@` import 금지). 모두 `grep -n "^#"`으로 위치를 찾아 필요한 절만 범위를 지정해 읽는다(계획서는 2장 대시보드와 해당 단계 절). 새 세션은 [docs/handoff.md](docs/handoff.md)(현재 상태·다음 작업·검증 방법)를 먼저 읽는다.
 
 ## 작업 규칙
 
-- 자동 커밋/푸시 허용 — 이 저장소에서는 매번 묻지 않고 커밋+푸시한다 (커밋 전 서브에이전트 diff 리뷰는 전역 규칙대로 수행)
+- 자동 커밋/푸시 허용(커밋 전 서브에이전트 diff 리뷰는 전역 규칙대로). 다른 세션이 동시에 고칠 수 있으니 내 파일만 경로를 지정해 커밋한다.
 - 페르소나 분리(NFR-08): 캐릭터 이름·성격·말투·보이스는 `server/personas/*.yaml`에만 두고 코드에 넣지 않는다(`test_no_character_name_hardcoded_in_app_code`가 확인). 시스템 프롬프트는 `server/app/persona/prompt.py`의 `build_system_prompt`로만 만들고, 캐릭터와 무관한 앱 동작 규칙은 `server/app/persona/rules.py`에 둔다. 프롬프트를 바꾸면 `UPDATE_SNAPSHOTS=1`로 스냅샷을 갱신하고 차이를 검토한다.
 - 클라이언트는 얇게: 문장 분할·요약·중복 제거처럼 서버가 할 수 있는 일은 클라이언트에 넣지 않는다.
 - `web/src/core/`는 UI·브라우저 API에 의존하지 않는 순수 TypeScript로 작성한다(안드로이드 Kotlin 포팅 대상).
@@ -65,6 +63,8 @@ docs/              설계서, 계획서, 규약, 인계(handoff.md), 검증 기�
 (cd server && uv run alembic upgrade head)                      # 수동 적용(앱 시작 때도 자동 적용)
 (cd server && RUN_REAL_CLI=1 uv run pytest tests/test_llm_real.py -q)  # 실제 Claude CLI 통합 테스트(구독 사용량 소모)
 (cd server && RUN_REAL_CLI=1 uv run python -m tests.extract_eval.run_eval)  # 일지 추출 평가(haiku·sonnet 각 12회) → docs/eval/extract-<날짜>.md
+(cd server && RUN_REAL_CLI=1 uv run python -m tests.persona_eval.run_eval)  # 톤 평가(프롬프트를 바꾸면) → docs/eval/persona-<날짜>.md
+# 평가 리포트는 같은 날 여러 번 돌리면 -2, -3…으로 쌓인다. 끝나면 마지막 리포트에 회차 표로 합치고 나머지는 지운다(번호는 상관없음)
 
 # 웹
 (cd web && npm run dev)                                # http://127.0.0.1:5173, /api → 8000 프록시
