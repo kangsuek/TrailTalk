@@ -3,31 +3,22 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Request
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.client_config import ClientConfig
 from app.db.session import DbSession
-from app.services.profile import persona_id_of, profile_with_persona, sync_persona
+from app.services.profile import (
+    Nickname,
+    line_field,
+    persona_id_of,
+    profile_with_persona,
+    sync_persona,
+)
 
 router = APIRouter(tags=["profile"])
 
 
-def _line(limit: int) -> AfterValidator:
-    """앞뒤 공백을 빼고 한 줄(제어 문자 없음), 1~limit자인지 확인한다."""
-
-    def check(value: str) -> str:
-        value = value.strip()
-        if not value.isprintable():
-            raise ValueError("줄바꿈이나 제어 문자는 쓸 수 없습니다")
-        if not 1 <= len(value) <= limit:
-            raise ValueError(f"1~{limit}자로 입력하세요")
-        return value
-
-    return AfterValidator(check)
-
-
-Nickname = Annotated[str, _line(20)]
-Interest = Annotated[str, _line(30)]
+Interest = Annotated[str, line_field(30)]
 
 
 class ProfileOut(BaseModel):
@@ -48,7 +39,7 @@ class ProfileUpdate(BaseModel):
     nickname: Nickname | None = None
     interests: Annotated[list[Interest], Field(max_length=10)] = []
     persona_id: Annotated[str, Field(pattern=r"^[a-z0-9_-]{1,64}$")] | None = None
-    voice: Annotated[str, _line(100)] | None = None
+    voice: Annotated[str, line_field(100)] | None = None
     keep_audio: bool = False
 
 

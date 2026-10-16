@@ -1,5 +1,8 @@
 """본인 프로필(단일 행)과 페르소나 테이블 동기화(계획서 S1-08)."""
 
+from typing import Annotated
+
+from pydantic import AfterValidator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,6 +12,24 @@ from app.db.models import UserProfile
 from app.persona.loader import LoadedPersona, load_persona
 
 PROFILE_ID = 1
+
+
+def line_field(limit: int) -> AfterValidator:
+    """앞뒤 공백을 빼고 한 줄(제어 문자 없음), 1~limit자인지 확인한다."""
+
+    def check(value: str) -> str:
+        value = value.strip()
+        if not value.isprintable():
+            raise ValueError("줄바꿈이나 제어 문자는 쓸 수 없습니다")
+        if not 1 <= len(value) <= limit:
+            raise ValueError(f"1~{limit}자로 입력하세요")
+        return value
+
+    return AfterValidator(check)
+
+
+# 프로필 API와 MCP set_nickname이 같은 규칙을 쓴다
+Nickname = Annotated[str, line_field(20)]
 
 
 async def sync_persona(db: AsyncSession, settings: Settings, persona_id: str) -> LoadedPersona:

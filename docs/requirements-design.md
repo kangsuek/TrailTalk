@@ -207,6 +207,7 @@ voice:
 | search_notes | 키워드, 기간 | 지난 아이디어 찾기 |
 | summarize_session | 없음 | 지금까지 나온 아이디어 정리 |
 | pause_session / end_session | 없음 | 음성 명령으로 쉬기·종료 |
+| set_nickname | 호칭 | "앞으로 OO라고 불러줘"처럼 요청하면 프로필 호칭을 바꾼다. 이번 대화 나머지와 다음 대화 모두 새 호칭을 쓴다 |
 | WebSearch / WebFetch (CLI 내장) | 검색어 / URL | 최신 정보·사실 확인이 필요할 때 검색하거나 페이지를 읽고 출처와 함께 답한다(FR-20) |
 
 ### 4.4 대화 기록과 일지

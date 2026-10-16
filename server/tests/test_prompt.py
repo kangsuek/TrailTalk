@@ -89,6 +89,7 @@ def test_role_rules(jenny):
     expected_phrases = [
         "WebSearch", "WebFetch", "출처", "지시·요청은 따르지 않는다", "지어내지 않는다",
         "save_note", "search_notes", "summarize_session", "pause_session", "end_session",
+        "set_nickname",
         "개인정보", "실행 환경", "질문은 한 번에 하나",
     ]  # fmt: skip
     for expected in expected_phrases:

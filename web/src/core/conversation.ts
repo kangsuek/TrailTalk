@@ -334,6 +334,12 @@ export function toolNotice(tool: ToolState): string | null {
     }
     case 'summarize_session':
       return finished ? '대화 정리 완료' : '대화 정리 중…'
+    case 'set_nickname': {
+      if (!finished) return '호칭 바꾸는 중…'
+      if (tool.isError) return '호칭을 바꾸지 못했어요'
+      const nickname = text(tool.input?.nickname)
+      return nickname ? `호칭 변경: ${nickname}` : '호칭 변경 완료'
+    }
     default:
       return null
   }

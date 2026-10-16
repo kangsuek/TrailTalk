@@ -25,6 +25,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from app.db.models import Note, NoteKind, SessionStatus, Turn, TurnRole
 from app.db.types import utcnow
 from app.errors import error_response
+from app.services.profile import Nickname, get_profile
 from app.services.runtime import ConversationRuntime, RuntimeRegistry
 
 SERVER_NAME = "trailtalk"  # CLI 도구 이름 접두사 mcp__trailtalk__ 와 같다
@@ -49,6 +50,15 @@ logger = logging.getLogger("trailtalk.mcp")
 
 def _escape_like(text: str) -> str:
     return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _nickname_core(nickname: str) -> str:
+    """호칭에서 공백과 끝의 존칭(님·씨)을 뺀 부분. 사용자 발화와 맞춰 볼 때 쓴다."""
+    compact = "".join(nickname.split())
+    for suffix in ("님", "씨"):
+        if len(compact) > len(suffix) and compact.endswith(suffix):
+            return compact[: -len(suffix)]
+    return compact
 
 
 def mcp_client_config(base_url: str, runtime: ConversationRuntime) -> dict:
@@ -168,6 +178,33 @@ def build_mcp_server(app) -> MCPServer:
         """사용자가 '잠깐 쉬자'고 하면 부른다. 이번 답변이 끝난 뒤 대화를 쉬기 상태로 둔다."""
         runtime_of(ctx).requested_status = SessionStatus.PAUSED
         return "이번 답변 뒤 대화를 쉬기 상태로 둡니다. 짧게 인사하세요."
+
+    @mcp.tool()
+    async def set_nickname(
+        nickname: Annotated[
+            Nickname, Field(min_length=1, max_length=20, description="사용자가 말한 새 호칭")
+        ],
+        ctx: Context,
+    ) -> str:
+        """사용자가 앞으로 자기를 다른 호칭으로 불러 달라고 하면 부른다.
+
+        프로필에 저장하므로 다음 대화에도 이 호칭을 쓴다.
+        """
+        runtime = runtime_of(ctx)
+        try:
+            async with app.state.session_factory() as db:
+                # 검색 결과 속 지시로 바뀌지 않게, 이번 사용자 발화에 나온 호칭만 받는다
+                turn_id = runtime.current_user_turn_id
+                turn = await db.get(Turn, turn_id) if turn_id else None
+                if turn is None or _nickname_core(nickname) not in "".join(turn.text.split()):
+                    raise ToolError("사용자가 이번에 말한 호칭으로만 바꿀 수 있습니다.")
+                profile = await get_profile(db)
+                profile.nickname = nickname
+                await db.commit()
+        except SQLAlchemyError:
+            logger.exception("set_nickname failed session=%s", runtime.session_id)
+            raise ToolError("호칭을 바꾸지 못했습니다.") from None
+        return f"호칭을 '{nickname}'(으)로 바꿨습니다. 이제부터 이 호칭으로 부르세요."
 
     @mcp.tool()
     async def end_session(ctx: Context) -> str:

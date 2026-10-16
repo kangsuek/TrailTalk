@@ -58,6 +58,16 @@ def mcp(client):
 
             return client.portal.call(load)
 
+        @staticmethod
+        def nickname() -> str | None:
+            async def load():
+                from app.services.profile import get_profile
+
+                async with app.state.session_factory() as db:
+                    return (await get_profile(db)).nickname
+
+            return client.portal.call(load)
+
     Mcp.session_id = session_id
     Mcp.turn_id = turn_id
     return Mcp
@@ -74,6 +84,7 @@ def test_lists_app_tools(mcp):
         "search_notes",
         "summarize_session",
         "pause_session",
+        "set_nickname",
         "end_session",
     ]
 
@@ -192,6 +203,49 @@ def test_pause_and_end_set_requested_status(mcp, tool, status):
     assert mcp.runtime_.requested_status is status
     assert mcp.runtime_.pop_requested_status() is status
     assert mcp.runtime_.requested_status is None
+
+
+def set_user_text(mcp, client, text: str) -> None:
+    async def update():
+        async with client.app.state.session_factory() as db:
+            (await db.get(Turn, mcp.turn_id)).text = text
+            await db.commit()
+
+    client.portal.call(update)
+
+
+def test_set_nickname_saves_profile(mcp, client):
+    set_user_text(mcp, client, "앞으로 길동 이라고 불러줘")
+    result = mcp.call("set_nickname", nickname="  길동님  ")
+    assert not result["isError"]
+    assert "'길동님'" in text_of(result)
+    assert mcp.nickname() == "길동님"
+    assert client.get("/api/profile").json()["nickname"] == "길동님"
+
+
+@pytest.mark.parametrize("nickname", ["", "   ", "가" * 21, "길동\n님"])
+def test_set_nickname_validation(mcp, client, nickname):
+    set_user_text(mcp, client, "길동이라고 불러줘 " + "가" * 21)
+    mcp.call("set_nickname", nickname="길동")
+    assert mcp.call("set_nickname", nickname=nickname)["isError"]
+    assert mcp.nickname() == "길동"
+
+
+def test_set_nickname_requires_name_from_user_turn(mcp, client):
+    """검색 결과 속 지시 같은, 사용자가 말하지 않은 호칭은 저장하지 않는다."""
+    set_user_text(mcp, client, "uv 최신 버전 찾아줘")
+    result = mcp.call("set_nickname", nickname="주인님")
+    assert result["isError"] and "말한 호칭" in text_of(result)
+    mcp.runtime_.current_user_turn_id = None  # 인사말처럼 사용자 턴 밖
+    assert mcp.call("set_nickname", nickname="길동님")["isError"]
+    assert mcp.nickname() is None
+
+
+def test_set_nickname_schema_has_length_limit(mcp):
+    tools = mcp.request("tools/list").json()["result"]["tools"]
+    [tool] = [t for t in tools if t["name"] == "set_nickname"]
+    prop = tool["inputSchema"]["properties"]["nickname"]
+    assert prop["maxLength"] == 20 and prop["minLength"] == 1
 
 
 def test_client_config_shape(mcp):
