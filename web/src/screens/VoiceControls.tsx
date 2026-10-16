@@ -1,6 +1,6 @@
 // 음성 대화의 큰 버튼과 상태 표시(계획서 S3-13, 설계서 4.1 웹 열).
 // 한 번 누르기 = 시작·끼어들기·쉬기 재개(tap), 길게 누르기 = 종료(long_press).
-import { useRef, type PointerEvent } from 'react'
+import { useRef, type PointerEvent, type Ref } from 'react'
 import type { SessionStateName } from '../core'
 
 const LONG_PRESS_MS = 700
@@ -16,6 +16,7 @@ const STATUS: Record<SessionStateName, { label: string; hint: string }> = {
 }
 
 export function VoiceControls({
+  dockRef,
   state,
   connecting,
   queued = 0,
@@ -23,6 +24,7 @@ export function VoiceControls({
   onTap,
   onLongPress,
 }: {
+  dockRef?: Ref<HTMLDivElement> // 화면 아래 고정 패널(대화 화면이 높이를 보고 스크롤을 맞춘다)
   state: SessionStateName
   connecting: boolean // 시작 응답을 기다리는 중
   queued?: number // 보관한 말 수(연결이 끊긴 동안·답변을 기다리는 동안 한 말, S3-12)
@@ -58,7 +60,7 @@ export function VoiceControls({
   }
 
   return (
-    <div className="voice-controls" data-state={state}>
+    <div className="voice-controls" data-state={state} ref={dockRef}>
       <button
         type="button"
         className="voice-button"
@@ -71,7 +73,12 @@ export function VoiceControls({
         onPointerCancel={cancelTimer}
         onContextMenu={(event) => event.preventDefault()} // 휴대폰 길게 누르기 메뉴를 막는다
       >
-        <span className="voice-dot" aria-hidden="true" />
+        {/* 상태별로 색이 돌고 숨쉬는 구슬(CSS 애니메이션, data-state로 바뀐다) */}
+        <span className="voice-orb" aria-hidden="true">
+          <span className="orb-glow" />
+          <span className="orb-core" />
+          <span className="orb-sheen" />
+        </span>
       </button>
       <p className="voice-status" role="status" aria-live="polite">
         {status.label}
@@ -87,7 +94,7 @@ export function VoiceControls({
         </p>
       )}
       {/* 정리 중에는 끝내기 응답을 기다리지 않고 나오는 탈출구(서버 끝내기는 멱등이다) */}
-      <button type="button" className="secondary" onClick={onLongPress}>
+      <button type="button" className="secondary small" onClick={onLongPress}>
         {state === 'closing' ? '그만 기다리기' : '대화 끝내기'}
       </button>
     </div>

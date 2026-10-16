@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { useEffect, useLayoutEffect, useReducer, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { ApiError, endSession, prepareSession, sendTurn, startSession } from '../api/conversation'
 import {
   conversationReducer,
@@ -22,6 +22,32 @@ function savedMode(): Mode {
 }
 
 const PREPARE_INTERVAL_MS = 4 * 60 * 1000 // 서버 준비분 만료(5분)보다 짧게
+const COMPOSER_MAX_PX = 140 // 입력창은 내용만큼 늘다가 약 5줄에서 멈추고 안에서 스크롤한다
+
+/** 페이지 맨 아래로 내린다. 아래 고정 패널(입력창·음성 버튼)은 맨 아래에서 제자리에 놓여 말풍선을 가리지 않는다 */
+function scrollToBottom() {
+  const page = document.scrollingElement
+  page?.scrollTo?.({ top: page.scrollHeight })
+}
+
+function MicIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="9" y="3" width="6" height="11" rx="3" />
+      <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+    </svg>
+  )
+}
+
+function SendIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor"
+      strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 19V5M5 12l7-7 7 7" />
+    </svg>
+  )
+}
 
 /** 브라우저 탭이 보이는지(백그라운드 탭에서는 미리 준비 요청을 보내지 않는다) */
 function usePageVisible(): boolean {
@@ -97,7 +123,6 @@ export function ConversationScreen({
   const [draft, setDraft] = useState('')
   const controller = useRef<AbortController | null>(null)
   const nextId = useRef(0)
-  const listEnd = useRef<HTMLLIElement>(null)
   const input = useRef<HTMLTextAreaElement>(null)
   const pageVisible = usePageVisible()
   const [mode, setMode] = useState<Mode>(savedMode)
@@ -141,17 +166,42 @@ export function ConversationScreen({
     if (!visible) return // 다른 탭의 스크롤은 대화 위치와 상관없다
     const onScroll = () => {
       const { scrollY, innerHeight } = window
-      stickToBottom.current = scrollY + innerHeight >= document.documentElement.scrollHeight - 200
+      stickToBottom.current = scrollY + innerHeight >= document.documentElement.scrollHeight - 120
     }
+    // 휴대폰 키보드가 열리고 닫혀 화면 높이가 바뀌어도 바닥에 붙어 있었으면 그대로 둔다
+    const onResize = () => stickToBottom.current && scrollToBottom()
     window.addEventListener('scroll', onScroll, { passive: true })
+    window.visualViewport?.addEventListener('resize', onResize)
     // 다시 보이면 숨겨진 동안 온 답변까지 바닥으로 내린다
     stickToBottom.current = true
-    listEnd.current?.scrollIntoView?.({ block: 'end' })
-    return () => window.removeEventListener('scroll', onScroll)
+    scrollToBottom()
+    return () => {
+      window.removeEventListener('scroll', onScroll)
+      window.visualViewport?.removeEventListener('resize', onResize)
+    }
   }, [visible])
   useEffect(() => {
-    if (visible && stickToBottom.current) listEnd.current?.scrollIntoView?.({ block: 'end' })
+    if (visible && stickToBottom.current) scrollToBottom()
   }, [state.messages, visible])
+
+  // 아래 고정 패널의 높이가 바뀌면(음성 시작, 안내 문구, 입력창이 늘어남) 바닥에 붙어 있던 화면을 다시 내린다
+  const [dock, setDock] = useState<HTMLElement | null>(null)
+  useEffect(() => {
+    if (!dock || !visible || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => stickToBottom.current && scrollToBottom())
+    observer.observe(dock)
+    return () => observer.disconnect()
+  }, [dock, visible])
+
+  // 입력창은 한 줄에서 시작해 내용만큼 늘어난다(보내서 비면 다시 한 줄, 새로 그려져도 다시 잰다).
+  // scrollHeight에는 테두리가 빠지므로 더한다(빼면 두 줄부터 안에서 스크롤된다)
+  useLayoutEffect(() => {
+    const el = input.current
+    if (!el) return
+    el.style.height = 'auto'
+    const border = el.offsetHeight - el.clientHeight
+    el.style.height = `${Math.min(el.scrollHeight + border, COMPOSER_MAX_PX)}px`
+  }, [draft, state.status, mode])
 
   // 대화가 시작되면 바로 입력할 수 있게 입력창으로 포커스를 옮긴다
   const previousStatus = useRef(state.status)
@@ -298,13 +348,15 @@ export function ConversationScreen({
       <h2>대화</h2>
       {(state.status === 'idle' || state.status === 'starting') && !voiceActive && (
         <div className="conversation-start">
-          <p>걸으면서 떠오르는 생각을 같이 이야기해 봐요.</p>
-          <div className="composer-actions">
+          <p className="conversation-lead">걸으면서 떠오르는 생각을 같이 이야기해 봐요.</p>
+          <div className="start-actions">
             <button
               type="button"
+              className="start-voice"
               onClick={startVoice}
               disabled={state.status === 'starting' || voice.ready !== true}
             >
+              <MicIcon />
               {voice.ready === null ? '음성 준비 중…' : '음성으로 대화'}
             </button>
             <button
@@ -332,7 +384,6 @@ export function ConversationScreen({
             <AssistantBubble key={message.id} message={message} name={name} />
           ),
         )}
-        <li ref={listEnd} className="list-end" aria-hidden="true" />
       </ol>
 
       {state.error && (
@@ -350,6 +401,7 @@ export function ConversationScreen({
 
       {voiceActive && (
         <VoiceControls
+          dockRef={setDock}
           state={voice.machine.name}
           connecting={state.status === 'starting'}
           queued={voice.machine.queued}
@@ -360,24 +412,31 @@ export function ConversationScreen({
       )}
 
       {inConversation && mode === 'text' && (
-        <form className="composer" onSubmit={send}>
-          <textarea
-            ref={input}
-            aria-label="메시지"
-            value={draft}
-            rows={2}
-            maxLength={4000}
-            placeholder="메시지를 입력하세요"
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={onKeyDown}
-          />
-          <div className="composer-actions">
+        <form className="composer" onSubmit={send} ref={setDock}>
+          <div className="composer-bar">
             {/* 답변을 기다리는 중에도 끝낼 수 있다(진행 중 요청은 끊고, 서버가 CLI 턴을 정리한다) */}
-            <button type="button" className="secondary" onClick={end} disabled={state.ending}>
+            <button type="button" className="secondary small" onClick={end} disabled={state.ending}>
               대화 끝내기
             </button>
-            <button type="submit" disabled={!canSend || !draft.trim()}>
-              보내기
+          </div>
+          <div className="composer-row">
+            <textarea
+              ref={input}
+              aria-label="메시지"
+              value={draft}
+              rows={1}
+              maxLength={4000}
+              placeholder="메시지를 입력하세요"
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={onKeyDown}
+            />
+            <button
+              type="submit"
+              className="send-button"
+              aria-label="보내기"
+              disabled={!canSend || !draft.trim()}
+            >
+              <SendIcon />
             </button>
           </div>
         </form>
@@ -389,7 +448,14 @@ export function ConversationScreen({
           {state.journalPending && (
             <p className="conversation-note">일지는 아직 정리 중이에요. 잠시 뒤 일지에서 볼 수 있어요.</p>
           )}
-          <div className="composer-actions">
+          <div className="start-actions">
+            <button type="button" className="start-voice" onClick={startVoice} disabled={voice.ready !== true}>
+              <MicIcon />
+              음성으로 새 대화
+            </button>
+            <button type="button" className="secondary" onClick={start}>
+              글로 새 대화
+            </button>
             {onOpenJournal && state.sessionId && (
               <button
                 type="button"
@@ -399,12 +465,6 @@ export function ConversationScreen({
                 일지 보기
               </button>
             )}
-            <button type="button" onClick={startVoice} disabled={voice.ready !== true}>
-              음성으로 새 대화
-            </button>
-            <button type="button" className="secondary" onClick={start}>
-              글로 새 대화
-            </button>
           </div>
         </div>
       )}

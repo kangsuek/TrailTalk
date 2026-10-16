@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { expectLastBubbleAboveDock } from './helpers.js'
 
 // 음성 대화 흐름(S3-16): 발화 → 답변 → 끼어들기 → 오프라인 보관과 복구 → 끝내기.
 // 가짜 마이크(e2e/fixtures/utterance.wav)는 약 24초마다 한 번 말하고, 서버는 가짜 음성 인식(FAKE_STT_TEXT)과
@@ -43,6 +44,8 @@ test('음성 대화: 발화·답변·끼어들기·오프라인 복구·끝내�
   await expect(log.getByText(/^출처: /).first()).toBeVisible()
   // 말풍선도 들려준 문장(last_played번까지)만 남는다
   await expect(log.locator('.message.assistant').nth(1).locator('.sentence')).toHaveCount(lastPlayed + 1)
+  await expectLastBubbleAboveDock(page) // 긴 답변도 아래 음성 패널에 가리지 않는다
+  await page.screenshot({ path: 'test-results/voice-listening.png' })
 
   // 4. 연결이 끊긴 동안 한 말은 기기에 보관했다가, 연결되면 보내 대답을 받는다
   await context.setOffline(true)

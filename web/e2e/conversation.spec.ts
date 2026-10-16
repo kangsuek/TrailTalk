@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { expectLastBubbleAboveDock } from './helpers.js'
 
 // 가짜 CLI 녹화(web_search.jsonl) 순서: 인사말 → 웹 검색 → 페이지 읽기 → 메모 저장
 test('텍스트 대화: 인사말, 문장 말풍선, 도구 알림, 끝내기', async ({ page }) => {
@@ -29,6 +30,11 @@ test('텍스트 대화: 인사말, 문장 말풍선, 도구 알림, 끝내기', 
   await expect(log.getByText(/^메모 저장: uv: /)).toBeVisible()
   await expect(page.getByRole('button', { name: '보내기' })).toBeDisabled() // 입력창이 비었다
   await expect(log.getByText('메모로 저장했어요, 다니엘님!', { exact: false })).toBeInViewport()
+  // 이어지는 말풍선이 아래 입력창에 가리지 않게 바닥까지 내린다(다른 탭에 다녀와도)
+  await expectLastBubbleAboveDock(page)
+  await page.getByRole('tab', { name: '일지 목록' }).click()
+  await page.getByRole('tab', { name: '대화' }).click()
+  await expectLastBubbleAboveDock(page)
   await page.screenshot({ path: 'test-results/conversation.png' })
 
   await page.getByRole('button', { name: '대화 끝내기' }).click()
