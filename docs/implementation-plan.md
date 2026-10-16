@@ -356,7 +356,7 @@
 | S3-15 | 클라이언트 규약 확정 | 대기 | `docs/client-contract.md` | |
 | S3-16 | 음성 흐름 E2E | 대기 | `web/e2e/` | |
 | S3-17 | 일지 정렬·아이디어별 보기(사용자 요청 추가) | 진행 중 | `server/app/jobs/extract.py`, `server/app/jobs/topics_backfill.py`, `web/src/core/journal.ts`, `web/src/screens/JournalListScreen.tsx` | |
-| S3-18 | 웹 설정 화면(S5-01 웹 부분 앞당김, 사용자 요청 추가) | 완료 | `web/src/screens/SettingsScreen.tsx`, `server/app/api/profile.py`, `server/app/services/profile.py` | |
+| S3-18 | 웹 설정 화면(S5-01 웹 부분 앞당김, 사용자 요청 추가) | 완료 | `web/src/screens/SettingsScreen.tsx`, `server/app/api/profile.py`, `server/app/services/profile.py` | `c96fcca` |
 
 #### S3-01 STT(Whisper)
 - [x] `SttProvider` 인터페이스
@@ -764,4 +764,4 @@
 | 2026-10-16 | 3단계 중간 전체 점검: 음성 세션에서 CLI 오류로 끝난 턴의 합성 대기 문장·끝 조각 유실 수정, 글 대화 답변 중 끝내기 허용, 답변을 기다리는 중 이어서 한 말을 큐에 넣어 답변 뒤 전송(상태 머신·전이 표 변경) | `bcd3eb8` |
 | 2026-10-17 | 대화 중 호칭 바꾸기(사용자 요청 추가, 작업 ID 없음): MCP `set_nickname`이 프로필 호칭을 바꾼다(이번 사용자 발화에 나온 호칭만 받음), 프롬프트 규칙, 웹 알림. 실제 CLI로 저장·다음 대화 인사말 확인 | `18310b3` |
 | 2026-10-17 | S3-14 완료: 결정 D1(집 Mac + Tailscale Serve), PWA, `./run.sh --phone`·`./stop.sh`, 폰(A35)에서 음성 대화 확인(사용자) | `0c1af0c` |
-| 2026-10-17 | S3-18 웹 설정 화면 완료(S5-01 웹 부분 앞당김): 호칭·관심사·보이스(미리 듣기)·말 속도·음성 원본 보관, 프로필 보이스·속도를 음성 합성에 적용, 실제 TTS 속도 측정 | (커밋 후 기입) |
+| 2026-10-17 | S3-18 웹 설정 화면 완료(S5-01 웹 부분 앞당김): 호칭·관심사·보이스(미리 듣기)·말 속도·음성 원본 보관, 프로필 보이스·속도를 음성 합성에 적용, 실제 TTS 속도 측정 | `c96fcca` |
