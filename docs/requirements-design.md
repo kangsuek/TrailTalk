@@ -214,16 +214,16 @@ voice:
 - 턴 저장: 사용자 발화(STT 결과)와 제니 답변을 도착 즉시 DB에 쓴다. 세션이 중간에 끊겨도 그때까지는 남는다.
 - 음성 원본: 기본은 저장하지 않고, 설정에서 켜면 30일 보관 후 삭제.
 - 세션 종료: "오늘은 여기까지", 길게 누르기, 또는 30분 무발화.
-- 추출: 종료 후 요약 모델에 전문을 넘겨 JSON(제목, 요약 3줄, 아이디어[], 할 일[], 메모[], 태그[])으로 받고, `save_note`로 이미 저장된 항목과 중복을 거른다.
+- 추출: 종료 후 요약 모델에 전문을 넘겨 JSON(제목, 요약 3줄, 아이디어[], 할 일[], 메모[], 태그[], 아이디어 주제[])으로 받고, `save_note`로 이미 저장된 항목과 중복을 거른다. 아이디어 주제는 같은 아이디어를 다룬 대화를 묶는 이름이다. 지난 대화의 주제 목록을 함께 주어 같은 아이디어면 같은 이름을 고르게 한다(S3-17).
 - 마무리 멘트: 제니가 "오늘 아이디어 3개, 할 일 1개 저장했어요!"처럼 말하고 세션을 닫는다.
 - 기억: 다음 세션의 기억 블록에 최근 일지 요약과 열린 아이디어를 넣어 이어서 말할 수 있게 한다.
-- 화면: 날짜별 일지 목록 → 일지 상세(요약, 아이디어 별표, 할 일 체크, 전문 펼치기).
+- 화면: 일지 목록(날짜별 또는 아이디어 주제별, 최신순·오래된순) → 일지 상세(요약, 아이디어 별표, 할 일 체크, 전문 펼치기).
 
 ### 4.5 데이터 모델
 
 | 테이블 | 주요 컬럼 |
 |---|---|
-| conversation_session | id, started_at, ended_at, status(active/paused/ended), title, summary, tags, cli_session_id(Claude CLI `--resume`용) |
+| conversation_session | id, started_at, ended_at, status(active/paused/ended), title, summary, tags, topics(아이디어 주제), cli_session_id(Claude CLI `--resume`용) |
 | turn | id, session_id, seq, role(user/assistant), text, audio_path(nullable), interrupted, created_at |
 | note | id, session_id, turn_id, kind(idea/todo/memo), content, starred, done, created_at |
 | pending_upload (기기 로컬) | id, session_id, audio_file, recorded_at, retry_count |

@@ -369,6 +369,8 @@ export interface components {
             summary: string[];
             /** Tags */
             tags: string[];
+            /** Topics */
+            topics: string[];
             /** Journal Status */
             journal_status: ("pending" | "done" | "failed") | null;
             counts: components["schemas"]["NoteCounts"];

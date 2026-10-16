@@ -57,6 +57,8 @@ class JournalItem(BaseModel):
     title: str | None
     summary: list[str]
     tags: list[str]
+    # 이 대화에서 다룬 아이디어 주제. 같은 이름끼리 아이디어별로 묶는다(S3-17). 정리 전이면 빈 목록
+    topics: list[str]
     # 일지 정리 상태. null이면 아직 끝나지 않은 대화다
     journal_status: Literal["pending", "done", "failed"] | None
     counts: NoteCounts
@@ -126,6 +128,7 @@ def _item(convo: ConversationSession, counts: dict[NoteKind, int], tz: ZoneInfo)
         title=convo.title,
         summary=(convo.summary or "").splitlines(),
         tags=list(convo.tags or []),
+        topics=list(convo.topics or []),
         journal_status=convo.extract_status.value if convo.extract_status else None,
         counts=NoteCounts(**{kind.value: counts.get(kind, 0) for kind in NoteKind}),
     )

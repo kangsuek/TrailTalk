@@ -30,6 +30,7 @@ def test_report_counts_recall_and_unsupported():
         todos=["할 일 A"],
         memos=[],
         tags=[],
+        topics=[],
     )
     r = Result("c1", "설명", ["아이디어 A", "아이디어 B"], ["할 일 A"], extraction=extraction)
     r.gold_found = [True, False, True]

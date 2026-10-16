@@ -4,6 +4,8 @@
 백그라운드 작업을 띄운다. 가벼운 모델을 CLI 단발 호출로 부르고(app/llm/claude_cli.run_oneshot),
 결과를 Pydantic 스키마로 검증한다. 실패하면 한 번 다시 시도하고, 그래도 실패하면 failed로 둔다.
 아이디어·할 일·메모는 중복(app/jobs/dedupe.py)을 거른 뒤 노트로 저장한다.
+아이디어 주제(topics, S3-17)는 지난 대화의 주제 목록을 함께 주어 같은 아이디어면 같은 이름을
+고르게 하고, 공백·대소문자만 다른 이름은 기존 이름으로 맞춘다.
 상태(conversation_session.extract_status)는 pending → done/failed다.
 """
 
@@ -17,20 +19,22 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, Validation
 from sqlalchemy import func, select
 
 from app.db.models import ConversationSession, ExtractStatus, Note, NoteKind, Turn, TurnRole
-from app.jobs.dedupe import matches_saved, new_items
+from app.jobs.dedupe import matches_saved, new_items, normalize
 from app.llm.backend import LlmError
 from app.llm.claude_cli import run_oneshot
-from app.persona.rules import EXTRACT_INSTRUCTION, EXTRACT_SAVED_SECTION
+from app.persona.rules import EXTRACT_INSTRUCTION, EXTRACT_SAVED_SECTION, EXTRACT_TOPICS_SECTION
 from app.services.profile import profile_with_persona
 
 logger = logging.getLogger("trailtalk.extract")
 
 ATTEMPTS = 2  # 첫 시도 + 재시도 1회
 TRANSCRIPT_LIMIT = 100_000  # 이보다 긴 전문은 앞부분을 잘라 뒷부분을 남긴다
+MAX_KNOWN_TOPICS = 50  # 추출에 알려 주는 지난 주제 수(최근 대화 순)
 
 Title = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60)]
 Line = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 Tag = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=20)]
+Topic = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=30)]
 
 
 class Extraction(BaseModel):
@@ -44,6 +48,7 @@ class Extraction(BaseModel):
     todos: Annotated[list[Line], Field(max_length=10)]
     memos: Annotated[list[Line], Field(max_length=10)]
     tags: Annotated[list[Tag], Field(max_length=5)]
+    topics: Annotated[list[Topic], Field(max_length=3)]
 
 
 def _one_line(text: str) -> str:
@@ -56,9 +61,24 @@ def _clean_tags(tags: Sequence[str]) -> list[str]:
     return list(dict.fromkeys(tag for tag in cleaned if tag))
 
 
+def clean_topics(topics: Sequence[str], known: Sequence[str]) -> list[str]:
+    """주제 이름을 한 줄로 정리하고, 정규화해서 같은 이름은 하나만 남긴다(순서 유지). 공백·대소문자·
+    문장부호만 다른 지난 주제가 있으면 그 이름으로 바꿔 같은 아이디어가 한 묶음이 되게 한다."""
+    by_key = {normalize(name): name for name in reversed(known) if normalize(name)}
+    kept: dict[str, str] = {}
+    for topic in topics:
+        name = _one_line(topic)
+        key = normalize(name)
+        if key and key not in kept:
+            kept[key] = by_key.get(key, name)
+    return list(kept.values())
+
+
 def _escape_tags(text: str) -> str:
-    """글 안에서 프롬프트의 구분 태그(<대화>, <저장한 노트>)를 닫지 못하게 한다."""
-    return text.replace("</대화>", "</ 대화>").replace("</저장한 노트>", "</ 저장한 노트>")
+    """글 안에서 프롬프트의 구분 태그(<대화>, <저장한 노트>, <기존 주제>)를 닫지 못하게 한다."""
+    for tag in ("대화", "저장한 노트", "기존 주제"):
+        text = text.replace(f"</{tag}>", f"</ {tag}>")
+    return text
 
 
 def build_transcript(turns: list[Turn], assistant: str) -> str:
@@ -83,20 +103,47 @@ SAVED_LABELS = {NoteKind.IDEA: "아이디어", NoteKind.TODO: "할 일", NoteKin
 
 
 def build_prompt(
-    turns: list[Turn], assistant: str, saved: Sequence[tuple[NoteKind, str]] = ()
+    turns: list[Turn],
+    assistant: str,
+    saved: Sequence[tuple[NoteKind, str]] = (),
+    topics: Sequence[str] = (),
 ) -> str:
     """saved: 대화 중 save_note로 이미 저장한 노트(종류, 내용). 추출이 같은 항목을 다시 뽑지 않게
     알려 준다. 종류를 붙여 다른 종류의 항목까지 빼지 않게 한다. 노트는 모델이 만든 글이라
-    (웹 내용이 섞일 수 있다) 태그로 감싸 지시로 따르지 않게 한다."""
+    (웹 내용이 섞일 수 있다) 태그로 감싸 지시로 따르지 않게 한다.
+    topics: 지난 대화의 아이디어 주제. 같은 아이디어면 같은 이름을 고르게 한다(같은 이유로 태그로
+    감싼다)."""
     lines = [
         f"- [{SAVED_LABELS[NoteKind(kind)]}] {_escape_tags(' '.join(content.split()))}"
         for kind, content in saved
         if content.strip()
     ]
     section = EXTRACT_SAVED_SECTION.format(items="\n".join(lines)) if lines else ""
-    return EXTRACT_INSTRUCTION.format(
-        assistant=assistant, saved=section, transcript=build_transcript(turns, assistant)
+    topic_lines = [f"- {_escape_tags(_one_line(t))}" for t in topics if t.strip()]
+    topic_section = (
+        EXTRACT_TOPICS_SECTION.format(items="\n".join(topic_lines)) if topic_lines else ""
     )
+    return EXTRACT_INSTRUCTION.format(
+        assistant=assistant,
+        topics=topic_section,
+        saved=section,
+        transcript=build_transcript(turns, assistant),
+    )
+
+
+async def known_topics(db, exclude_session_id: str | None = None) -> list[str]:
+    """지난 대화들의 아이디어 주제(최근 대화 순, 정규화해서 중복 없이). 프롬프트에는 앞의
+    MAX_KNOWN_TOPICS개만 넣고, 표기 맞춤(clean_topics)에는 전부 쓴다."""
+    query = select(ConversationSession.topics).order_by(ConversationSession.started_at.desc())
+    if exclude_session_id is not None:
+        query = query.where(ConversationSession.id != exclude_session_id)
+    names: dict[str, str] = {}
+    for topics in (await db.execute(query)).scalars():
+        for name in topics or []:
+            key = normalize(name)
+            if key and key not in names:
+                names[key] = name
+    return list(names.values())
 
 
 async def _call(app: FastAPI, prompt: str) -> Extraction:
@@ -151,6 +198,7 @@ async def run_extraction(app: FastAPI, session_id: str) -> Extraction | None:
             .order_by(Note.created_at)
         )
         saved = [(kind, content) for kind, content in notes]  # 대화 중 save_note로 저장한 노트
+        topics = await known_topics(db, exclude_session_id=session_id)
         _, loaded = await profile_with_persona(db, settings)
         await db.commit()
     if not any(t.role is TurnRole.USER for t in turns):
@@ -158,7 +206,7 @@ async def run_extraction(app: FastAPI, session_id: str) -> Extraction | None:
         await _set_status(app, session_id, ExtractStatus.DONE)
         return None
 
-    prompt = build_prompt(turns, loaded.persona.name, saved)
+    prompt = build_prompt(turns, loaded.persona.name, saved, topics[:MAX_KNOWN_TOPICS])
     result: Extraction | None = None
     for attempt in range(1, ATTEMPTS + 1):
         try:
@@ -188,6 +236,9 @@ async def run_extraction(app: FastAPI, session_id: str) -> Extraction | None:
             convo.title = _one_line(result.title)
             convo.summary = "\n".join(line for line in map(_one_line, result.summary) if line)
             convo.tags = _clean_tags(result.tags)
+            # 정리하는 사이 다른 대화가 붙인 주제까지 보고 표기를 맞춘다
+            known = await known_topics(db, exclude_session_id=session_id)
+            convo.topics = clean_topics(result.topics, known)
             # 대화 중 save_note로 저장한 노트와 겹치지 않는 항목만 노트로 남긴다(S2-03).
             # 같은 종류의 저장 노트와는 괄호 설명을 뺀 글로도 비교한다(matches_saved)
             rows = await db.execute(

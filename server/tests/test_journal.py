@@ -35,6 +35,7 @@ def add_session(client, started_at, *, spoke=True, title="제목", summary="첫 
             status=kw.get("status", SessionStatus.ENDED),
             extract_status=kw.get("extract_status", ExtractStatus.DONE),
             tags=kw.get("tags", ["산책"]),
+            topics=kw.get("topics", []),
         )
         db.add(convo)
         await db.flush()
@@ -72,7 +73,7 @@ def kst(y, m, d, h, mi=0):
 def test_list_by_local_date_range(client):
     late = add_session(client, kst(2026, 10, 14, 23, 59), title="전날 밤")
     early = add_session(client, kst(2026, 10, 15, 0, 1), title="자정 직후")
-    later = add_session(client, kst(2026, 10, 15, 18, 0), title="저녁")
+    later = add_session(client, kst(2026, 10, 15, 18, 0), title="저녁", topics=["쓰레기통 지도"])
     add_session(client, kst(2026, 10, 15, 12, 0), spoke=False)  # 인사말만 있는 대화는 뺀다
     add_note(client, later, NoteKind.IDEA, "아이디어")
     add_note(client, later, NoteKind.IDEA, "아이디어 2")
@@ -85,6 +86,8 @@ def test_list_by_local_date_range(client):
     assert first["title"] == "저녁"
     assert first["summary"] == ["첫 줄", "둘째 줄"]
     assert first["tags"] == ["산책"]
+    assert first["topics"] == ["쓰레기통 지도"]
+    assert body[1]["topics"] == []
     assert first["journal_status"] == "done" and first["status"] == "ended"
     assert first["counts"] == {"idea": 2, "todo": 1, "memo": 0}
 

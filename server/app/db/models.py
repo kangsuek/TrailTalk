@@ -85,6 +85,12 @@ class ConversationSession(Base):
     title: Mapped[str | None] = mapped_column(String(200))
     summary: Mapped[str | None] = mapped_column(Text)
     tags: Mapped[list[str]] = mapped_column(MutableList.as_mutable(JSON), default=list)
+    # 이 대화에서 다룬 아이디어의 주제 이름(일지 정리 때 기존 주제에서 고른다). 일지 목록의
+    # 아이디어별 보기가 같은 이름끼리 묶는다(S3-17). NULL은 주제가 생기기 전에 정리해 아직 분류하지
+    # 않은 대화다(app/jobs/topics_backfill.py가 채운다). 빈 목록은 분류했지만 아이디어가 없는 것이다
+    topics: Mapped[list[str] | None] = mapped_column(
+        MutableList.as_mutable(JSON(none_as_null=True)), default=list
+    )
     extract_status: Mapped[ExtractStatus | None] = mapped_column(
         _enum(ExtractStatus, "extract_status")
     )
