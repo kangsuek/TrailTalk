@@ -60,6 +60,8 @@ export type ConversationAction =
   // code: 서버 오류 코드(세션이 이미 끝났으면 대화를 끝낸다), unsentId: 서버가 받기 전에 실패해
   // 입력창으로 되돌린 사용자 메시지(목록에서 뺀다)
   | { type: 'failed'; message: string; code?: string; unsentId?: string }
+  // 끼어들기: 그 답변을 들려준 문장(keep개)까지만 남기고 끊긴 답변으로 마무리한다(받는 중이었어도)
+  | { type: 'interrupt'; turnId: string; keep: number }
   | { type: 'ending' }
   // closing: 서버가 준 마무리 멘트(캐릭터 말풍선으로 보인다), journalPending: 일지 정리가 아직 진행 중
   | { type: 'ended'; closing?: string; journalPending?: boolean }
@@ -218,6 +220,21 @@ export function conversationReducer(
         error: action.message,
         messages: updateStreaming(messages, (m) => ({ ...m, status: 'error' })),
       }
+    }
+    case 'interrupt': {
+      const index = state.messages.findIndex((m) => m.role === 'assistant' && m.id === action.turnId)
+      if (index === -1) return state
+      const message = state.messages[index] as AssistantMessage
+      const streaming = message.status === 'streaming'
+      if (!streaming && action.keep >= message.sentences.length) return state // 다 들었다
+      const messages = state.messages.slice()
+      messages[index] = {
+        ...message,
+        sentences: message.sentences.slice(0, Math.max(action.keep, 0)),
+        status: 'done',
+        interrupted: true,
+      }
+      return { ...state, messages, sending: streaming ? false : state.sending }
     }
     case 'ending':
       return { ...state, sending: true, ending: true, error: null }

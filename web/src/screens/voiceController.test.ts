@@ -77,6 +77,7 @@ function setup(overrides: Partial<VoiceDeps> = {}) {
       for (const event of TURN) onEvent(event)
     }),
     endSession: vi.fn(async () => CLOSED),
+    cancelTurn: vi.fn(async () => {}),
     getProfile: vi.fn(async () => {
       throw new ApiError('network_error', '서버에 연결할 수 없어요.', 0)
     }),
@@ -180,11 +181,9 @@ describe('createVoiceController', () => {
     await tick()
     expect(t.enqueued.map((i) => i.index)).toEqual([null, 0])
     expect(t.actions.some((a) => a.type === 'failed')).toBe(false)
-    // 받는 중이던 말풍선은 끊긴 답변으로 마무리한다
-    expect(t.actions).toContainEqual({
-      type: 'event',
-      event: { type: 'done', turn_id: 'a1', text: '', interrupted: true, session_status: 'active' },
-    })
+    // 서버와 말풍선 모두 들려준 문장까지만 남긴다(아직 한 문장도 다 듣지 못했다)
+    expect(t.deps.cancelTurn).toHaveBeenCalledWith('s1', 'a1', -1)
+    expect(t.actions).toContainEqual({ type: 'interrupt', turnId: 'a1', keep: 0 })
   })
 
   it('끝내기 도구로 턴이 끝나면 다 들려준 뒤 끝내기를 부르고 마무리 멘트를 들려준다', async () => {
@@ -414,9 +413,28 @@ describe('createVoiceController', () => {
     expect(t.output.stop).toHaveBeenCalled()
     expect(signal?.aborted).toBe(true)
     expect(t.state()).toBe('listening')
-    expect(t.actions).toContainEqual({
-      type: 'event',
-      event: { type: 'done', turn_id: 'a1', text: '', interrupted: true, session_status: 'active' },
-    })
+    expect(t.deps.cancelTurn).toHaveBeenCalledWith('s1', 'a1', -1)
+    expect(t.actions).toContainEqual({ type: 'interrupt', turnId: 'a1', keep: 0 })
+  })
+
+  it('끝까지 받은 답변을 재생 중에 끊으면 들려준 문장 번호로 자른다', async () => {
+    const t = setup()
+    await startListening(t)
+    t.speak()
+    await tick()
+    t.played({ type: 'sentence_played', index: 0 }) // 첫 문장만 다 들었다
+    t.controller.tap()
+    expect(t.deps.cancelTurn).toHaveBeenCalledWith('s1', 'a1', 0)
+    expect(t.actions).toContainEqual({ type: 'interrupt', turnId: 'a1', keep: 1 })
+  })
+
+  it('인사말 중에 끊으면 서버에 알리되 인사말 말풍선은 자르지 않는다', async () => {
+    const t = setup()
+    t.controller.tap()
+    await tick()
+    t.controller.tap() // 인사말 재생 중 끼어들기
+    expect(t.state()).toBe('listening')
+    expect(t.deps.cancelTurn).toHaveBeenCalledWith('s1', 'g1', -1)
+    expect(t.actions.some((a) => a.type === 'interrupt')).toBe(false)
   })
 })

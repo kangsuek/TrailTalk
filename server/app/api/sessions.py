@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.events import sse_response_doc
 from app.db.models import ConversationMode, ConversationSession
@@ -139,6 +139,23 @@ async def create_turn(
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )
+
+
+class TurnCancel(BaseModel):
+    """끼어들기: 다 들려준 마지막 문장 번호(sentence.index). 하나도 못 들려줬으면 -1."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    last_played: Annotated[int, Field(ge=-1)]
+
+
+@router.post("/sessions/{session_id}/turns/{turn_id}/cancel", status_code=204)
+async def cancel_turn(
+    session_id: str, turn_id: str, body: TurnCancel, request: Request, db: DbSession
+) -> Response:
+    """끼어들기(계획서 S3-04): 답변을 멈추고 들려준 문장까지만 기록한다. 끝난 턴도 받는다(멱등)."""
+    await conversation.cancel_turn(request.app, db, session_id, turn_id, body.last_played)
+    return Response(status_code=204)
 
 
 # 음성 업로드 본문(오디오 바이트 그대로). 웹 MediaRecorder는 audio/webm, 안드로이드는 audio/ogg

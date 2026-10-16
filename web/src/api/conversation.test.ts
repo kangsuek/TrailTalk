@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { StreamEvent } from '../core/conversation'
-import { ApiError, endSession, sendAudioTurn, sendTurn, startSession } from './conversation'
+import { ApiError, cancelTurn, endSession, sendAudioTurn, sendTurn, startSession } from './conversation'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -167,5 +167,16 @@ describe('sendAudioTurn', () => {
     const audio = { bytes: new Uint8Array(4), mimeType: 'audio/wav', durationMs: 100 }
     const error = await sendAudioTurn('s1', audio, () => {}).catch((e) => e)
     expect(error).toMatchObject({ code: 'no_speech', status: 422 })
+  })
+})
+
+describe('cancelTurn', () => {
+  it('들려준 마지막 문장 번호를 보낸다', async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchMock)
+    await cancelTurn('s 1', 'a/1', 2)
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('/api/sessions/s%201/turns/a%2F1/cancel')
+    expect(JSON.parse(init.body as string)).toEqual({ last_played: 2 })
   })
 })

@@ -1,7 +1,7 @@
 // 음성 대화 컨트롤러(계획서 S3-13, 클라이언트 규약 4절 "플랫폼이 지킬 것").
 // 상태 머신(core/sessionMachine)에 이벤트를 넣고, 나온 명령을 마이크(AudioInput)·재생(AudioOutput)·
 // 서버 API로 실행한다. 말풍선은 텍스트 대화와 같은 리듀서(core/conversation)로 그린다.
-import { ApiError, endSession, sendAudioTurn, startSession } from '../api/conversation'
+import { ApiError, cancelTurn, endSession, sendAudioTurn, startSession } from '../api/conversation'
 import { getProfile } from '../api/profile'
 import {
   DEFAULT_SESSION_CONFIG,
@@ -31,6 +31,7 @@ export interface VoiceDeps {
   createOutput: (onEvent: (event: AudioOutputEvent) => void) => AudioOutput
   startSession: typeof startSession
   sendAudioTurn: typeof sendAudioTurn
+  cancelTurn: typeof cancelTurn
   endSession: typeof endSession
   getProfile: typeof getProfile
 }
@@ -41,6 +42,7 @@ const DEFAULT_DEPS: VoiceDeps = {
     lazyAudioOutput(onEvent, { listen: listenSound, saved: savedSound, offline: offlineSound }),
   startSession,
   sendAudioTurn,
+  cancelTurn,
   endSession,
   getProfile,
 }
@@ -81,7 +83,7 @@ export function createVoiceController({
   let sessionId: string | null = null
   let startAbort: AbortController | null = null
   let turnAbort: AbortController | null = null
-  let streamingTurn: string | null = null // 답변을 받는 중인 턴(끼어들면 말풍선을 끊긴 답변으로 마무리한다)
+  let greetingTurn: string | null = null // 인사말 턴(문장 번호 없이 재생하므로 끼어들어도 자르지 않는다)
   let endAbort: AbortController | null = null
   let idleTimer: ReturnType<typeof setTimeout> | undefined
   let disposed = false
@@ -165,6 +167,7 @@ export function createVoiceController({
       const [body] = await Promise.all([d.startSession('voice', abort.signal), profileLoaded])
       if (abort.signal.aborted || disposed) return
       sessionId = body.session.id
+      greetingTurn = body.greeting.turn_id
       dispatch({
         type: 'started',
         sessionId: body.session.id,
@@ -205,7 +208,6 @@ export function createVoiceController({
               return
             case 'turn':
               turnId = event.turn_id
-              streamingTurn = event.turn_id
               dispatch({ type: 'event', event })
               send({ type: 'turn', turnId: event.turn_id })
               return
@@ -223,7 +225,6 @@ export function createVoiceController({
               }
               return
             case 'done':
-              streamingTurn = null
               dispatch({ type: 'event', event })
               send({ type: 'turn_done', turnId: event.turn_id, sessionStatus: event.session_status })
               return
@@ -247,10 +248,7 @@ export function createVoiceController({
       if (turnId === null) dispatch({ type: 'failed', message: messageOf(code), code, unsentId: localId })
       send({ type: 'turn_error', turnId, code })
     } finally {
-      if (turnAbort === abort) {
-        turnAbort = null
-        streamingTurn = null
-      }
+      if (turnAbort === abort) turnAbort = null
     }
   }
 
@@ -305,16 +303,15 @@ export function createVoiceController({
         void sendTurn(command.utteranceId)
         return
       case 'cancelTurn':
-        // 연결을 끊으면 서버가 턴을 멈추고 보낸 문장까지 끊긴 답변으로 남긴다(cancel API는 S3-04)
+        // 받는 중이면 연결을 끊고(늦은 이벤트를 버린다), 서버에 들려준 문장까지만 남기게 한다.
+        // 기다리지 않고 실패는 무시한다(연결이 끊긴 것만으로도 보낸 문장까지는 끊긴 답변으로 남는다)
         turnAbort?.abort()
         turnAbort = null
-        if (streamingTurn !== null) {
-          // 받는 중이던 말풍선을 끊긴 답변으로 마무리한다(받은 문장은 그대로 둔다)
-          dispatch({
-            type: 'event',
-            event: { type: 'done', turn_id: streamingTurn, text: '', interrupted: true, session_status: 'active' },
-          })
-          streamingTurn = null
+        if (sessionId !== null) {
+          void d.cancelTurn(sessionId, command.turnId, command.lastPlayed).catch(() => {})
+        }
+        if (command.turnId !== greetingTurn) {
+          dispatch({ type: 'interrupt', turnId: command.turnId, keep: command.lastPlayed + 1 })
         }
         return
       case 'endSession':

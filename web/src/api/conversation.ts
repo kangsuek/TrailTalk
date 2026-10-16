@@ -30,6 +30,17 @@ export async function startSession(
   return (await post('/api/sessions', { mode }, signal)).json()
 }
 
+/** 끼어들기(S3-04): 답변을 멈추고 다 들려준 문장(lastPlayed번까지, 없으면 -1)만 기록하게 한다. 멱등. */
+export async function cancelTurn(
+  sessionId: string,
+  turnId: string,
+  lastPlayed: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  const path = `/api/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(turnId)}/cancel`
+  await post(path, { last_played: lastPlayed }, signal)
+}
+
 /** 대화를 끝낸다. 서버가 일지 정리를 잠깐 기다린 뒤 마무리 멘트와 저장 개수를 준다(여러 번 불러도 같다). */
 export async function endSession(sessionId: string, signal?: AbortSignal): Promise<SessionClosed> {
   return (await post(`/api/sessions/${encodeURIComponent(sessionId)}/end`, {}, signal)).json()

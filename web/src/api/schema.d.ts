@@ -72,6 +72,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sessions/{session_id}/turns/{turn_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Turn
+         * @description 끼어들기(계획서 S3-04): 답변을 멈추고 들려준 문장까지만 기록한다. 끝난 턴도 받는다(멱등).
+         */
+        post: operations["cancel_turn_api_sessions__session_id__turns__turn_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sessions/{session_id}/turns/audio": {
         parameters: {
             query?: never;
@@ -448,6 +468,14 @@ export interface components {
             greeting: components["schemas"]["GreetingOut"];
             persona: components["schemas"]["PersonaOut"];
         };
+        /**
+         * TurnCancel
+         * @description 끼어들기: 다 들려준 마지막 문장 번호(sentence.index). 하나도 못 들려줬으면 -1.
+         */
+        TurnCancel: {
+            /** Last Played */
+            last_played: number;
+        };
         /** TurnCreate */
         TurnCreate: {
             /** Text */
@@ -782,6 +810,40 @@ export interface operations {
                 content: {
                     "text/event-stream": components["schemas"]["StreamEvent"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_turn_api_sessions__session_id__turns__turn_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+                turn_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TurnCancel"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

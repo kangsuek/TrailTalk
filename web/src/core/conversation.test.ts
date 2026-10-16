@@ -77,6 +77,27 @@ describe('conversationReducer', () => {
     })
   })
 
+  it('끼어들면 그 답변을 들려준 문장까지만 남기고 끊긴 답변으로 마무리한다', () => {
+    const receiving = reduce([
+      ...started,
+      { type: 'send', id: 'u1', text: '질문' },
+      ev({ type: 'turn', turn_id: 'a1' }),
+      ev({ type: 'sentence', index: 0, text: '하나.', audio: null }),
+      ev({ type: 'sentence', index: 1, text: '둘.', audio: null }),
+    ])
+    const cut = conversationReducer(receiving, { type: 'interrupt', turnId: 'a1', keep: 1 })
+    expect(last(cut)).toMatchObject({ sentences: ['하나.'], status: 'done', interrupted: true })
+    expect(cut.sending).toBe(false)
+
+    // 다 받은 답변도 자르고, 다 들은 경우와 인사말·없는 턴은 그대로 둔다
+    const done = reduce([
+      ev({ type: 'done', turn_id: 'a1', text: '하나. 둘.', interrupted: false, session_status: 'active' }),
+    ], receiving)
+    expect(last(conversationReducer(done, { type: 'interrupt', turnId: 'a1', keep: 0 })).sentences).toEqual([])
+    expect(conversationReducer(done, { type: 'interrupt', turnId: 'a1', keep: 2 })).toBe(done)
+    expect(conversationReducer(done, { type: 'interrupt', turnId: 'zz', keep: 0 })).toBe(done)
+  })
+
   it('send하면 보내는 중이 되고 이전 오류를 지운다', () => {
     const state = reduce([
       ...started,

@@ -67,7 +67,7 @@ from app.mcp.server import mcp_client_config
 from app.persona.loader import LoadedPersona
 from app.persona.memory import load_memory
 from app.persona.prompt import MemoryContext, build_system_prompt
-from app.persona.rules import GREETING_INSTRUCTION
+from app.persona.rules import GREETING_INSTRUCTION, INTERRUPTED_HEARD, INTERRUPTED_NOTHING
 from app.services.profile import profile_with_persona
 from app.services.runtime import ConversationRuntime
 from app.voice.sentences import SentenceSplitter
@@ -83,6 +83,11 @@ class SessionNotFound(AppError):
 class SessionEnded(AppError):
     def __init__(self) -> None:
         super().__init__("session_ended", "이미 끝난 대화입니다.", 409)
+
+
+class TurnNotFound(AppError):
+    def __init__(self) -> None:
+        super().__init__("turn_not_found", "답변을 찾을 수 없습니다.", 404)
 
 
 class TurnBusy(AppError):
@@ -551,12 +556,15 @@ async def _run_turn(
     # 합성 중이거나 보낼 차례를 기다리는 문장(순서대로). 분할기가 한 번에 내놓은 문장들의
     # 소리는 동시에 만들고, 보낼 때는 순서를 지킨다
     pending: list[tuple[str, asyncio.Task[str | None] | None]] = []
+    # 끼어들기 API가 진행 중인 턴으로 알아보게 바로 표시한다(CLI 세션은 연 뒤에 채운다)
+    runtime.active_turn = (assistant_id, None)
     try:
         with anyio.CancelScope(shield=True):
             await db.refresh(convo)  # 그사이 종료 API가 끝냈으면 CLI를 다시 띄우지 않는다
             if convo.status is SessionStatus.ENDED:
                 raise SessionEnded()
             session, loaded = await open_llm(app, db, convo)
+        runtime.active_turn = (assistant_id, session)  # 끼어들기 API가 인터럽트를 보낸다
         # 음성 세션이면 문장마다 소리를 만든다(텍스트로 보낸 턴도 마찬가지)
         voice = loaded.persona.voice if convo.mode is ConversationMode.VOICE else None
         speech = app.state.speech
@@ -564,6 +572,7 @@ async def _run_turn(
         index = 0
         parts: list[str] = []
         sent: list[str] = []  # 클라이언트에 보낸 문장(부분 답변으로 저장)
+        runtime.remember_sentences(assistant_id, sent)  # 들려준 문장까지 자를 때 쓴다(S3-04)
         reply_saved = False
         tool_names: dict[str, str] = {}
         finished: TurnFinished | None = None
@@ -607,7 +616,9 @@ async def _run_turn(
         notice_sent = False
         spoken = False  # 이번 턴에 소리 있는 문장을 보냈는가(검색 안내 조건)
 
-        async with aclosing(session.send(text)) as stream:
+        # 직전 답변을 끊었으면 사용자가 어디까지 들었는지 CLI에만 알린다(기록에는 남기지 않는다)
+        cli_text, runtime.heard_note = (runtime.heard_note or "") + text, None
+        async with aclosing(session.send(cli_text)) as stream:
             async for event in stream:
                 if isinstance(event, TurnStarted):
                     if event.cli_session_id and event.cli_session_id != convo.cli_session_id:
@@ -718,12 +729,115 @@ async def _run_turn(
             if task is not None:
                 task.cancel()
         runtime.current_user_turn_id = None
+        runtime.active_turn = None
         # 도구가 쉬기·끝내기를 요청한 뒤 턴이 오류나 연결 끊김으로 끝났어도 요청은 반영한다
         # (정상 종료면 위에서 이미 꺼냈다). 끊김으로 취소된 중에도 끝까지 처리한다
         leftover = runtime.pop_requested_status()
         if leftover is not None:
             with anyio.CancelScope(shield=True):
                 await _apply_leftover_status(app, db, session_id, leftover)
+
+
+_CANCEL_WAIT_S = 10.0
+_HEARD_MAX_CHARS = 100  # 안내에 넣는 마지막으로 들은 문장의 길이
+
+
+async def cancel_turn(
+    app: FastAPI, db: AsyncSession, session_id: str, turn_id: str, last_played: int
+) -> None:
+    """끼어들기(S3-04): 답변을 멈추고 들려준 문장(last_played번까지)만 남긴다. 멱등이다.
+
+    진행 중인 턴이면 CLI에 인터럽트를 보내고 턴이 끝나기를 기다린 뒤 자른다. 끝난 턴도 자른다.
+    인사말(seq 0)은 문장 번호 없이 재생돼 클라이언트가 늘 -1을 보내므로 자르지 않는다.
+    자르기와 다음 턴 안내는 턴 락 안에서 한다. 그래야 바로 뒤 턴이 안내를 놓치지 않고, 끝내기
+    API(같은 락을 기다린다)의 일지 정리가 자르기 전 원문을 읽지 않는다.
+    """
+    await get_session(db, session_id)
+    runtime = app.state.runtimes.get(session_id)
+    if runtime is None:
+        # 서버 재시작 뒤: 진행 중인 턴도 메모리 기록도 없다. 저장된 답변만 자른다(안내는 CLI가 새로
+        # 열리므로 생략)
+        await _trim_reply(db, session_id, turn_id, last_played, None)
+        return
+    running = runtime.active_turn is not None and runtime.active_turn[0] == turn_id
+    if running and runtime.active_turn[1] is not None:  # CLI를 여는 중이면 인터럽트할 것이 없다
+        try:
+            await runtime.active_turn[1].interrupt()
+        except Exception:
+            # 이미 끝나는 중이거나 프로세스가 없다. 턴이 끝나기를 기다린 뒤 자른다
+            logger.warning("끼어들기 인터럽트 실패(session=%s)", session_id, exc_info=True)
+    try:
+        async with asyncio.timeout(_CANCEL_WAIT_S):
+            await runtime.turn_lock.acquire()
+    except TimeoutError:
+        if running:
+            # 아직 끝나지 않은 턴을 지금 자르면 그 턴이 끝날 때 전체 답변으로 덮어쓴다
+            logger.warning(
+                "끼어들기 중 턴 정리 대기 시간 초과, 자르지 않음(session=%s)", session_id
+            )
+            return
+        # 다른(다음) 턴이 진행 중이다: 끝난 이 답변만 자르고 안내는 붙이지 않는다
+        await _trim_reply(db, session_id, turn_id, last_played, None)
+        return
+    try:
+        await _trim_reply(db, session_id, turn_id, last_played, runtime)
+    finally:
+        runtime.turn_lock.release()
+
+
+async def _trim_reply(
+    db: AsyncSession,
+    session_id: str,
+    turn_id: str,
+    last_played: int,
+    runtime: ConversationRuntime | None,
+) -> None:
+    """답변 기록을 last_played번 문장까지로 자른다. runtime을 주면 다음 턴 안내도 남긴다."""
+    turn = await db.scalar(
+        select(Turn).where(Turn.id == turn_id).execution_options(populate_existing=True)
+    )
+    if turn is None or turn.session_id != session_id or turn.role is not TurnRole.ASSISTANT:
+        # 첫 문장 전에 연결이 끊겨 답변 기록이 없는 턴도 여기에 온다(클라이언트는 무시한다)
+        raise TurnNotFound()
+    if turn.seq == 0:
+        return
+    sentences = runtime.reply_sentences.get(turn_id) if runtime is not None else None
+    if sentences is None:
+        # 기억이 없으면(서버 재시작, 최근 답변이 아님) 저장된 답변을 다시 나눈다. 스트리밍 때는
+        # 도구 앞에서 끊어 짧은 조각도 한 문장이 되므로 번호가 조금 어긋날 수 있다(알려진 한계)
+        splitter = SentenceSplitter()
+        sentences = splitter.feed(turn.text) + splitter.flush()
+    keep = last_played + 1
+    if keep >= len(sentences):
+        return  # 다 들었다
+    heard = sentences[:keep]
+    text = " ".join(heard)
+    if turn.interrupted and turn.text == text:
+        return  # 이미 잘랐다(같은 요청을 다시 받았다): 안내도 다시 붙이지 않는다
+    await db.execute(
+        update(Turn)
+        .where(Turn.id == turn_id)
+        .values(text=text, interrupted=True)
+        .execution_options(synchronize_session=False)
+    )
+    await db.commit()
+    latest = await db.scalar(
+        select(func.max(Turn.seq)).where(
+            Turn.session_id == session_id, Turn.role == TurnRole.ASSISTANT
+        )
+    )
+    if runtime is not None and latest == turn.seq:  # 직전 답변일 때만 다음 턴에 알린다
+        runtime.heard_note = _heard_note(heard)
+
+
+def _heard_note(heard: list[str]) -> str:
+    if not heard:
+        return INTERRUPTED_NOTHING
+    # 앱 안내의 틀(괄호·따옴표)을 깨지 않게 인용할 문장의 따옴표·괄호를 정리한다(검색 결과를 옮긴
+    # 문장일 수도 있다)
+    last = heard[-1][-_HEARD_MAX_CHARS:]
+    last = last.replace('"', "'").translate(str.maketrans("", "", "()[]{}"))
+    return INTERRUPTED_HEARD.format(heard=last)
 
 
 async def _save_reply(
