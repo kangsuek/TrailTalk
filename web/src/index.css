@@ -265,7 +265,7 @@ body {
   gap: 8px;
 }
 
-.composer textarea {
+.composer-row textarea {
   box-sizing: border-box;
   flex: 1;
   min-width: 0;
@@ -282,7 +282,7 @@ body {
   resize: none;
 }
 
-.composer textarea:focus {
+.composer-row textarea:focus {
   border-color: var(--accent);
   outline: none;
 }
@@ -754,6 +754,11 @@ body {
   color: var(--muted);
   font-size: 0.85rem;
   text-align: center;
+}
+
+.voice-composer {
+  align-self: stretch;
+  margin-top: 8px;
 }
 
 .voice-controls button.small {

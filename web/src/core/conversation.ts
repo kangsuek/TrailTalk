@@ -62,6 +62,8 @@ export type ConversationAction =
   // code: 서버 오류 코드(세션이 이미 끝났으면 대화를 끝낸다), unsentId: 서버가 받기 전에 실패해
   // 입력창으로 되돌린 사용자 메시지(목록에서 뺀다)
   | { type: 'failed'; message: string; code?: string; unsentId?: string }
+  // 서버가 받기 전에 대화가 끝나 보내지 못한 사용자 메시지를 조용히 뺀다(오류 문구 없음)
+  | { type: 'unsend'; id: string }
   // 끼어들기: 그 답변을 들려준 문장(keep개)까지만 남기고 끊긴 답변으로 마무리한다(받는 중이었어도)
   | { type: 'interrupt'; turnId: string; keep: number }
   | { type: 'ending' }
@@ -204,6 +206,8 @@ export function conversationReducer(
       }
     case 'event':
       return applyEvent(state, action.event)
+    case 'unsend':
+      return { ...state, messages: state.messages.filter((m) => m.id !== action.id) }
     case 'failed': {
       const messages = action.unsentId
         ? state.messages.filter((m) => m.id !== action.unsentId)

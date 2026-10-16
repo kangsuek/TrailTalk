@@ -49,6 +49,14 @@ function SendIcon() {
   )
 }
 
+/** 음성 대화 중 글을 지금 보낼 수 없는 이유 */
+function typingHint(machine: { name: string; connected: boolean; queued: number }): string {
+  if (!machine.connected || machine.name === 'offline') return '연결되면 보낼 수 있어요.'
+  if (machine.queued > 0) return '보관한 말을 보낸 뒤에 보낼 수 있어요.'
+  if (machine.name === 'closing') return '대화를 정리하는 중이에요.'
+  return '답변이 끝나면 보낼 수 있어요.'
+}
+
 /** 브라우저 탭이 보이는지(백그라운드 탭에서는 미리 준비 요청을 보내지 않는다) */
 function usePageVisible(): boolean {
   const [shown, setShown] = useState(() => document.visibilityState !== 'hidden')
@@ -201,14 +209,15 @@ export function ConversationScreen({
     el.style.height = 'auto'
     const border = el.offsetHeight - el.clientHeight
     el.style.height = `${Math.min(el.scrollHeight + border, COMPOSER_MAX_PX)}px`
-  }, [draft, state.status, mode])
+  }, [draft, state.status, mode, voiceActive])
 
   // 대화가 시작되면 바로 입력할 수 있게 입력창으로 포커스를 옮긴다
   const previousStatus = useRef(state.status)
   useEffect(() => {
-    if (previousStatus.current === 'starting' && state.status === 'active') input.current?.focus()
+    // 음성 대화에는 입력창이 있어도 옮기지 않는다(폰 키보드가 올라와 구슬을 가린다)
+    if (previousStatus.current === 'starting' && state.status === 'active' && mode === 'text') input.current?.focus()
     previousStatus.current = state.status
-  }, [state.status])
+  }, [state.status, mode])
 
   /** unsentId: 실패했을 때 서버가 받지 못한 사용자 메시지 id(목록에서 뺀다) */
   const run = async (
@@ -312,6 +321,20 @@ export function ConversationScreen({
     )
   }
 
+  // 음성 대화 중 글로 보낸 말: 듣는 중(말하는 중이면 끼어든 뒤)에만 보낸다. 서버에 닿지 않으면 글을 돌려받는다
+  const voiceCanType =
+    voice.machine.connected &&
+    voice.machine.queued === 0 &&
+    (voice.machine.name === 'listening' || voice.machine.name === 'speaking' || voice.machine.name === 'paused')
+  const sendVoiceText = (event?: FormEvent) => {
+    event?.preventDefault()
+    const text = draft.trim()
+    if (!text || !voiceCanType) return
+    stickToBottom.current = true
+    if (voice.sendText(text, (unsent) => setDraft((current) => current || unsent))) setDraft('')
+  }
+  const submit = voiceActive ? sendVoiceText : send
+
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     // 한글 조합 중 Enter는 글자 확정이므로 보내지 않는다(Safari는 isComposing 대신 keyCode 229)
     const composing = event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229
@@ -319,7 +342,7 @@ export function ConversationScreen({
     const touch = window.matchMedia?.('(pointer: coarse)').matches ?? false
     if (event.key === 'Enter' && !event.shiftKey && !composing && !touch) {
       event.preventDefault()
-      send()
+      submit()
     }
   }
 
@@ -339,6 +362,25 @@ export function ConversationScreen({
     const sessionId = state.sessionId
     void run((signal) => finish(sessionId, signal))
   }
+
+  // 메신저형 입력줄(자동 높이 입력창 + 둥근 보내기). 글 대화와 음성 대화가 같이 쓴다
+  const composerRow = (locked: boolean) => (
+    <div className="composer-row">
+      <textarea
+        ref={input}
+        aria-label="메시지"
+        value={draft}
+        rows={1}
+        maxLength={4000}
+        placeholder={voiceActive ? '말 대신 글로 보내기' : '메시지를 입력하세요'}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={onKeyDown}
+      />
+      <button type="submit" className="send-button" aria-label="보내기" disabled={locked || !draft.trim()}>
+        <SendIcon />
+      </button>
+    </div>
+  )
 
   const name = state.personaName ?? ''
   const inConversation = state.status === 'active' || state.status === 'paused'
@@ -408,7 +450,14 @@ export function ConversationScreen({
           connected={voice.machine.connected}
           onTap={voice.tap}
           onLongPress={voice.longPress}
-        />
+        >
+          {state.sessionId !== null && (
+            <form className="voice-composer" onSubmit={sendVoiceText}>
+              {composerRow(!voiceCanType)}
+              {draft.trim() && !voiceCanType && <p className="voice-hint">{typingHint(voice.machine)}</p>}
+            </form>
+          )}
+        </VoiceControls>
       )}
 
       {inConversation && mode === 'text' && (
@@ -419,26 +468,7 @@ export function ConversationScreen({
               대화 끝내기
             </button>
           </div>
-          <div className="composer-row">
-            <textarea
-              ref={input}
-              aria-label="메시지"
-              value={draft}
-              rows={1}
-              maxLength={4000}
-              placeholder="메시지를 입력하세요"
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={onKeyDown}
-            />
-            <button
-              type="submit"
-              className="send-button"
-              aria-label="보내기"
-              disabled={!canSend || !draft.trim()}
-            >
-              <SendIcon />
-            </button>
-          </div>
+          {composerRow(!canSend)}
         </form>
       )}
 

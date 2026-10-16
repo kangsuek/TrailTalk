@@ -99,6 +99,13 @@ describe('conversationReducer', () => {
     expect(conversationReducer(done, { type: 'interrupt', turnId: 'zz', keep: 0 })).toBe(done)
   })
 
+  it('unsend는 보내지 못한 내 말풍선만 조용히 뺀다', () => {
+    const sent = reduce([...started, { type: 'send', id: 'u-1', text: '못 보냄' }])
+    const state = conversationReducer(sent, { type: 'unsend', id: 'u-1' })
+    expect(state.messages.map((m) => m.id)).not.toContain('u-1')
+    expect(state.error).toBe(sent.error)
+  })
+
   it('send하면 보내는 중이 되고 이전 오류를 지운다', () => {
     const state = reduce([
       ...started,

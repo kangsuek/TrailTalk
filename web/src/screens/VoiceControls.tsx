@@ -1,6 +1,6 @@
 // 음성 대화의 큰 버튼과 상태 표시(계획서 S3-13, 설계서 4.1 웹 열).
 // 한 번 누르기 = 시작·끼어들기·쉬기 재개(tap), 길게 누르기 = 종료(long_press).
-import { useRef, type PointerEvent, type Ref } from 'react'
+import { useRef, type PointerEvent, type ReactNode, type Ref } from 'react'
 import type { SessionStateName } from '../core'
 
 const LONG_PRESS_MS = 700
@@ -17,6 +17,7 @@ const STATUS: Record<SessionStateName, { label: string; hint: string }> = {
 
 export function VoiceControls({
   dockRef,
+  children,
   state,
   connecting,
   queued = 0,
@@ -25,6 +26,7 @@ export function VoiceControls({
   onLongPress,
 }: {
   dockRef?: Ref<HTMLDivElement> // 화면 아래 고정 패널(대화 화면이 높이를 보고 스크롤을 맞춘다)
+  children?: ReactNode // 상태 문구 아래·끝내기 위에 둘 것(글 입력줄)
   state: SessionStateName
   connecting: boolean // 시작 응답을 기다리는 중
   queued?: number // 보관한 말 수(연결이 끊긴 동안·답변을 기다리는 동안 한 말, S3-12)
@@ -93,6 +95,7 @@ export function VoiceControls({
               : `이어서 한 말 ${queued}개 · 다음 차례에 보내요`}
         </p>
       )}
+      {children}
       {/* 정리 중에는 끝내기 응답을 기다리지 않고 나오는 탈출구(서버 끝내기는 멱등이다) */}
       <button type="button" className="secondary small" onClick={onLongPress}>
         {state === 'closing' ? '그만 기다리기' : '대화 끝내기'}

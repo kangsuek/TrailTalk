@@ -8,6 +8,7 @@ import {
   recordAudioTurn,
   reportLatency,
   sendAudioTurn,
+  sendTurn as sendTextTurn,
   startSession,
 } from '../api/conversation'
 import { fetchHealth } from '../api/health'
@@ -31,7 +32,7 @@ import {
   type SessionState,
   type VadSettings,
 } from '../core'
-import type { ConversationAction } from '../core/conversation'
+import type { ConversationAction, StreamEvent } from '../core/conversation'
 import { createLocalQueue } from '../platform/localQueue'
 import clientDefaults from '../../../shared/client-defaults.json'
 import { lazyAudioInput, lazyAudioOutput } from './lazyPlatform'
@@ -44,6 +45,7 @@ export interface VoiceDeps {
   createOutput: (onEvent: (event: AudioOutputEvent) => void) => AudioOutput
   startSession: typeof startSession
   sendAudioTurn: typeof sendAudioTurn
+  sendTextTurn: typeof sendTextTurn // 음성 대화 중 글로 보낸 말(서버가 답변 음성도 만든다)
   cancelTurn: typeof cancelTurn
   reportLatency: typeof reportLatency
   endSession: typeof endSession
@@ -62,6 +64,8 @@ const NOTICE_TIMEOUT_MS = 6000 // 기기 TTS가 끝 알림을 주지 않을 때�
 const RETRY_MS = 30_000 // 연결이 끊긴 동안 다시 시도하는 간격(서버만 안 닿는 경우 online 이벤트가 없다)
 // 턴이 시작되기(인식 결과가 오기) 전까지 기다리는 시간. 넘으면 서버에 닿지 않은 것으로 본다
 const PRE_TURN_TIMEOUT_MS = 30_000
+const TEXT_BUSY_RETRIES = 3 // 글을 끼어든 직후 보냈는데 서버가 이전 답변을 정리 중일 때 다시 보내는 횟수
+const TEXT_BUSY_RETRY_MS = 500
 const MAX_ATTEMPTS = 5 // 보관한 말을 서버 오류로 보내지 못한 횟수 상한(넘으면 기록만 남긴다)
 const QUEUE_TTL_MS = 30 * 24 * 60 * 60 * 1000 // 보관한 녹음을 두는 최대 기간(음성 원본 보관과 같다)
 
@@ -101,6 +105,7 @@ const DEFAULT_DEPS: VoiceDeps = {
     lazyAudioOutput(onEvent, { listen: listenSound, saved: savedSound, offline: offlineSound }),
   startSession,
   sendAudioTurn,
+  sendTextTurn,
   cancelTurn,
   reportLatency,
   endSession,
@@ -137,6 +142,11 @@ export interface VoiceController {
   tap(): void
   /** 길게 누르기(종료) */
   longPress(): void
+  /**
+   * 음성 대화 중 글로 보낸 말. 듣는 중(말하는 중이면 끼어든 뒤, 쉬는 중이면 다시 들은 뒤)에만 받아
+   * 말 한 번처럼 머신에 넣는다. 받지 못하면 false. 서버에 닿지 않으면 보관하지 않고 onUnsent로 돌려준다
+   */
+  sendText(text: string, onUnsent?: (text: string) => void): boolean
   dispose(): Promise<void>
 }
 
@@ -170,6 +180,10 @@ export function createVoiceController({
     createdAt: Date.now(),
   })
   const utterances = new Map<string, { audio: RecordedAudio; speechEndedAt: number; slot: QueueSlot }>()
+  // 끼어들기 취소 요청(글은 바로 보내므로 서버가 이전 답변을 정리한 뒤에 보낸다)
+  let cancelling: Promise<unknown> = Promise.resolve()
+  // 글로 보낸 말(speech_end로 머신에 넣고 sendTurn에서 꺼낸다)
+  const texts = new Map<string, { text: string; onUnsent?: (text: string) => void }>()
   // 서버에 닿지 않아 보관할 말(send_failed → queueUtterance)
   const failed = new Map<string, { audio: RecordedAudio; slot: QueueSlot }>()
   let offlineNotice = clientDefaults.offline_notice
@@ -336,8 +350,16 @@ export function createVoiceController({
   type TurnSource =
     | { kind: 'new'; utteranceId: string; audio: RecordedAudio; speechEndedAt: number; slot: QueueSlot }
     | { kind: 'queued'; item: QueuedUtterance }
+    | { kind: 'text'; utteranceId: string; text: string; onUnsent?: (text: string) => void; retries?: number }
 
   const sendTurn = (utteranceId: string) => {
+    const typed = texts.get(utteranceId)
+    if (typed !== undefined) {
+      texts.delete(utteranceId)
+      if (sessionId === null) return send({ type: 'turn_error', turnId: null, code: 'session_not_found' })
+      void runTurn({ kind: 'text', utteranceId, ...typed })
+      return
+    }
     const utterance = utterances.get(utteranceId)
     utterances.delete(utteranceId)
     if (!utterance || sessionId === null) {
@@ -381,15 +403,19 @@ export function createVoiceController({
     const sid = sessionId
     if (sid === null) return
     const queued = source.kind === 'queued' ? source.item : null
+    const typed = source.kind === 'text' ? source : null
     const audio: RecordedAudio =
-      queued === null
-        ? (source as Extract<TurnSource, { kind: 'new' }>).audio
-        : { bytes: queued.bytes, mimeType: queued.mimeType, durationMs: 0 }
+      source.kind === 'new'
+        ? source.audio
+        : queued !== null
+          ? { bytes: queued.bytes, mimeType: queued.mimeType, durationMs: 0 }
+          : { bytes: new Uint8Array(0), mimeType: '', durationMs: 0 } // 글: 녹음이 없다(보관하지 않는다)
     const abort = new AbortController()
     turnAbort = abort
     const slot = source.kind === 'new' ? source.slot : undefined // 다시 보관할 때의 큐 순번
-    const localId =
-      queued === null ? `voice-${(source as Extract<TurnSource, { kind: 'new' }>).utteranceId}` : `voice-q-${queued.id}`
+    const localId = queued === null ? `voice-${source.kind === 'queued' ? '' : source.utteranceId}` : `voice-q-${queued.id}`
+    // 글에는 인식 결과(transcript)가 오지 않으므로 내 말풍선을 바로 그린다
+    if (typed !== null && !typed.retries) dispatch({ type: 'send', id: localId, text: typed.text })
     let turnId: string | null = null
     let timedOut = false
     // 서버가 받지도 거절하지도 않고 붙잡혀 있으면(서버만 닿지 않음) 닿지 않은 것으로 본다
@@ -410,6 +436,28 @@ export function createVoiceController({
     /** 턴이 시작되기 전에 실패했다(서버가 말을 받지 않았다). 저장소 오류에도 이벤트는 꼭 보낸다 */
     const failedBeforeTurn = async (code: string, message: string | null) => {
       const quietly = (work: Promise<unknown>) => work.catch((error) => console.warn('보관함 오류', error))
+      if (typed !== null) {
+        // 끼어든 직후면 서버가 이전 답변을 아직 정리하는 중일 수 있다: 잠깐 뒤 다시 보낸다
+        if (code === 'turn_in_progress' && (typed.retries ?? 0) < TEXT_BUSY_RETRIES) {
+          await new Promise((resolve) => setTimeout(resolve, TEXT_BUSY_RETRY_MS))
+          // 기다리는 사이 끝내기를 눌렀으면(정리 중) 다시 보내지 않는다
+          if (!disposed && !abort.signal.aborted && sessionId === sid && state.name === 'processing') {
+            return void runTurn({ ...typed, retries: (typed.retries ?? 0) + 1 })
+          }
+        }
+        // 글은 오프라인 큐(녹음 전용)에 넣지 않는다: 말풍선을 빼고, 대화가 이어지면 글을 입력창에
+        // 돌려준다(대화가 끝났으면 다음 대화로 넘기지 않고 버린다)
+        if (state.name !== 'processing') {
+          // 그사이 끝내기를 눌렀다(정리 중): 오류 없이 말풍선만 뺀다
+          dispatch({ type: 'unsend', id: localId })
+          return
+        }
+        if (SESSION_GONE.has(code)) closingReason = message ?? messageOf(code)
+        else typed.onUnsent?.(typed.text)
+        dispatch({ type: 'failed', message: message ?? messageOf(code), code, unsentId: localId })
+        send({ type: 'turn_error', turnId: null, code })
+        return
+      }
       if (UNREACHABLE.has(code)) {
         // 서버에 닿지 않았다: 보관했다가 연결되면 다시 보낸다
         if (queued === null) {
@@ -447,10 +495,12 @@ export function createVoiceController({
       send({ type: 'turn_error', turnId: null, code })
     }
 
+    const sendThis = (onEvent: (event: StreamEvent) => void, signal: AbortSignal) =>
+      typed !== null ? d.sendTextTurn(sid, typed.text, onEvent, signal) : d.sendAudioTurn(sid, audio, onEvent, signal)
     try {
-      await d.sendAudioTurn(
-        sid,
-        audio,
+      if (typed !== null) await cancelling
+      if (abort.signal.aborted) throw new DOMException('aborted', 'AbortError')
+      await sendThis(
         (event) => {
           if (abort.signal.aborted || disposed) return // 끼어들어 취소한 턴의 늦은 이벤트
           clearTimeout(preTurnTimer) // 서버가 받았다(인식 결과나 오류가 왔다)
@@ -502,6 +552,8 @@ export function createVoiceController({
       if (disposed) return
       if (abort.signal.aborted && !timedOut) {
         // 끝내기로 끊었다: 서버가 받기 전이면 이 말을 보관해 기록만 남기게 한다(큐의 말은 그대로 남아 있다)
+        // 끝내기로 끊긴 글은 보관하지 않고 말풍선만 뺀다(서버는 받지 않았다)
+        if (turnId === null && typed !== null) dispatch({ type: 'unsend', id: localId })
         if (turnId === null && source.kind === 'new') {
           void keepForLater(sid, audio, slot).catch((e) => console.warn('보관함 오류', e))
         }
@@ -608,7 +660,7 @@ export function createVoiceController({
         turnAbort = null
         measuring = null // 끊은 턴은 재지 않는다
         if (sessionId !== null) {
-          void d.cancelTurn(sessionId, command.turnId, command.lastPlayed).catch(() => {})
+          cancelling = d.cancelTurn(sessionId, command.turnId, command.lastPlayed).catch(() => {})
         }
         if (command.turnId !== greetingTurn) {
           dispatch({ type: 'interrupt', turnId: command.turnId, keep: command.lastPlayed + 1 })
@@ -695,6 +747,21 @@ export function createVoiceController({
     },
     longPress() {
       send({ type: 'long_press' })
+    },
+    sendText(text, onUnsent) {
+      const value = text.trim()
+      if (!value || disposed || sessionId === null || !state.connected || state.queued > 0) return false
+      // 말하는 중이면 끼어들기(들려준 문장까지만 남긴다), 쉬는 중이면 다시 듣기와 같다
+      if (state.name === 'speaking' || state.name === 'paused') {
+        void output.unlock()
+        send({ type: 'tap' })
+      }
+      if (state.name !== 'listening' || state.queued > 0) return false
+      const id = `t${nextUtterance++}`
+      texts.set(id, { text: value, onUnsent })
+      send({ type: 'speech_end', utteranceId: id })
+      texts.delete(id) // 보냈으면 이미 꺼냈다
+      return true
     },
     async dispose() {
       disposed = true

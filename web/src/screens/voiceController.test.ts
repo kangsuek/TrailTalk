@@ -867,4 +867,117 @@ describe('createVoiceController', () => {
       t.goOnline()
     })
   })
+
+  describe('음성 대화 중 글 입력(sendText)', () => {
+    const TEXT_TURN = TURN.filter((e) => e.type !== 'transcript') // 글 턴에는 인식 결과가 없다
+
+    it('듣는 중이면 글을 보내고 내 말풍선을 바로 그린 뒤, 답변을 들려주고 다시 듣는다', async () => {
+      const sendTextTurn = vi.fn<VoiceDeps['sendTextTurn']>(async (_id, _text, onEvent) => {
+        for (const event of TEXT_TURN) onEvent(event)
+      })
+      const t = setup({ sendTextTurn })
+      await startListening(t)
+      expect(t.controller.sendText('  링크 보내 줘 ')).toBe(true)
+      expect(t.actions).toContainEqual({ type: 'send', id: 'voice-t0', text: '링크 보내 줘' })
+      await tick()
+      expect(sendTextTurn).toHaveBeenCalledWith('s1', '링크 보내 줘', expect.any(Function), expect.any(AbortSignal))
+      expect(t.deps.sendAudioTurn).not.toHaveBeenCalled()
+      expect(t.state()).toBe('speaking')
+      t.played({ type: 'playback_idle' })
+      expect(t.state()).toBe('listening')
+      expect(t.deps.reportLatency).not.toHaveBeenCalled() // 말 끝 시각이 없어 재지 않는다
+    })
+
+    it('말하는 중이면 끼어들고, 서버가 취소를 마친 뒤에 보낸다(바쁘다고 하면 잠깐 뒤 다시)', async () => {
+      let finishCancel: () => void = () => {}
+      const cancelTurn = vi.fn(() => new Promise<void>((resolve) => (finishCancel = resolve)))
+      let busy = true
+      const sendTextTurn = vi.fn<VoiceDeps['sendTextTurn']>(async (_id, _text, onEvent) => {
+        if (busy) {
+          busy = false // 이전 답변 정리가 아직 끝나지 않았다(서버 turn_lock)
+          onEvent({ type: 'error', code: 'turn_in_progress', message: '이전 답변이 아직 끝나지 않았습니다.' })
+          return
+        }
+        for (const event of TEXT_TURN) onEvent(event)
+      })
+      const t = setup({
+        sendTextTurn,
+        cancelTurn,
+        sendAudioTurn: vi.fn(async (_id, _audio, onEvent, s) => {
+          onEvent({ type: 'turn', turn_id: 'a1' })
+          onEvent({ type: 'sentence', index: 0, text: '정말요?', audio: 'UzA=' })
+          await new Promise((resolve) => s?.addEventListener('abort', resolve))
+          throw new DOMException('aborted', 'AbortError')
+        }),
+      })
+      await startListening(t)
+      t.speak()
+      await tick()
+      expect(t.state()).toBe('speaking')
+      const onUnsent = vi.fn()
+      expect(t.controller.sendText('잠깐, 글로 할게', onUnsent)).toBe(true)
+      expect(t.output.stop).toHaveBeenCalled()
+      expect(cancelTurn).toHaveBeenCalledWith('s1', 'a1', -1)
+      await tick()
+      expect(sendTextTurn).not.toHaveBeenCalled() // 취소가 끝나기를 기다린다
+      finishCancel()
+      await tick()
+      expect(sendTextTurn).toHaveBeenCalledTimes(1)
+      await new Promise((r) => setTimeout(r, 600)) // 바쁨 → 잠깐 뒤 다시 보낸다
+      expect(sendTextTurn).toHaveBeenCalledTimes(2)
+      expect(onUnsent).not.toHaveBeenCalled()
+      expect(t.actions.filter((a) => a.type === 'send' && a.text === '잠깐, 글로 할게')).toHaveLength(1)
+      expect(t.actions.some((a) => a.type === 'failed')).toBe(false)
+      expect(t.state()).toBe('speaking')
+    })
+
+    it('바빠서 다시 보내려고 기다리는 사이 대화를 끝내면 다시 보내지 않고 말풍선을 뺀다', async () => {
+      const sendTextTurn = vi.fn<VoiceDeps['sendTextTurn']>(async (_id, _text, onEvent) => {
+        onEvent({ type: 'error', code: 'turn_in_progress', message: '이전 답변이 아직 끝나지 않았습니다.' })
+      })
+      const t = setup({ sendTextTurn })
+      await startListening(t)
+      const onUnsent = vi.fn()
+      t.controller.sendText('보낼게', onUnsent)
+      await tick()
+      expect(sendTextTurn).toHaveBeenCalledTimes(1)
+      t.controller.longPress() // 기다리는 중에 끝내기
+      await new Promise((r) => setTimeout(r, 600))
+      expect(sendTextTurn).toHaveBeenCalledTimes(1)
+      expect(onUnsent).not.toHaveBeenCalled() // 끝난 대화의 글은 다음 대화로 넘기지 않는다
+      expect(t.actions).toContainEqual({ type: 'unsend', id: 'voice-t0' })
+      expect(t.actions.some((a) => a.type === 'failed')).toBe(false) // 정리 중 표시를 건드리지 않는다
+    })
+
+    it('답변을 기다리는 중·시작 전·빈 글은 받지 않는다', async () => {
+      const sendTextTurn = vi.fn<VoiceDeps['sendTextTurn']>(async () => {})
+      const t = setup({ sendTextTurn, sendAudioTurn: vi.fn(() => new Promise<void>(() => {})) })
+      expect(t.controller.sendText('시작 전')).toBe(false)
+      await startListening(t)
+      expect(t.controller.sendText('   ')).toBe(false)
+      t.speak()
+      await tick()
+      expect(t.state()).toBe('processing')
+      expect(t.controller.sendText('기다리는 중')).toBe(false)
+      await tick()
+      expect(sendTextTurn).not.toHaveBeenCalled()
+    })
+
+    it('서버에 닿지 않으면 보관하지 않고 글을 돌려준 뒤 다시 듣는다', async () => {
+      const t = setup({
+        sendTextTurn: vi.fn(async () => {
+          throw new ApiError('network_error', '서버에 연결할 수 없어요.', 0)
+        }),
+      })
+      await startListening(t)
+      const onUnsent = vi.fn()
+      expect(t.controller.sendText('보내 줘', onUnsent)).toBe(true)
+      await tick()
+      await tick()
+      expect(onUnsent).toHaveBeenCalledWith('보내 줘')
+      expect(t.actions).toContainEqual(expect.objectContaining({ type: 'failed', unsentId: 'voice-t0' }))
+      expect(await t.queue.oldest('s1')).toBeNull() // 오프라인 큐(녹음)에 넣지 않았다
+      expect(t.state()).toBe('listening')
+    })
+  })
 })
