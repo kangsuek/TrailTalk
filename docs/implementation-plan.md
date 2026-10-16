@@ -359,7 +359,7 @@
 | S3-18 | 웹 설정 화면(S5-01 웹 부분 앞당김, 사용자 요청 추가) | 완료 | `web/src/screens/SettingsScreen.tsx`, `server/app/api/profile.py`, `server/app/services/profile.py` | `c96fcca` |
 | S3-19 | 일지 목록에서 대화 제목 수정·삭제(사용자 요청 추가) | 완료 | `web/src/screens/JournalListScreen.tsx`, `server/app/api/journal.py`, `server/app/services/conversation.py` | `ffad91e` |
 | S3-20 | 대화 화면 모바일 최적화·자동 스크롤·음성 구슬 그래픽(사용자 요청 추가) | 완료 | `web/src/screens/ConversationScreen.tsx`, `web/src/screens/VoiceControls.tsx`, `web/src/index.css` | `4b617c6` |
-| S3-21 | 음성 대화 중 글 입력(사용자 요청 추가) | 완료 | `web/src/screens/voiceController.ts`, `web/src/screens/ConversationScreen.tsx` | (커밋 후 기입) |
+| S3-21 | 음성 대화 중 글 입력(사용자 요청 추가) | 완료 | `web/src/screens/voiceController.ts`, `web/src/screens/ConversationScreen.tsx` | `223bddc` |
 
 #### S3-01 STT(Whisper)
 - [x] `SttProvider` 인터페이스
@@ -793,3 +793,4 @@
 | 2026-10-17 | 문서 정리(토큰 절약): 인계 문서를 현재 상태·검증 방법·배운 것만 남기게 재작성(32KB→11KB), 추출 평가 이전 회차 리포트 4개 삭제(회차 표는 최신 리포트), 규약은 필요한 절만 읽기, README 현재화 | `837ad43` |
 | 2026-10-17 | S3-19 일지 목록에서 대화 제목 수정·삭제(사용자 요청 추가): 제목을 눌러 고치고 포커스가 떠나면 저장(다시 정리해도 유지), 쓰레기통은 확인 뒤 삭제(턴 잠금·정리 취소), 모바일 우선 UI | `ffad91e` |
 | 2026-10-17 | S3-20 대화 화면 모바일 최적화(꽉 찬 폭 버튼, 메신저형 입력창), 마지막 말풍선이 하단 패널에 가리지 않게 자동 스크롤, 음성 버튼을 그라데이션 구슬 애니메이션으로 | `4b617c6` |
+| 2026-10-17 | S3-21 음성 대화 중 글 입력: 글을 말 한 번처럼 머신에 넣어 글 턴으로 전송(끼어들기 뒤 취소 완료 대기·바쁨 재시도), 실패 시 보관하지 않고 입력창에 돌려줌 | `223bddc` |
