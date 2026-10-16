@@ -1,4 +1,4 @@
-# 작업 인계 (2026-10-16, 3단계 진행 중: S3-06·S3-08·S3-09 완료, S3-01·S3-02 코드 완료)
+# 작업 인계 (2026-10-16, 3단계 진행 중: S3-01·S3-02·S3-03·S3-06·S3-08·S3-09 완료)
 
 새 세션은 이 문서부터 읽는다. 작업 규칙과 명령은 [CLAUDE.md](../CLAUDE.md)에 있다. 진행 상태의 기준은 [구현 계획서](implementation-plan.md)의 진행 대시보드(2장)다. 이 문서에는 계획서·설계서에 없는 맥락만 둔다. 상태가 바뀌면 이 문서도 갱신하거나 지운다.
 
@@ -8,7 +8,7 @@
 
 ```text
 TrailTalk 작업을 이어서 진행합니다. 먼저 docs/handoff.md를 읽고, 구현 계획서(docs/implementation-plan.md)의 진행 대시보드(2장)와 3단계 절(6장)을 확인하세요.
-지금은 3단계(웹 음성 대화) 진행 중이고 S3-06·S3-08·S3-09가 끝났고, S3-01·S3-02는 코드만 끝났습니다(실제 OpenAI 확인·보이스 선택 남음). 다음 작업 후보는 handoff 1장 "다음 작업"에 있습니다.
+지금은 3단계(웹 음성 대화) 진행 중이고 S3-01·S3-02·S3-03·S3-06·S3-08·S3-09가 끝났습니다. 다음 작업 후보는 handoff 1장 "다음 작업"에 있습니다.
 작업 규칙: 응답은 한글, 소스 수정 전 Plan Mode로 계획 승인, 유닛 테스트에 더해 Playwright 실제 구동 검증, 커밋 전 서브에이전트 diff 리뷰, 이 저장소는 자동 커밋·push 허용, 작업 시작·끝에 계획서 상태 갱신.
 주의: .env 값은 열어 보지 마세요. 포트 8000에 떠 있는 사용자 서버(실제 DB)는 건드리지 말고, 실제 구동 검증은 handoff 2장의 방법대로 다른 포트에서 하세요. 실제 Claude CLI(구독 사용량)와 OpenAI API(과금)는 필요할 때만 쓰고 쓸 때 알려 주세요.
 다음 작업을 무엇으로 할지 제게 먼저 확인한 뒤 계획을 세우세요.
@@ -16,15 +16,16 @@ TrailTalk 작업을 이어서 진행합니다. 먼저 docs/handoff.md를 읽고,
 
 ## 1. 지금 어디까지 왔나
 
-- **0·1·2단계 완료**(2단계는 2026-10-16 사용자 확인, 마일스톤 `5749ea3`). **3단계(웹 음성 대화) 진행 중 4/16**, 전체 29/56.
-- **3단계에서 끝낸 것**: S3-08 세션 상태 머신·S3-09 상태 전이 표(`9202e04`), S3-06 클라이언트 설정값(`2b643a9`).
+- **0·1·2단계 완료**(2단계는 2026-10-16 사용자 확인, 마일스톤 `5749ea3`). **3단계(웹 음성 대화) 진행 중 6/16**, 전체 31/56.
+- **3단계에서 끝낸 것**: S3-08 세션 상태 머신·S3-09 상태 전이 표(`9202e04`), S3-06 클라이언트 설정값(`2b643a9`). S3-01·S3-02·S3-03은 아래 절에 따로 적었다.
   - S3-06: `GET/PUT /api/profile`이 `client`(VAD·세션·오디오·오프라인 안내, 읽기 전용)를 준다. 서버가 시작할 때 `shared/client-defaults.json`을 `app/client_config.py`로 검증하고 틀리면 시작하지 않는다. `idle_timeout_minutes`는 서버 `IDLE_TIMEOUT_S`로 덮어쓴다. VAD 수치(0.5/0.35, 재생 중 0.8/0.65)는 시작값이라 S3-10에서 `@ricky0123/vad-web` 옵션에 맞춰 조정한다. 웹은 아직 프로필을 받아 쓰지 않는다(S3-10·S3-13).
   - `web/src/core/sessionMachine.ts`: 이벤트 → 다음 상태 + 명령을 내는 순수 함수다. 마이크·재생·서버 호출은 하지 않는다.
   - `shared/fixtures/transitions.json`: 사례 22개. 안드로이드 테스트도 이 파일을 읽는다.
   - 아직 화면에 연결하지 않았다(S3-13에서 연결). 플랫폼이 지킬 약속은 규약 4절에 있다(인사말은 `session_started {turnId}`, `sentence`·`turn_done`에 턴 ID, 모든 요청은 성공·실패 이벤트로 끝냄, 큐 비우기 결과는 `queue_flushed {remaining}`).
-- **S3-01·S3-02(`f89057b`, 진행 중)**: `app/voice/stt.py`·`tts.py`·`audio.py`·`openai_http.py`. 앱에서 `app.state.stt`·`app.state.tts`로 쓴다.
-  - 남은 것: OpenAI 계정 크레딧이 없어(429 `insufficient_quota`) 실제 호출을 못 했다. 충전 뒤 `RUN_REAL_OPENAI=1 uv run pytest tests/test_voice_real.py -q -s`(TTS 1회·STT 2회)로 확인한다. 특히 `gpt-transcribe`의 multipart `languages` 필드 이름이 맞는지(SDK식 `languages[]`일 수도 있음) 본다.
-  - 그 다음 `uv run python -m tests.voice_samples`로 보이스 6종 샘플(`server/data/voice-samples/`)을 만들어 사용자가 고르게 하고 `jenny.yaml`의 `tts_voice`·`instructions`를 확정한다(지금 임시 `coral`).
+- **S3-01·S3-02(`f89057b`·`ef035e2`, 완료)**: `app/voice/stt.py`·`tts.py`·`audio.py`·`openai_http.py`. 앱에서 `app.state.stt`·`app.state.tts`로 쓴다.
+  - 실제 확인(2026-10-16, 크레딧 충전 뒤): `RUN_REAL_OPENAI=1 uv run pytest tests/test_voice_real.py -q -s` 통과(TTS 1회·STT 2회, webm·ogg 모두 원문과 같음). ffmpeg가 PATH에 없으면 `FFMPEG_PATH=~/.local/bin/ffmpeg`를 준다. `languages` 필드는 API가 읽는다(틀린 코드 400). 7초 발화 인식 응답은 앱 경로(`gpt-transcribe`, webm)에서 약 1.3초, 다른 모델·형식은 1.5~3초였다(WAV는 업로드가 커서 느림).
+  - 보이스는 6종 샘플(`uv run python -m tests.voice_samples`, `server/data/voice-samples/`, 커밋 안 함)을 사용자가 듣고 `nova`로 골랐다. `instructions`(말투 지시)는 그대로 두었다.
+  - S3-03 음성 턴도 가짜 CLI + 실제 OpenAI로 확인했다(2장 명령에 `VOICE_BACKEND=fake` 없이 `FFMPEG_PATH`를 더한다). 가짜 CLI 녹화 `web_search`는 지금 출처 규칙 이전 답변이라 `Sources:`·링크 줄까지 소리로 만든다. 실제 CLI 음성 답변에서는 마일스톤 끝 실제 확인 때 본다.
   - OpenAI TTS에는 피치가 없어 페르소나 `voice.pitch`를 지우고 `instructions`(말투 지시)를 넣었다. `gpt-4o-mini-tts`는 `speed`를 무시한다는 보고가 있어, 빠르기는 `instructions`에도 적었다.
   - TTS 전처리 `speech_text`는 음성에만 쓰고 화면 문장(`sentence.text`)은 그대로 둔다.
   - 그대로 못 보내는 업로드(ogg 등)는 WAV가 아니라 16kHz 모노 webm/opus(24kbps)로 바꾼다(업로드 크기가 응답 지연에 더해지므로). 설정은 빈 값(`KEY=`)을 없는 것으로 본다(`env_ignore_empty`).
@@ -34,7 +35,7 @@ TrailTalk 작업을 이어서 진행합니다. 먼저 docs/handoff.md를 읽고,
   - 남은 한계: CLI 오류(시간 초과·크래시)로 끝나면 합성 대기 중이던 문장은 보내지 않는다. 맨 앞 소리가 다 돼도 다음 CLI 이벤트가 와야 나간다(보통 짧다).
 - **결정(2026-10-16)**
   - D2 음성 인식은 OpenAI API다. 서버 PC가 Intel CPU라 로컬 큰 모델로는 3초 목표가 어렵다.
-  - D3 목소리는 OpenAI TTS다. 인식과 같은 OpenAI 키를 쓰고, 보이스는 S3-02에서 같은 문장으로 샘플을 만들어 사용자가 듣고 고른다.
+  - D3 목소리는 OpenAI TTS다. 인식과 같은 OpenAI 키를 쓰고, 보이스는 샘플 청취로 `nova`를 골랐다.
   - 쉬는 중에도 30분 동안 말이 없으면 대화를 끝낸다(서버와 같음). 상태 머신과 쉬기 문구에 반영했다.
   - D1(서버 위치)은 아직 정하지 않았다. S3-14 전에 정한다.
 - **환경**
@@ -49,7 +50,6 @@ TrailTalk 작업을 이어서 진행합니다. 먼저 docs/handoff.md를 읽고,
   - 진행 중 대화의 일지 상세에 안내를 보인다.
 - **테스트(현재)**: pytest 485(4개는 실제 CLI·OpenAI라 건너뜀), Vitest 138, E2E 3.
 - **다음 작업**(사용자에게 먼저 고르게 한다)
-  - S3-01·S3-02 마무리: OpenAI 크레딧을 충전하면 실제 확인과 보이스 선택을 한다(과금되므로 쓸 때 사용자에게 알린다).
   - S3-04 끼어들기 API(재생한 문장까지 기록, 끝난 턴의 cancel 처리).
   - 웹: S3-10 AudioInput(vad-web·녹음·Opus 인코딩, S3-06 설정값을 쓴다), S3-11 AudioOutput(base64 MP3 이어 재생). 가짜 음성 백엔드로 끝까지 이어 볼 수 있다.
   - 작업마다 Plan Mode로 계획을 승인받는다.
@@ -118,7 +118,6 @@ TrailTalk 작업을 이어서 진행합니다. 먼저 docs/handoff.md를 읽고,
 | 추출 재현율을 실제 일지로 다시 재기, 평가 정답 사용자 검토 | 실제 사용 일지가 쌓인 뒤 |
 | `web/src/core`의 브라우저 API 비의존을 린트로 강제 | 필요 시 |
 | 결정 D1(서버 위치) | S3-14 전 |
-| OpenAI TTS 보이스 선택(샘플 청취) | S3-02 |
 | 오프라인 큐의 세션 소속, 끝내기 전 큐 비우기 | S3-12 |
 | 상태 머신을 대화 화면에 연결 | S3-13 |
 | 오프라인 안내 문구(`client.offline_notice`)가 캐릭터 말투인데 공유 JSON에 있음. 페르소나 YAML에 두고 프로필 응답에서 덮어쓰기(S3-06 리뷰) | S5-01 페르소나 전환 전 |

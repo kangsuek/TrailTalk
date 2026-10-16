@@ -25,12 +25,12 @@
 | [0. 준비·기술 검증](#3-0단계--준비와-기술-검증) | 완료 | 5/5 | 3~5일 | 2026-10-12 | 2026-10-12 | `a9b2970` |
 | [1. 제니 텍스트 대화](#4-1단계--제니-텍스트-대화) | 완료 | 11/11 | 1~2주 | 2026-10-12 | 2026-10-15 | `4dac567` |
 | [2. 대화 기록](#5-2단계--대화-기록) | 완료 | 9/9 | 1~2주 | 2026-10-15 | 2026-10-16 | `5749ea3` |
-| [3. 웹 음성 대화](#6-3단계--웹-음성-대화) | 진행 중 | 4/16 | 2~3주 | 2026-10-16 | | |
+| [3. 웹 음성 대화](#6-3단계--웹-음성-대화) | 진행 중 | 6/16 | 2~3주 | 2026-10-16 | | |
 | [4. 안드로이드 포팅](#7-4단계--안드로이드-포팅) | 대기 | 0/9 | 3주 | | | |
 | [5. 다듬기·확장](#8-5단계--다듬기와-확장) | 대기 | 0/6 | 2주 | | | |
-| **전체** | | **29/56** | 약 10~13주 | | | |
+| **전체** | | **31/56** | 약 10~13주 | | | |
 
-- **현재 작업**: 없음(S3-03 완료). S3-01·S3-02는 실제 OpenAI 확인·보이스 선택만 남음(크레딧 충전 대기)
+- **현재 작업**: 없음(S3-01·S3-02·S3-03 완료, 실제 OpenAI 확인 끝)
 - **다음 작업**: S3-04 끼어들기 API, 또는 S3-10 AudioInput·S3-11 AudioOutput(웹). 결정 D1(서버 위치)은 S3-14 전에
 
 ## 3. 0단계 — 준비와 기술 검증
@@ -334,8 +334,8 @@
 
 | ID | 작업 | 상태 | 산출물 | 커밋 |
 |---|---|---|---|---|
-| S3-01 | STT(Whisper) | 진행 중 | `server/app/voice/stt.py`, `server/app/voice/audio.py` | `f89057b` |
-| S3-02 | TTS | 진행 중 | `server/app/voice/tts.py` | `f89057b` |
+| S3-01 | STT(Whisper) | 완료 | `server/app/voice/stt.py`, `server/app/voice/audio.py` | `f89057b` |
+| S3-02 | TTS | 완료 | `server/app/voice/tts.py` | `f89057b`, `ef035e2` |
 | S3-03 | 음성 턴 스트리밍 | 완료 | `server/app/api/sessions.py`, `server/app/services/conversation.py`, `server/app/voice/speech.py` | `bafcea9` |
 | S3-04 | 끼어들기 API | 대기 | `server/app/api/turns.py` | |
 | S3-05 | 음성 원본 보관 옵션 | 대기 | `server/app/jobs/` | |
@@ -361,7 +361,7 @@
 - [x] 결정 D2에 따라 OpenAI Whisper API 또는 faster-whisper 구현(OpenAI `gpt-transcribe`, `languages=ko`. 설정 `STT_MODEL`로 변경 가능)
 - [x] Opus 업로드를 ffmpeg로 디코딩(WAV 대체 경로 수용). webm·wav·mp3·m4a는 그대로 보내고 그 밖(ogg/opus 등)만 16kHz 모노 webm/opus로 변환(WAV보다 업로드 약 10배 작음), 120초 상한
 - [x] 테스트: 모의 응답, 오류·시간 초과
-- [ ] 실제 API 확인(`RUN_REAL_OPENAI=1 uv run pytest tests/test_voice_real.py`). 2026-10-16 OpenAI 크레딧 소진(429 `insufficient_quota`)으로 미실행. multipart `languages` 필드 형식 확인 필요
+- [x] 실제 API 확인(`RUN_REAL_OPENAI=1 uv run pytest tests/test_voice_real.py`). 2026-10-16 크레딧 충전 뒤 통과: webm·ogg 업로드 모두 원문과 같게 인식. multipart `languages` 필드는 API가 실제로 읽는다(틀린 코드 `xx`는 400, `ko`는 200). 7초 발화 인식 응답은 앱 경로(`gpt-transcribe`, webm) 약 1.3초, 다른 모델·형식 1.5~3초
 
 #### S3-02 TTS
 - [x] `TtsProvider` 인터페이스
@@ -369,7 +369,7 @@
 - [x] 보이스·속도·피치는 `jenny.yaml`에서 읽기. OpenAI TTS에 피치가 없어 `pitch`를 지우고 말투 지시 `instructions`로 대신함
 - [x] 문장 분할기가 인용 뒤에서 문장을 나누는 문제(`"좋아요." 라고 했어요.`가 두 문장이 됨, 1단계 재검증에서 미룸)
 - [x] 테스트: 모의 응답
-- [ ] 보이스 선택: `uv run python -m tests.voice_samples`로 6종 샘플을 만들어 사용자가 듣고 고름(지금은 임시 `coral`). OpenAI 크레딧 충전 대기
+- [x] 보이스 선택: `uv run python -m tests.voice_samples`로 6종 샘플을 만들어 사용자가 듣고 고름 → `nova`(2026-10-16, `jenny.yaml`)
 
 #### S3-03 음성 턴 스트리밍
 - [x] 오디오 업로드 → `transcript` 이벤트(`POST /api/sessions/{id}/turns/audio`, 본문은 오디오 바이트. SSE 전에 인식해 오류·`no_speech`(422)는 JSON. 직전 캐릭터 답변을 인식 힌트로)
@@ -377,7 +377,7 @@
 - [x] 다음 문장 TTS를 병렬로 미리 합성(합성은 띄워 두고 CLI를 계속 읽어, 소리가 된 문장부터 순서대로 보냄. 동시 3개)
 - [x] 웹 검색 시작(`tool` 이벤트) 시 "잠깐 찾아볼게요" 안내 음성을 먼저 내보내 7~10초 침묵 줄이기. 프롬프트가 이미 시키므로, 소리 있는 말 없이 검색을 시작할 때만 `tool.start`의 `notice`(페르소나 `voice.search_notice`, 캐시)
 - [x] 테스트: 이벤트 순서와 문장 번호(`test_voice_turn.py`, 가짜 음성 백엔드 `VOICE_BACKEND=fake`). Playwright로 브라우저 업로드·MP3 디코드 확인
-- 남은 한계: CLI가 오류(시간 초과·비정상 종료)로 끝나면 합성 대기 중이던 문장은 보내지 않는다(보낸 문장까지 저장은 유지). 실제 OpenAI로의 확인은 S3-01·S3-02 마무리 때
+- 남은 한계: CLI가 오류(시간 초과·비정상 종료)로 끝나면 합성 대기 중이던 문장은 보내지 않는다(보낸 문장까지 저장은 유지). 2026-10-16 가짜 CLI + 실제 OpenAI 음성으로 확인(Playwright, 브라우저 업로드·MP3 디코드): 인식 약 1.3초, `transcript`→`turn`→검색 안내 음성→문장 12개 모두 소리, 인사말·마무리 소리 정상. 이 녹화(`web_search`)는 지금 출처 규칙 이전 답변이라 `Sources:`·링크 줄까지 읽는다(전처리로 사이트 이름만 남음). 실제 CLI 음성 답변에서 출처 목록이 나오지 않는지는 마일스톤 끝 실제 확인 때 본다
 
 #### S3-04 끼어들기 API
 - [ ] `POST /api/sessions/{id}/turns/{turn_id}/cancel`(마지막으로 재생한 문장 번호 수신)
@@ -646,7 +646,7 @@
 |---|---|---|---|---|---|
 | D1 | 서버 위치: 집 PC vs 클라우드 VM | 3단계 시작 전(S3-14) | 대기 | 1·2단계는 로컬 개발 PC로 충분 | |
 | D2 | Whisper 운영: OpenAI API vs faster-whisper | 3단계 시작 전(S3-01) | 결정 | `SttProvider`로 두 구현 모두 수용 가능 | OpenAI 음성 인식 API(2026-10-16). 서버 PC가 Intel CPU라 로컬 큰 모델로는 3초 목표가 어렵다 |
-| D3 | TTS 보이스 서비스(샘플 3종 청취) | 3단계 1주차(S3-02) | 결정 | 2단계 중 샘플 청취 | OpenAI TTS(2026-10-16, 인식과 같은 키). 보이스는 S3-02에서 샘플을 들어 고른다 |
+| D3 | TTS 보이스 서비스(샘플 청취) | 3단계 1주차(S3-02) | 결정 | 2단계 중 샘플 청취 | OpenAI TTS(2026-10-16, 인식과 같은 키). 보이스는 6종 샘플 청취로 `nova` 선택(2026-10-16) |
 | D4 | 제니가 먼저 말을 걸지 여부 | 3단계 종료 시 | 대기 | 산책 테스트 경험을 보고 결정 | |
 | D5 | 브리핑 관심사 초기 목록 | 5단계 시작 전 | 대기 | | |
 | D6 | 서비스화 시점·멀티 사용자 | 5단계 이후 | 대기 | `ClaudeApiBackend` 전환 여부와 연결 | |
@@ -718,3 +718,4 @@
 | 2026-10-16 | S3-01 STT·S3-02 TTS 코드 완료(OpenAI provider, ffmpeg 변환, TTS 전처리, 인용 조사 분할 수정, 페르소나 `pitch`→`instructions`). 실제 호출 확인·보이스 선택은 크레딧 충전 뒤 | `f89057b` |
 | 2026-10-16 | S3-01·S3-02 점검 수정: 빈 `OPENAI_API_KEY=`가 실제 키를 가리던 문제, `FFMPEG_PATH`의 `~`, TTS 전처리(목록 기호·범위 `~`), `tts-1`에 `instructions` 미전송, ogg 등 변환을 webm/opus로(업로드 약 1/10), 규약 7절 음성 오류 코드 | `42278ac` |
 | 2026-10-16 | S3-03 음성 턴 스트리밍: 오디오 업로드 API, 문장별 MP3, 검색 안내 음성, 인사말·마무리 소리, 가짜 음성 백엔드 | `bafcea9` |
+| 2026-10-16 | S3-01·S3-02 완료: OpenAI 크레딧 충전 뒤 실제 인식·합성 확인(`languages` 필드 확인), 보이스 `nova` 확정, S3-03 음성 턴 실제 OpenAI 확인 | `ef035e2` |
