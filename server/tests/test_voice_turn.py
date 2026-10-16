@@ -279,6 +279,41 @@ def test_tts_failure_sends_sentence_without_audio(api):
     assert events[-1].type == "done" and not events[-1].interrupted
 
 
+def test_cli_crash_sends_and_keeps_sentences_waiting_for_sound(api):
+    """CLI가 답변 도중 죽어도 합성을 기다리던 문장과 끝 조각까지 글로 보내고 끊긴 답변으로
+    남긴다."""
+    session_id = start(api, "voice")["session"]["id"]
+    tts = ScriptedTts(delays={"첫 문장입니다.": 0.5, "둘째 문장이에요.": 0.5})
+    api.app.state.tts = tts
+    events = events_of(
+        api.post(
+            f"/api/sessions/{session_id}/turns",
+            json={"text": "__say_then_crash__:첫 문장입니다. 둘째 문장이에요. 셋째"},
+        )
+    )
+    assert events[-1].type == "error" and events[-1].code == "llm_process_exited"
+    sentences = [e for e in events if e.type == "sentence"]
+    assert [(s.index, s.text, s.audio) for s in sentences] == [
+        (0, "첫 문장입니다.", None),
+        (1, "둘째 문장이에요.", None),
+        (2, "셋째", None),
+    ]
+    assert set(tts.cancelled) == {"첫 문장입니다.", "둘째 문장이에요."}  # 들을 수 없는 소리
+
+    async def reply():
+        async with api.app.state.session_factory() as db:
+            return await db.scalar(
+                select(Turn).where(Turn.session_id == session_id).order_by(Turn.seq.desc())
+            )
+
+    turn = api.portal.call(reply)
+    assert (turn.role, turn.text, turn.interrupted) == (
+        TurnRole.ASSISTANT,
+        "첫 문장입니다. 둘째 문장이에요. 셋째",
+        True,
+    )
+
+
 def test_sentences_in_one_chunk_are_synthesized_together_but_sent_in_order(
     fake_cli, home, monkeypatch, tmp_path
 ):

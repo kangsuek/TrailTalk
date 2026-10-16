@@ -26,7 +26,7 @@ export interface SessionState {
   endStatus: EndStatus // done이 알려 준 세션 상태(재생이 끝나면 이 상태로 간다)
   queued: number // 오프라인 큐에 남은 발화 수(이번 대화)
   connected: boolean // 서버에 닿는가(전송 실패면 false, online·성공한 턴이면 true)
-  sendingQueued: boolean // 지금 처리 중인 턴이 보관한 말이다(사용자가 막 말을 마친 것이 아니다)
+  sendingQueued: boolean // 지금 처리 중인 턴이 보관한 말이다(정보용: 전이에는 쓰지 않는다)
 }
 
 export type SessionEvent =
@@ -265,9 +265,8 @@ export function transition(
             ],
           }
         case 'speech_end':
-          // 보관한 말을 보내는 중(연결 복구·재시도·턴 끝 연쇄로 사용자 뜻과 상관없이 처리 중이 된 때)에
-          // 한 말은 버리지 않고 큐 뒤에 넣는다. 사용자가 막 말을 마친 처리 중이면 지금처럼 버린다
-          if (!state.sendingQueued) return unchanged(state)
+          // 답변을 기다리는 중에 한 말(잠깐 쉬었다 이어 말함, 보관한 말을 보내는 중에 한 말)은 버리지 않고
+          // 큐 뒤에 넣는다. 턴이 끝나면 연결돼 있는 한 큐부터 차례로 보낸다(listenOrSendQueued)
           return {
             state: { ...state, queued: state.queued + 1 },
             commands: [{ type: 'queueUtterance', utteranceId: event.utteranceId }],

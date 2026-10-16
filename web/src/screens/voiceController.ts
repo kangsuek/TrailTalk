@@ -161,8 +161,17 @@ export function createVoiceController({
   let endAbort: AbortController | null = null
   let idleTimer: ReturnType<typeof setTimeout> | undefined
   let disposed = false
-  const utterances = new Map<string, { audio: RecordedAudio; speechEndedAt: number }>()
-  const failed = new Map<string, RecordedAudio>() // 서버에 닿지 않아 보관할 말(send_failed → queueUtterance)
+  // 큐에 넣을 때의 순번(id·시각). 말이 끝난 때 정해 두어, 보내던 말이 실패해 나중에 큐에 들어가도
+  // 그사이(처리 중) 먼저 큐에 넣은 뒷말보다 앞에 선다
+  type QueueSlot = { id: string; createdAt: number }
+  let queuedCount = 0
+  const newSlot = (): QueueSlot => ({
+    id: `${Date.now()}-${String(queuedCount++).padStart(6, '0')}`, // 같은 ms 안에서도 순서대로
+    createdAt: Date.now(),
+  })
+  const utterances = new Map<string, { audio: RecordedAudio; speechEndedAt: number; slot: QueueSlot }>()
+  // 서버에 닿지 않아 보관할 말(send_failed → queueUtterance)
+  const failed = new Map<string, { audio: RecordedAudio; slot: QueueSlot }>()
   let offlineNotice = clientDefaults.offline_notice
   // 지연 측정(S3-07): 이번 턴의 말 끝·요청 시각. 첫 소리가 나면 한 번 보고한다
   // 소리 없이 끝난 턴(오류·합성 실패·문장 없음)이면 비운다(다른 소리에 붙지 않게)
@@ -245,9 +254,9 @@ export function createVoiceController({
         return
       case 'speech_end': {
         const id = `u${nextUtterance++}`
-        utterances.set(id, { audio: event.audio, speechEndedAt: event.speechEndedAt })
+        utterances.set(id, { audio: event.audio, speechEndedAt: event.speechEndedAt, slot: newSlot() })
         send({ type: 'speech_end', utteranceId: id })
-        utterances.delete(id) // 보냈으면 이미 꺼냈고, 머신이 버린 발화(처리 중)는 지운다
+        utterances.delete(id) // 보냈거나 큐에 넣었으면 이미 꺼냈고, 머신이 무시한 발화는 지운다
         return
       }
       case 'error':
@@ -292,30 +301,40 @@ export function createVoiceController({
 
   /** 대답할 수 없는 말(서버가 대화를 끝냄)을 기록만 남긴다. 서버에 닿지 않으면 보관해 두고
    * 나중에(연결된 뒤·다음 대화 때) 다시 기록한다(유실 0건, NFR-04) */
-  const preserve = async (sid: string, audio: { bytes: Uint8Array<ArrayBuffer>; mimeType: string }) => {
+  const preserve = async (
+    sid: string,
+    audio: { bytes: Uint8Array<ArrayBuffer>; mimeType: string },
+    slot: QueueSlot = newSlot(),
+  ) => {
     try {
       await d.recordAudioTurn(sid, audio)
     } catch (error) {
       const code = remember(error)
       // 말소리가 없거나 대화가 아예 없으면 남길 곳이 없다. 그 밖(연결·서버 오류)은 보관해 두고 다시 기록한다
-      if (!UNUSABLE.has(code) && code !== 'session_not_found') await keepForLater(sid, audio)
+      if (!UNUSABLE.has(code) && code !== 'session_not_found') await keepForLater(sid, audio, slot)
     }
   }
 
-  let queuedCount = 0
-  const keepForLater = (sid: string, audio: { bytes: Uint8Array<ArrayBuffer>; mimeType: string }) =>
-    d.queue.add({
-      id: `${Date.now()}-${String(queuedCount++).padStart(6, '0')}`, // 같은 ms 안에서도 순서대로
+  let adding: Promise<unknown> = Promise.resolve() // 큐에 넣는 중인 말(보내기 전에 끝낸다)
+  const keepForLater = (
+    sid: string,
+    audio: { bytes: Uint8Array<ArrayBuffer>; mimeType: string },
+    slot: QueueSlot = newSlot(),
+  ) => {
+    const added = d.queue.add({
+      ...slot,
       sessionId: sid,
       mimeType: audio.mimeType,
       bytes: audio.bytes,
-      createdAt: Date.now(),
       attempts: 0,
     })
+    adding = Promise.all([adding, added.catch(() => {})])
+    return added
+  }
 
   // 보낼 말: 방금 한 말(utteranceId, 지연 측정) 또는 큐에 보관한 말
   type TurnSource =
-    | { kind: 'new'; utteranceId: string; audio: RecordedAudio; speechEndedAt: number }
+    | { kind: 'new'; utteranceId: string; audio: RecordedAudio; speechEndedAt: number; slot: QueueSlot }
     | { kind: 'queued'; item: QueuedUtterance }
 
   const sendTurn = (utteranceId: string) => {
@@ -333,7 +352,7 @@ export function createVoiceController({
     const sid = sessionId
     let item: QueuedUtterance | null
     try {
-      await removing
+      await Promise.all([removing, adding]) // 방금 넣은 말(답변을 기다리며 한 말)이 보이도록
       item = sid === null ? null : await d.queue.oldest(sid)
     } catch {
       if (!disposed) send({ type: 'queue_send_failed' }) // 보관함을 읽지 못했다: 나중에 다시
@@ -368,6 +387,7 @@ export function createVoiceController({
         : { bytes: queued.bytes, mimeType: queued.mimeType, durationMs: 0 }
     const abort = new AbortController()
     turnAbort = abort
+    const slot = source.kind === 'new' ? source.slot : undefined // 다시 보관할 때의 큐 순번
     const localId =
       queued === null ? `voice-${(source as Extract<TurnSource, { kind: 'new' }>).utteranceId}` : `voice-q-${queued.id}`
     let turnId: string | null = null
@@ -393,7 +413,7 @@ export function createVoiceController({
       if (UNREACHABLE.has(code)) {
         // 서버에 닿지 않았다: 보관했다가 연결되면 다시 보낸다
         if (queued === null) {
-          failed.set((source as Extract<TurnSource, { kind: 'new' }>).utteranceId, audio)
+          failed.set((source as Extract<TurnSource, { kind: 'new' }>).utteranceId, { audio, slot: slot! })
           send({ type: 'send_failed', utteranceId: (source as Extract<TurnSource, { kind: 'new' }>).utteranceId })
         } else {
           await quietly(d.queue.update(queued.id, { attempts: queued.attempts + 1 }))
@@ -404,7 +424,7 @@ export function createVoiceController({
       if (SESSION_GONE.has(code)) {
         // 서버가 대화를 끝냈다: 대답은 못 하지만 기록은 남긴다
         closingReason = message ?? messageOf(code)
-        await preserve(sid, audio)
+        await preserve(sid, audio, slot)
         if (queued !== null) await quietly(d.queue.remove(queued.id))
       } else if (queued !== null) {
         if (!UNUSABLE.has(code) && queued.attempts + 1 < MAX_ATTEMPTS) {
@@ -483,7 +503,7 @@ export function createVoiceController({
       if (abort.signal.aborted && !timedOut) {
         // 끝내기로 끊었다: 서버가 받기 전이면 이 말을 보관해 기록만 남기게 한다(큐의 말은 그대로 남아 있다)
         if (turnId === null && source.kind === 'new') {
-          void keepForLater(sid, audio).catch((e) => console.warn('보관함 오류', e))
+          void keepForLater(sid, audio, slot).catch((e) => console.warn('보관함 오류', e))
         }
         return
       }
@@ -625,10 +645,11 @@ export function createVoiceController({
         return
       case 'queueUtterance': {
         // 보관할 말: 서버에 닿지 않은 말(failed) 또는 큐가 남아 있는 동안 한 새 말(utterances)
-        const audio = failed.get(command.utteranceId) ?? utterances.get(command.utteranceId)?.audio
+        const utterance = failed.get(command.utteranceId) ?? utterances.get(command.utteranceId)
         failed.delete(command.utteranceId)
-        if (audio && sessionId !== null) {
-          void keepForLater(sessionId, audio).catch((e) => console.warn('보관함 오류', e))
+        utterances.delete(command.utteranceId)
+        if (utterance && sessionId !== null) {
+          void keepForLater(sessionId, utterance.audio, utterance.slot).catch((e) => console.warn('보관함 오류', e))
         }
         return
       }

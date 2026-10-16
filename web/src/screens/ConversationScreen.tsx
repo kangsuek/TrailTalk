@@ -227,6 +227,7 @@ export function ConversationScreen({
           sessionId,
           text,
           (streamEvent) => {
+            if (signal.aborted) return // 끝내기로 끊은 뒤 늦게 읽힌 이벤트
             if (streamEvent.type === 'turn') answered = true
             // 끝내기 도구 뒤 턴이 정상 또는 오류로 끝났다
             if (streamEvent.type === 'done' && streamEvent.session_status === 'ended') {
@@ -352,6 +353,7 @@ export function ConversationScreen({
           state={voice.machine.name}
           connecting={state.status === 'starting'}
           queued={voice.machine.queued}
+          connected={voice.machine.connected}
           onTap={voice.tap}
           onLongPress={voice.longPress}
         />
@@ -370,7 +372,8 @@ export function ConversationScreen({
             onKeyDown={onKeyDown}
           />
           <div className="composer-actions">
-            <button type="button" className="secondary" onClick={end} disabled={state.sending}>
+            {/* 답변을 기다리는 중에도 끝낼 수 있다(진행 중 요청은 끊고, 서버가 CLI 턴을 정리한다) */}
+            <button type="button" className="secondary" onClick={end} disabled={state.ending}>
               대화 끝내기
             </button>
             <button type="submit" disabled={!canSend || !draft.trim()}>

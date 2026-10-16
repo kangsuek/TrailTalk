@@ -341,6 +341,33 @@ describe('ConversationScreen', () => {
     expect(screen.getByRole('button', { name: '글로 새 대화' })).toBeInTheDocument()
   })
 
+  it('답변을 기다리는 중에도 대화를 끝낼 수 있다(받던 답변은 끊고 대기 표시를 지운다)', async () => {
+    const fetchMock = stubServer()
+    const base = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (!url.endsWith('/turns')) return base(url)
+      // turn 이벤트만 보내고 멈춘 답변(CLI가 멈춘 경우). 요청을 끊으면 스트림도 끝난다
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('event: turn\ndata: {"type":"turn","turn_id":"a1"}\n\n'))
+          init?.signal?.addEventListener('abort', () => controller.error(new DOMException('aborted', 'AbortError')))
+        },
+      })
+      return new Response(stream, { headers: { 'Content-Type': 'text/event-stream' } })
+    })
+    await startConversation()
+    fireEvent.change(screen.getByRole('textbox', { name: '메시지' }), { target: { value: '안녕' } })
+    fireEvent.click(screen.getByRole('button', { name: '보내기' }))
+    expect(await screen.findByText('답변 준비 중')).toBeInTheDocument()
+    const end = screen.getByRole('button', { name: '대화 끝내기' })
+    expect(end).toBeEnabled()
+    fireEvent.click(end)
+    expect(await screen.findByText('대화가 끝났어요.')).toBeInTheDocument()
+    expect(screen.queryByText('답변 준비 중')).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(calls(fetchMock, '/end')).toBe(1)
+  })
+
   it('끝난 대화에서 일지 보기를 누르면 그 세션의 일지를 연다', async () => {
     stubServer()
     const onOpenJournal = vi.fn()

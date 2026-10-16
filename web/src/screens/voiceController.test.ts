@@ -241,18 +241,54 @@ describe('createVoiceController', () => {
     expect(t.input.start).toHaveBeenCalledTimes(2)
   })
 
-  it('처리 중에 들어온 말은 보내지 않는다', async () => {
+  it('답변을 기다리는 중에 이어서 한 말은 큐에 넣었다가 답변이 끝나면 보낸다', async () => {
     let finishTurn = () => {}
+    const later: RecordedAudio = { bytes: new Uint8Array([7]), mimeType: 'audio/webm', durationMs: 500 }
+    const sendAudioTurn = vi.fn<VoiceDeps['sendAudioTurn']>(async (_id, _audio, onEvent) => {
+      onEvent({ type: 'transcript', text: '첫말' })
+      onEvent({ type: 'turn', turn_id: 'a1' })
+      await new Promise<void>((resolve) => (finishTurn = resolve))
+      onEvent({ type: 'done', turn_id: 'a1', text: '', interrupted: false, session_status: 'active' })
+    })
+    const t = setup({ sendAudioTurn })
+    await startListening(t)
+    t.speak()
+    await tick()
+    t.speak(later) // 처리 중에 이어서 한 말
+    expect(sendAudioTurn).toHaveBeenCalledTimes(1)
+    expect(t.state()).toBe('processing')
+    await tick()
+    expect(await t.queue.count('s1')).toBe(1)
+    sendAudioTurn.mockImplementation(async (_id, _audio, onEvent) => {
+      onEvent({ type: 'transcript', text: '이어서 한 말' })
+      onEvent({ type: 'turn', turn_id: 'a2' })
+      onEvent({ type: 'done', turn_id: 'a2', text: '', interrupted: false, session_status: 'active' })
+    })
+    finishTurn()
+    await vi.waitFor(() => expect(sendAudioTurn).toHaveBeenCalledTimes(2))
+    expect(sendAudioTurn.mock.calls[1][1].bytes).toEqual(later.bytes)
+    await vi.waitFor(() => expect(t.state()).toBe('listening'))
+    expect(await t.queue.count('s1')).toBe(0)
+  })
+
+  it('보내던 말이 서버에 닿지 않으면 그사이 이어서 한 말보다 앞에 보관한다', async () => {
+    let fail: (error: Error) => void = () => {}
+    const first: RecordedAudio = { bytes: new Uint8Array([1]), mimeType: 'audio/webm', durationMs: 500 }
+    const later: RecordedAudio = { bytes: new Uint8Array([2]), mimeType: 'audio/webm', durationMs: 500 }
     const t = setup({
       sendAudioTurn: vi.fn(async () => {
-        await new Promise<void>((resolve) => (finishTurn = resolve))
+        await new Promise<void>((_resolve, reject) => (fail = reject))
       }),
     })
     await startListening(t)
-    t.speak()
-    t.speak()
-    expect(t.deps.sendAudioTurn).toHaveBeenCalledTimes(1)
-    finishTurn()
+    t.speak(first)
+    await tick()
+    t.speak(later) // 첫 말을 보내는 중(처리 중)에 이어서 한 말
+    await tick()
+    fail(new ApiError('network_error', '서버에 연결할 수 없어요.', 0))
+    await vi.waitFor(() => expect(t.deps.speak).toHaveBeenCalled()) // 오프라인 안내
+    await vi.waitFor(async () => expect(await t.queue.count('s1')).toBe(2))
+    expect((await t.queue.oldest('s1'))?.bytes).toEqual(first.bytes)
   })
 
   it('마이크를 쓸 수 없으면 대화를 마치고 이유를 보인다', async () => {

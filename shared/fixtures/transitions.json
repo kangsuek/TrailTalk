@@ -3724,7 +3724,7 @@
       ]
     },
     {
-      "name": "사용자가 막 말을 마친 처리 중에 들어온 말은 버린다",
+      "name": "답변을 기다리는 중에 이어서 한 말은 큐에 넣었다가 답변 뒤에 보낸다",
       "steps": [
         {
           "event": {
@@ -3810,9 +3810,183 @@
           },
           "expect": {
             "state": "processing",
+            "commands": [
+              {
+                "type": "queueUtterance",
+                "utteranceId": "u2"
+              }
+            ],
+            "context": {
+              "queued": 1,
+              "sendingQueued": false
+            }
+          }
+        },
+        {
+          "event": {
+            "type": "turn",
+            "turnId": "t1"
+          },
+          "expect": {
+            "state": "processing",
             "commands": [],
             "context": {
-              "queued": 0
+              "turnId": "t1",
+              "queued": 1
+            }
+          }
+        },
+        {
+          "event": {
+            "type": "turn_done",
+            "turnId": "t1",
+            "sessionStatus": "active"
+          },
+          "expect": {
+            "state": "processing",
+            "commands": [
+              {
+                "type": "clearIdleTimer"
+              },
+              {
+                "type": "sendQueued"
+              }
+            ],
+            "context": {
+              "turnId": null,
+              "queued": 1,
+              "sendingQueued": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "답변을 기다리며 이어서 한 말 뒤에 보내던 말이 서버에 닿지 않으면 둘 다 보관하고 안내한다",
+      "steps": [
+        {
+          "event": {
+            "type": "tap"
+          },
+          "expect": {
+            "state": "processing",
+            "commands": [
+              {
+                "type": "startSession"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "session_started",
+            "turnId": "t0"
+          },
+          "expect": {
+            "state": "speaking",
+            "commands": [
+              {
+                "type": "setVadMode",
+                "mode": "playback"
+              }
+            ],
+            "context": {
+              "turnId": "t0"
+            }
+          }
+        },
+        {
+          "event": {
+            "type": "playback_idle"
+          },
+          "expect": {
+            "state": "listening",
+            "commands": [
+              {
+                "type": "micOn"
+              },
+              {
+                "type": "setVadMode",
+                "mode": "normal"
+              },
+              {
+                "type": "playSound",
+                "name": "listen"
+              },
+              {
+                "type": "startIdleTimer",
+                "minutes": 30
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "speech_end",
+            "utteranceId": "u1"
+          },
+          "expect": {
+            "state": "processing",
+            "commands": [
+              {
+                "type": "clearIdleTimer"
+              },
+              {
+                "type": "sendTurn",
+                "utteranceId": "u1"
+              }
+            ],
+            "context": {
+              "sendingQueued": false
+            }
+          }
+        },
+        {
+          "event": {
+            "type": "speech_end",
+            "utteranceId": "u2"
+          },
+          "expect": {
+            "state": "processing",
+            "commands": [
+              {
+                "type": "queueUtterance",
+                "utteranceId": "u2"
+              }
+            ],
+            "context": {
+              "queued": 1,
+              "sendingQueued": false
+            }
+          }
+        },
+        {
+          "event": {
+            "type": "send_failed",
+            "utteranceId": "u1"
+          },
+          "expect": {
+            "state": "offline",
+            "commands": [
+              {
+                "type": "queueUtterance",
+                "utteranceId": "u1"
+              },
+              {
+                "type": "setVadMode",
+                "mode": "playback"
+              },
+              {
+                "type": "playSound",
+                "name": "offline"
+              },
+              {
+                "type": "speakOfflineNotice"
+              }
+            ],
+            "context": {
+              "queued": 2,
+              "connected": false
             }
           }
         }

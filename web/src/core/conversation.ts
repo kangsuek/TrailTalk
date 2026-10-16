@@ -237,7 +237,14 @@ export function conversationReducer(
       return { ...state, messages, sending: streaming ? false : state.sending }
     }
     case 'ending':
-      return { ...state, sending: true, ending: true, error: null }
+      // 받는 중에 끝내면 그 답변은 받은 데까지 끊긴 답변으로 마무리한다(대기 표시가 남지 않게)
+      return {
+        ...state,
+        sending: true,
+        ending: true,
+        error: null,
+        messages: updateStreaming(state.messages, (m) => ({ ...m, status: 'done', interrupted: true })),
+      }
     case 'ended': {
       const closing: AssistantMessage[] = action.closing
         ? [

@@ -19,12 +19,14 @@ export function VoiceControls({
   state,
   connecting,
   queued = 0,
+  connected = true,
   onTap,
   onLongPress,
 }: {
   state: SessionStateName
   connecting: boolean // 시작 응답을 기다리는 중
-  queued?: number // 연결이 끊겨 보관한 말 수(S3-12)
+  queued?: number // 보관한 말 수(연결이 끊긴 동안·답변을 기다리는 동안 한 말, S3-12)
+  connected?: boolean // 서버에 닿는가(보관한 말 안내 문구가 달라진다)
   onTap: () => void
   onLongPress: () => void
 }) {
@@ -77,7 +79,11 @@ export function VoiceControls({
       {status.hint && <p className="voice-hint">{status.hint}</p>}
       {queued > 0 && (
         <p className="voice-hint" data-testid="queued">
-          보관한 말 {queued}개 · 연결되면 차례로 보내요
+          {!connected
+            ? `보관한 말 ${queued}개 · 연결되면 차례로 보내요`
+            : state === 'processing' || state === 'speaking'
+              ? `이어서 한 말 ${queued}개 · 답변 뒤에 보내요`
+              : `이어서 한 말 ${queued}개 · 다음 차례에 보내요`}
         </p>
       )}
       {/* 정리 중에는 끝내기 응답을 기다리지 않고 나오는 탈출구(서버 끝내기는 멱등이다) */}

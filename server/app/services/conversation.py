@@ -615,9 +615,10 @@ async def _run_turn(
         tool_names: dict[str, str] = {}
         finished: TurnFinished | None = None
 
-        def queue(items: list[str]) -> None:
+        def queue(items: list[str], with_audio: bool = True) -> None:
             for item in items:
-                task = asyncio.create_task(speech.synthesize(app, item, voice)) if voice else None
+                synth = voice and with_audio
+                task = asyncio.create_task(speech.synthesize(app, item, voice)) if synth else None
                 pending.append((item, task))
 
         def head_ready() -> bool:
@@ -658,78 +659,88 @@ async def _run_turn(
 
         # 직전 답변을 끊었으면 사용자가 어디까지 들었는지 CLI에만 알린다(기록에는 남기지 않는다)
         cli_text, runtime.heard_note = (runtime.heard_note or "") + text, None
-        async with aclosing(session.send(cli_text)) as stream:
-            async for event in stream:
-                if isinstance(event, TurnStarted):
-                    if event.cli_session_id and event.cli_session_id != convo.cli_session_id:
-                        convo.cli_session_id = event.cli_session_id
-                        with anyio.CancelScope(shield=True):
-                            await db.commit()
-                elif isinstance(event, TextDelta):
-                    # 합성을 띄우기만 하고 CLI를 계속 읽는다. 소리가 다 된 문장은 아래에서 보낸다
-                    # (합성을 기다리는 시간이 턴 시간 제한에 더해지지 않게)
-                    if timing is not None and timing.first_token_ms is None:
-                        timing.first_token_ms = timing.elapsed_ms()
-                    parts.append(event.text)
-                    queue(splitter.feed(event.text))
-                elif isinstance(event, ToolStarted):
-                    # 도구 앞의 말("잠깐 찾아볼게요")은 기다리지 않고 바로 문장으로 보낸다
-                    queue(splitter.flush())
-                    while pending:
+        # CLI 오류(크래시·시간 초과)로 끝나도 받은 글은 아래에서 마저 보내고 저장한 뒤 다시 던진다
+        stream_error: LlmError | None = None
+        try:
+            async with aclosing(session.send(cli_text)) as stream:
+                async for event in stream:
+                    if isinstance(event, TurnStarted):
+                        if event.cli_session_id and event.cli_session_id != convo.cli_session_id:
+                            convo.cli_session_id = event.cli_session_id
+                            with anyio.CancelScope(shield=True):
+                                await db.commit()
+                    elif isinstance(event, TextDelta):
+                        # 합성을 띄우기만 하고 CLI를 계속 읽는다. 소리가 다 된 문장은 아래에서
+                        # 보낸다(합성을 기다리는 시간이 턴 시간 제한에 더해지지 않게)
+                        if timing is not None and timing.first_token_ms is None:
+                            timing.first_token_ms = timing.elapsed_ms()
+                        parts.append(event.text)
+                        queue(splitter.feed(event.text))
+                    elif isinstance(event, ToolStarted):
+                        # 도구 앞의 말("잠깐 찾아볼게요")은 기다리지 않고 바로 문장으로 보낸다
+                        queue(splitter.flush())
+                        while pending:
+                            yield await next_sentence()
+                        if parts and not parts[-1][-1:].isspace():
+                            parts.append("\n\n")
+                        name = public_tool_name(event.name)
+                        tool_names[event.tool_use_id] = name
+                        notice = None
+                        if voice and name in _SEARCH_TOOLS and not spoken and not notice_sent:
+                            # 아무 말 없이 검색을 시작했다: 기다리는 동안의 침묵을 안내로 메운다
+                            notice_sent = True
+                            notice = VoiceNotice(
+                                text=voice.search_notice,
+                                audio=await speech.cached(app, voice.search_notice, voice),
+                            )
+                        yield encode_sse(
+                            ToolEvent(
+                                phase="start",
+                                tool_use_id=event.tool_use_id,
+                                name=name,
+                                notice=notice,
+                            )
+                        )
+                    elif isinstance(event, ToolCalled):
+                        while pending:  # 도구 이벤트보다 앞선 문장을 먼저 보낸다(순서 유지)
+                            yield await next_sentence()
+                        name = tool_names.setdefault(
+                            event.tool_use_id, public_tool_name(event.name)
+                        )
+                        yield encode_sse(
+                            ToolEvent(
+                                phase="call",
+                                tool_use_id=event.tool_use_id,
+                                name=name,
+                                input=event.input,
+                            )
+                        )
+                    elif isinstance(event, ToolFinished):
+                        while pending:
+                            yield await next_sentence()
+                        yield encode_sse(
+                            ToolEvent(
+                                phase="end",
+                                tool_use_id=event.tool_use_id,
+                                name=tool_names.get(event.tool_use_id, "unknown"),
+                                summary=event.summary,
+                                is_error=event.is_error,
+                            )
+                        )
+                    elif isinstance(event, TurnFinished):
+                        finished = event
+                    while head_ready():
                         yield await next_sentence()
-                    if parts and not parts[-1][-1:].isspace():
-                        parts.append("\n\n")
-                    name = public_tool_name(event.name)
-                    tool_names[event.tool_use_id] = name
-                    notice = None
-                    if voice and name in _SEARCH_TOOLS and not spoken and not notice_sent:
-                        # 아무 말 없이 검색을 시작했다: 기다리는 동안의 침묵을 안내로 메운다
-                        notice_sent = True
-                        notice = VoiceNotice(
-                            text=voice.search_notice,
-                            audio=await speech.cached(app, voice.search_notice, voice),
-                        )
-                    yield encode_sse(
-                        ToolEvent(
-                            phase="start",
-                            tool_use_id=event.tool_use_id,
-                            name=name,
-                            notice=notice,
-                        )
-                    )
-                elif isinstance(event, ToolCalled):
-                    while pending:  # 도구 이벤트보다 앞선 문장을 먼저 보낸다(순서 유지)
-                        yield await next_sentence()
-                    name = tool_names.setdefault(event.tool_use_id, public_tool_name(event.name))
-                    yield encode_sse(
-                        ToolEvent(
-                            phase="call",
-                            tool_use_id=event.tool_use_id,
-                            name=name,
-                            input=event.input,
-                        )
-                    )
-                elif isinstance(event, ToolFinished):
-                    while pending:
-                        yield await next_sentence()
-                    yield encode_sse(
-                        ToolEvent(
-                            phase="end",
-                            tool_use_id=event.tool_use_id,
-                            name=tool_names.get(event.tool_use_id, "unknown"),
-                            summary=event.summary,
-                            is_error=event.is_error,
-                        )
-                    )
-                elif isinstance(event, TurnFinished):
-                    finished = event
-                while head_ready():
-                    yield await next_sentence()
-        queue(splitter.flush())
-        if finished is None or finished.interrupted:
-            drop_audio()  # 끝내기 API·끊김으로 멈춘 턴: 남은 문장은 글만 저장하고 보낸다
+        except LlmError as exc:
+            stream_error = exc
+        stopped = stream_error is not None or finished is None or finished.interrupted
+        queue(splitter.flush(), with_audio=not stopped)
+        if stopped:
+            drop_audio()  # 끝내기 API·끊김·CLI 오류로 멈춘 턴: 남은 문장은 글만 저장하고 보낸다
         while pending:
             yield await next_sentence()
+        if stream_error is not None:
+            raise stream_error  # 아래 except AppError가 상태 요청 반영·오류 이벤트를 맡는다
 
         if finished is None or (finished.is_error and not finished.interrupted):
             detail = finished.error_message if finished else "응답 없음"

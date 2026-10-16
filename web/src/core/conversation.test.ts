@@ -217,6 +217,20 @@ describe('conversationReducer', () => {
     expect(conversationReducer(ended, { type: 'start' }).journalPending).toBe(false)
   })
 
+  it('받는 중에 끝내면 그 답변을 받은 데까지 끊긴 답변으로 마무리한다', () => {
+    const state = reduce([
+      ...started,
+      { type: 'send', id: 'u-1', text: '안녕' },
+      ev({ type: 'turn', turn_id: 'a1' }),
+      ev({ type: 'sentence', index: 0, text: '첫 문장.', audio: null }),
+      { type: 'ending' },
+    ])
+    expect(state.ending).toBe(true)
+    expect(last(state)).toEqual(
+      expect.objectContaining({ id: 'a1', sentences: ['첫 문장.'], status: 'done', interrupted: true }),
+    )
+  })
+
   it('끝내기가 실패하면 ending을 푼다', () => {
     const state = reduce([...started, { type: 'ending' }, { type: 'failed', message: '연결 안 됨' }])
     expect(state.ending).toBe(false)
