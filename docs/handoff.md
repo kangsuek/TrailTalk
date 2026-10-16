@@ -81,7 +81,7 @@ TrailTalk 작업을 이어서 진행합니다. 먼저 docs/handoff.md를 읽고,
   - 음성 감지 자산은 버전 폴더 `/vad/<vad-web>-<onnxruntime>/`(`web/vadAssets.ts`, `__VAD_DIR__` define)에 둔다. 해시 없는 이름이라 CacheFirst가 의존성을 올린 뒤에도 옛 wasm을 줄 수 있어서다(커밋 전 리뷰).
   - 새 버전: `registerType: 'prompt'` + `UpdateBanner`(useRegisterSW, 한 시간마다 확인) "새 버전 적용" 버튼. 홈 화면 앱은 잘 닫히지 않아 버튼 없이 두면 옛 앱에 갇힌다(커밋 전 리뷰).
   - 알려진 위험(나중 과제): 인증 없는 `/api`가 tailnet에 열려, 폰 브라우저의 악성 사이트가 단순 POST(CSRF)로 부작용을 낼 여지가 있다(응답은 못 읽음). 필요하면 Origin·Content-Type 검사를 넣는다.
-  - localhost 실제 확인: 서비스 워커 등록·manifest·오프라인 다시 열기·제어 상태 음성 한 바퀴·vad 캐시 4개. **남은 것**: 사용자가 Tailscale Serve(HTTPS 인증서)를 허용한 뒤 ts.net 주소로 같은 확인과 `/internal/mcp/` 403 실측, A35 실기기(마이크·음성 한 바퀴·홈 화면 추가·이어폰 버튼).
+  - localhost 실제 확인: 서비스 워커 등록·manifest·오프라인 다시 열기·제어 상태 음성 한 바퀴·vad 캐시 4개. 사용자가 Serve를 허용한 뒤(10-17) Mac에서 ts.net 주소(임시 8443 → 8300)로 같은 확인과 음성 턴 2회, `/internal/mcp/` 403을 실측했다. Serve가 붙이는 헤더: X-Forwarded-For/Host/Proto, Tailscale-User-Login/Name/Profile-Pic, Tailscale-Headers-Info. **남은 것**: A35 실기기(마이크·음성 한 바퀴·홈 화면 추가·이어폰 버튼).
 - **다음 작업**(사용자 요청: S3-04부터 계획서 순서대로 진행, 작업마다 Plan Mode 승인)
   1. S3-14 PWA·HTTPS 터널(폰에서 쓰기, 결정 D1 필요). 이때 iOS Safari 오디오·마이크, Media Session 이어폰 버튼을 실기기로 확인한다.
   2. S3-15 클라이언트 규약 확정, S3-16 음성 흐름 E2E, 이어서 3단계 마일스톤 종료 점검.

@@ -451,7 +451,7 @@
 #### S3-14 PWA·정적 서빙·HTTPS 터널
 - [x] vite-plugin-pwa 1.3.0 설정(앱 셸 precache, `/vad/`는 처음 쓸 때 CacheFirst, `/api`·`/internal` 제외, 자동 새로 고침 없음), 앱 아이콘·manifest
 - [x] FastAPI 정적 서빙 확인(sw.js·webmanifest·wasm 형식, 오프라인 다시 열기)
-- [ ] 결정 D1(집 Mac + Tailscale Serve, `./run.sh --phone`, `docs/phone.md`)에 따른 서버 배치와 HTTPS 터널. 앱 도구 MCP 경로 `/internal/*`는 터널·리버스 프록시에서 막는다(앱도 전달 헤더가 붙은 MCP 요청은 403). 서버 포트가 8000이 아니면 `INTERNAL_BASE_URL`을 맞춘다(틀리면 CLI가 도구 없이 대화한다)
+- [x] 결정 D1(집 Mac + Tailscale Serve, `./run.sh --phone`, `docs/phone.md`)에 따른 서버 배치와 HTTPS 터널. 확인(10-17, Mac에서 ts.net 주소): 서비스 워커·오프라인 다시 열기·음성 턴 2회·vad 캐시, `/internal/mcp/` 403 실측. Serve가 붙이는 헤더는 X-Forwarded-For/Host/Proto·Tailscale-User-*. 앱 도구 MCP 경로 `/internal/*`는 터널·리버스 프록시에서 막는다(앱도 전달 헤더가 붙은 MCP 요청은 403). 서버 포트가 8000이 아니면 `INTERNAL_BASE_URL`을 맞춘다(틀리면 CLI가 도구 없이 대화한다)
 - [ ] 폰 브라우저에서 마이크 권한 확인
 
 #### S3-15 클라이언트 규약 확정
