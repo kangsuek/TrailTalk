@@ -6,6 +6,7 @@
 
 import asyncio
 import logging
+import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -29,6 +30,17 @@ def _remove(root: Path, relative: str) -> None:
     parent = path.parent
     if parent != root and parent.is_dir() and not any(parent.iterdir()):
         parent.rmdir()
+
+
+def remove_session_audio(root: Path, session_id: str) -> None:
+    """대화 하나의 녹음 폴더를 통째로 지운다(대화 삭제). 경로를 남기지 못한 파일까지 지운다."""
+    root = root.resolve()
+    path = (root / session_id).resolve()
+    if not path.is_relative_to(root) or path == root:
+        logger.warning("보관 폴더 밖 경로라 지우지 않음: %s", session_id)
+        return
+    if path.is_dir():
+        shutil.rmtree(path)
 
 
 async def purge_old_audio(app: FastAPI, now: datetime | None = None) -> int:

@@ -233,7 +233,8 @@ async def run_extraction(app: FastAPI, session_id: str) -> Extraction | None:
                 return
             # 요약은 줄 목록으로 저장하므로 항목 안의 줄바꿈은 한 칸으로 줄인다
             # (빈 줄·줄 수 초과 방지)
-            convo.title = _one_line(result.title)
+            if not convo.title_edited:  # 사용자가 고친 제목은 두고 간다
+                convo.title = _one_line(result.title)
             convo.summary = "\n".join(line for line in map(_one_line, result.summary) if line)
             convo.tags = _clean_tags(result.tags)
             # 정리하는 사이 다른 대화가 붙인 주제까지 보고 표기를 맞춘다
@@ -309,6 +310,23 @@ async def _status(app: FastAPI, session_id: str) -> ExtractStatus | None:
         return await db.scalar(
             select(ConversationSession.extract_status).where(ConversationSession.id == session_id)
         )
+
+
+async def cancel_extraction(app: FastAPI, session_id: str, timeout_s: float) -> None:
+    """돌고 있는 추출을 멈추고(CLI는 kill), 이미 시작한 결과 쓰기가 끝나길 최대 timeout_s 기다린다.
+
+    쓰기는 취소에서 보호된 별도 태스크(_shielded)라 추출 태스크를 취소해도 끝까지 돈다.
+    대화를 지우기 전에 불러 지운 뒤에 쓰기가 커밋되지 않게 한다. 부른 쪽의 취소는 그대로 전파된다.
+    """
+    deadline = asyncio.get_running_loop().time() + timeout_s
+    task = app.state.extractions.get(session_id)
+    if task is not None and not task.done():
+        task.cancel()
+        await asyncio.wait({task}, timeout=timeout_s)
+    writes = set(app.state.extract_writes)
+    remaining = deadline - asyncio.get_running_loop().time()
+    if writes and remaining > 0:
+        await asyncio.wait(writes, timeout=remaining)
 
 
 _RERUNS = 5

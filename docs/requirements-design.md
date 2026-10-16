@@ -247,6 +247,8 @@ ID는 UUID 문자열(`persona`는 이름 키, `user_profile`은 단일 행 1), �
 | POST | /sessions/{id}/end | 세션 종료 + 요약·추출 실행 |
 | GET | /journal?from=&to=&q= | 대화 일지 목록·검색 |
 | GET | /journal/{session_id} | 일지 상세(요약, 노트, 전문) |
+| PATCH | /journal/{session_id} | 대화 제목 수정(다시 정리해도 유지) |
+| DELETE | /journal/{session_id} | 대화 삭제(노트·전문·녹음 포함, 진행 중이면 409) |
 | POST | /journal/{session_id}/retry | 정리에 실패한(또는 정리 기록이 없는) 끝난 대화를 다시 정리 |
 | PATCH | /notes/{id} | 별표·완료·내용 수정 |
 | GET | /journal/{session_id}/export.md | Markdown 내보내기 |

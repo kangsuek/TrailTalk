@@ -268,10 +268,19 @@ export interface paths {
         get: operations["get_journal_api_journal__session_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete Journal
+         * @description 대화를 지운다(전문·노트·지연 기록·보관한 녹음까지). 진행 중인 대화는 409 session_active,
+         *     답변을 만드는 중이면 409 turn_in_progress. 쉬는 중이면 CLI를 정리하고, 돌던 일지 정리는 멈춘다.
+         */
+        delete: operations["delete_journal_api_journal__session_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Update Journal
+         * @description 대화 제목을 고친다. 고친 제목은 일지를 다시 정리해도 바뀌지 않는다.
+         */
+        patch: operations["update_journal_api_journal__session_id__patch"];
         trace?: never;
     };
     "/api/notes/{note_id}": {
@@ -411,6 +420,11 @@ export interface components {
             /** Journal Status */
             journal_status: ("pending" | "done" | "failed") | null;
             counts: components["schemas"]["NoteCounts"];
+        };
+        /** JournalPatch */
+        JournalPatch: {
+            /** Title */
+            title: string;
         };
         /** LatencyOut */
         LatencyOut: {
@@ -1409,6 +1423,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JournalDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_journal_api_journal__session_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_journal_api_journal__session_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JournalPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JournalItem"];
                 };
             };
             /** @description Validation Error */

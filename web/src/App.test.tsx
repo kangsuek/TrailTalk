@@ -91,7 +91,7 @@ describe('App', () => {
     )
     render(<App />)
     fireEvent.click(screen.getByRole('tab', { name: '일지 목록' }))
-    fireEvent.click(await screen.findByRole('button', { name: /산책 앱 아이디어/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /^산책 앱 아이디어/ }))
     expect(screen.getByRole('tab', { name: '일지 상세' })).toHaveAttribute('aria-selected', 'true')
     expect(await screen.findByRole('heading', { level: 3, name: '산책 앱 아이디어' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '목록으로' }))

@@ -1,4 +1,5 @@
-"""일지·노트 API(계획서 S2-07, 설계서 4.6): 일지 목록·상세·다시 정리, 노트 별표·완료·내용 수정.
+"""일지·노트 API(계획서 S2-07, 설계서 4.6): 일지 목록·상세·제목 수정·삭제·다시 정리,
+노트 별표·완료·내용 수정.
 
 날짜는 서버 시간대(settings.timezone)의 현지 날짜다. 목록 항목에 현지 날짜(date)를 실어 클라이언트가
 시간대 계산 없이 날짜별로 묶게 한다. 요약은 줄 목록으로 준다.
@@ -25,6 +26,7 @@ from app.db.models import (
 from app.db.session import DbSession
 from app.errors import AppError
 from app.jobs import extract
+from app.services import conversation
 from app.services.conversation import SessionNotFound
 from app.services.profile import profile_with_persona
 
@@ -106,6 +108,19 @@ def _content(value: str) -> str:
     if not 1 <= len(value) <= 500:
         raise ValueError("1~500자로 입력하세요")
     return value
+
+
+def _title(value: str) -> str:
+    value = " ".join(value.split())  # 목록에 한 줄로 보이므로 줄바꿈·연속 공백은 한 칸으로
+    if not 1 <= len(value) <= 200:
+        raise ValueError("1~200자로 입력하세요")
+    return value
+
+
+class JournalPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: Annotated[str, AfterValidator(_title)]
 
 
 class NotePatch(BaseModel):
@@ -217,6 +232,30 @@ async def get_journal(session_id: str, request: Request, db: DbSession) -> Journ
             for t in turns.scalars()
         ],
     )
+
+
+@router.patch("/journal/{session_id}")
+async def update_journal(
+    session_id: str, body: JournalPatch, request: Request, db: DbSession
+) -> JournalItem:
+    """대화 제목을 고친다. 고친 제목은 일지를 다시 정리해도 바뀌지 않는다."""
+    convo = await db.get(ConversationSession, session_id)
+    if convo is None:
+        raise SessionNotFound()
+    convo.title = body.title
+    convo.title_edited = True
+    await db.commit()
+    tz = ZoneInfo(request.app.state.settings.timezone)
+    counts = await _counts(db, [session_id])
+    return _item(convo, counts[session_id], tz)
+
+
+@router.delete("/journal/{session_id}", status_code=204)
+async def delete_journal(session_id: str, request: Request, db: DbSession) -> None:
+    """대화를 지운다(전문·노트·지연 기록·보관한 녹음까지). 진행 중인 대화는 409 session_active,
+    답변을 만드는 중이면 409 turn_in_progress. 쉬는 중이면 CLI를 정리하고, 돌던 일지 정리는 멈춘다.
+    """
+    await conversation.delete_session(request.app, db, session_id)
 
 
 @router.patch("/notes/{note_id}")

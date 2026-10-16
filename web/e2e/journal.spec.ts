@@ -19,7 +19,7 @@ test('일지: 목록 → 상세, 별표·완료(할 일·아이디어) 표시가
   const openLatest = async () => {
     await page.getByRole('tab', { name: '일지 목록' }).click()
     const detail = page.waitForResponse((r) => r.url().endsWith(`/api/journal/${closed.session.id}`))
-    await page.getByRole('button', { name: /Claude Code 최신 버전과 uv 알아보기/ }).first().click()
+    await page.getByRole('button', { name: /^Claude Code 최신 버전과 uv 알아보기/ }).first().click()
     await detail
     await expect(page.getByRole('heading', { level: 3, name: 'Claude Code 최신 버전과 uv 알아보기' })).toBeVisible()
   }
@@ -61,4 +61,58 @@ test('일지: 목록 → 상세, 별표·완료(할 일·아이디어) 표시가
   await page.getByRole('tab', { name: '일지 목록' }).click()
   await expect(page.getByText(/아이디어 1 · 할 일 1 · 메모 1/).first()).toBeVisible()
   await page.screenshot({ path: 'test-results/journal-list.png', fullPage: true })
+})
+
+test('일지 목록: 제목을 눌러 고치고(포커스가 떠나면 저장, 새로고침 뒤에도 유지) 쓰레기통으로 지운다', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: '글로 대화' }).click()
+  const log = page.getByRole('log', { name: '대화 내용' })
+  await expect(log.locator('.message.assistant').first()).toBeVisible()
+  await page.getByRole('textbox', { name: '메시지' }).fill('Claude Code 최신 버전 알려줘')
+  await page.getByRole('button', { name: '보내기' }).click()
+  await expect(log.locator('.message.assistant')).toHaveCount(2)
+  const ended = page.waitForResponse((r) => r.url().endsWith('/end'))
+  await page.getByRole('button', { name: '대화 끝내기' }).click()
+  const closed = await (await ended).json()
+
+  // 최신순 첫 항목이 방금 끝낸 대화다(다른 spec이 같은 제목을 먼저 만들었을 수 있다)
+  await page.getByRole('tab', { name: '일지 목록' }).click()
+  const title = `이름 바꾼 대화 ${Date.now()}`
+  await page.getByRole('button', { name: '제목 수정: Claude Code 최신 버전과 uv 알아보기' }).first().click()
+  await expect(page.getByRole('tab', { name: '일지 목록' })).toHaveAttribute('aria-selected', 'true') // 상세로 가지 않는다
+  const input = page.getByRole('textbox', { name: '대화 제목' })
+  await expect(input).toBeFocused()
+  await input.fill(title)
+  await page.screenshot({ path: 'test-results/journal-list-editing.png', fullPage: true })
+  const renamed = page.waitForResponse(
+    (r) => r.url().endsWith(`/api/journal/${closed.session.id}`) && r.request().method() === 'PATCH',
+  )
+  await page.getByRole('heading', { name: '일지 목록', level: 2 }).click() // 다른 곳을 누르면(포커스 이동) 저장
+  expect((await renamed).status()).toBe(200)
+  await expect(page.getByRole('button', { name: `제목 수정: ${title}` })).toBeVisible()
+  await page.screenshot({ path: 'test-results/journal-list-renamed.png', fullPage: true })
+
+  await page.reload()
+  await page.getByRole('tab', { name: '일지 목록' }).click()
+  await expect(page.getByRole('button', { name: `제목 수정: ${title}` })).toBeVisible()
+
+  // 카드의 제목 밖을 누르면 상세가 열린다
+  await page.getByRole('button', { name: new RegExp(`^${title}`) }).click()
+  await expect(page.getByRole('heading', { level: 3, name: title })).toBeVisible()
+  await page.getByRole('tab', { name: '일지 목록' }).click()
+
+  let message = ''
+  page.once('dialog', (dialog) => {
+    message = dialog.message()
+    void dialog.accept()
+  })
+  const removed = page.waitForResponse((r) => r.request().method() === 'DELETE')
+  await page.getByRole('button', { name: `삭제: ${title}` }).click()
+  expect((await removed).status()).toBe(204)
+  expect(message).toBe('이 대화와 노트·전문을 모두 지울까요?')
+  await expect(page.getByRole('button', { name: `제목 수정: ${title}` })).toHaveCount(0)
+  await page.reload()
+  await page.getByRole('tab', { name: '일지 목록' }).click()
+  await expect(page.getByText(/불러오는 중/)).toHaveCount(0)
+  await expect(page.getByRole('button', { name: `제목 수정: ${title}` })).toHaveCount(0)
 })

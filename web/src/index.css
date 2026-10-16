@@ -319,6 +319,125 @@ body {
   text-align: left;
 }
 
+.journal-entry {
+  display: grid;
+  grid-template-columns: 1fr 44px;
+  gap: 6px;
+}
+
+/* 카드 전체를 누르면 상세가 열린다(열기 버튼의 덮개). 제목 버튼만 덮개 위에 둔다 */
+.journal-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.journal .journal-card button.journal-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.journal-card button.journal-item::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+}
+
+.journal .journal-card button.journal-item:focus-visible {
+  outline: none;
+}
+
+.journal-card button.journal-item:focus-visible::after {
+  outline: 2px solid var(--accent);
+}
+
+/* 제목 터치 영역은 위아래로 넓혀(최소 44px) 손가락으로 누르기 쉽게 한다 */
+.journal .journal-card button.journal-title {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  max-width: 100%;
+  min-height: 44px;
+  margin: -10px 0 -6px -6px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.journal .journal-card button.journal-title:active {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.journal-pencil {
+  flex: none;
+  color: var(--muted);
+}
+
+/* 16px 이상이어야 iOS가 입력할 때 화면을 확대하지 않는다 */
+.journal-title-input {
+  position: relative;
+  z-index: 1;
+  min-height: 44px;
+  margin: -10px -6px 0;
+  padding: 0 8px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  outline: 1px solid var(--accent); /* 기본 포커스 테두리가 아래 요약 줄을 덮지 않게 안쪽에 맞춘다 */
+  outline-offset: -2px;
+}
+
+.journal button.journal-trash {
+  display: grid;
+  min-height: 44px;
+  -webkit-tap-highlight-color: transparent;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--muted);
+}
+
+.journal button.journal-trash[aria-disabled='true'] {
+  opacity: 0.5;
+}
+
+.journal button.journal-trash:hover:not(:disabled, [aria-disabled='true']),
+.journal button.journal-trash:focus-visible {
+  color: var(--error);
+}
+
+.journal-entry .journal-error {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.journal button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .journal-title {
   font-weight: 600;
 }

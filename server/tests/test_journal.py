@@ -3,6 +3,7 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy import func, select
 
 from app.db.models import (
     ConversationSession,
@@ -11,6 +12,7 @@ from app.db.models import (
     NoteKind,
     SessionStatus,
     Turn,
+    TurnLatency,
     TurnRole,
 )
 from app.persona.loader import load_persona
@@ -179,3 +181,72 @@ def test_patch_note_validation(client, body):
 def test_patch_missing_note(client):
     response = client.patch("/api/notes/nope", json={"done": True})
     assert response.status_code == 404 and response.json()["error"]["code"] == "note_not_found"
+
+
+def test_rename_journal(client):
+    session_id = add_session(client, kst(2026, 10, 15, 9), title="자동 제목")
+    response = client.patch(f"/api/journal/{session_id}", json={"title": "  산책  앱\n아이디어 "})
+    assert response.status_code == 200
+    assert response.json()["title"] == "산책 앱 아이디어"  # 줄바꿈·연속 공백은 한 칸으로
+    assert response.json()["id"] == session_id
+    assert client.get(f"/api/journal/{session_id}").json()["session"]["title"] == "산책 앱 아이디어"
+    row = run(client, lambda db: db.get(ConversationSession, session_id))
+    assert row.title_edited is True
+
+
+@pytest.mark.parametrize(
+    "body", [{"title": "  \n "}, {"title": "가" * 201}, {"title": None}, {}, {"tags": []}]
+)
+def test_rename_journal_validation(client, body):
+    session_id = add_session(client, kst(2026, 10, 15, 9))
+    assert client.patch(f"/api/journal/{session_id}", json=body).status_code == 422
+
+
+def test_rename_missing_journal(client):
+    response = client.patch("/api/journal/nope", json={"title": "제목"})
+    assert response.status_code == 404 and response.json()["error"]["code"] == "session_not_found"
+
+
+def test_delete_journal_removes_everything(client):
+    session_id = add_session(client, kst(2026, 10, 15, 9))
+    other = add_session(client, kst(2026, 10, 15, 10), title="남는 대화")
+    add_note(client, session_id, NoteKind.IDEA, "아이디어")
+    audio_dir = client.app.state.settings.audio_dir
+    (audio_dir / session_id).mkdir(parents=True)
+    (audio_dir / session_id / "t.webm").write_bytes(b"x")
+
+    async def fn(db):
+        turn = (await db.execute(select(Turn).where(Turn.session_id == session_id))).scalars()
+        first = next(iter(turn))
+        first.audio_path = f"{session_id}/t.webm"
+        db.add(TurnLatency(turn_id="t", session_id=session_id))
+
+    run(client, fn)
+    response = client.delete(f"/api/journal/{session_id}")
+    assert response.status_code == 204
+
+    assert client.get(f"/api/journal/{session_id}").status_code == 404
+    listed = client.get("/api/journal", params={"from": "2026-10-15", "to": "2026-10-15"}).json()
+    assert [i["id"] for i in listed] == [other]
+    assert not (audio_dir / session_id).exists()
+
+    async def left(db):
+        return [
+            (
+                await db.scalar(
+                    select(func.count()).select_from(model).where(model.session_id == session_id)
+                )
+            )
+            for model in (Turn, Note, TurnLatency)
+        ]
+
+    assert run(client, left) == [0, 0, 0]
+    again = client.delete(f"/api/journal/{session_id}")
+    assert again.status_code == 404 and again.json()["error"]["code"] == "session_not_found"
+
+
+def test_delete_active_journal_is_refused(client):
+    session_id = add_session(client, kst(2026, 10, 15, 9), status=SessionStatus.ACTIVE)
+    response = client.delete(f"/api/journal/{session_id}")
+    assert response.status_code == 409 and response.json()["error"]["code"] == "session_active"
+    assert client.get(f"/api/journal/{session_id}").status_code == 200

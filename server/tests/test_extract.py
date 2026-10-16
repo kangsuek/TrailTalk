@@ -1,5 +1,6 @@
 """세션 종료 추출(S2-02). 가짜 CLI 단발 모드(FAKE_CLAUDE_ONESHOT)로 CLI 호출까지 확인한다."""
 
+import asyncio
 import json
 import time
 from pathlib import Path
@@ -19,6 +20,8 @@ from app.db.models import (
 from app.jobs.extract import Extraction, build_prompt, build_transcript, clean_topics
 from app.llm.events import TurnStarted
 from app.main import create_app
+from app.services import conversation
+from app.services.conversation import SessionNotFound
 from tests.test_sessions import hook_llm, load, session_row, start, turn
 
 FIXTURE = Path(__file__).parent / "fixtures" / "claude_cli" / "extract.jsonl"
@@ -524,3 +527,114 @@ def test_retry_while_extraction_is_finishing_runs_again(api, oneshot, monkeypatc
     end(api, session_id)
     assert len(calls) == 2
     assert session_row(api, session_id).extract_status is ExtractStatus.DONE
+
+
+def test_renamed_title_survives_reextraction(api):
+    session_id = start(api)["session"]["id"]
+    turn(api, session_id, "바나나는?")
+    end(api, session_id)
+    assert api.patch(f"/api/journal/{session_id}", json={"title": "내 제목"}).status_code == 200
+
+    async def failed(db):
+        convo = await db.get(ConversationSession, session_id)
+        convo.extract_status = ExtractStatus.FAILED
+        await db.commit()
+
+    load(api, failed)
+    api.post(f"/api/journal/{session_id}/retry")
+    wait_extraction(api, session_id)
+    row = session_row(api, session_id)
+    assert row.extract_status is ExtractStatus.DONE and row.summary  # 요약은 새로 정리된다
+    assert row.title == "내 제목"
+
+
+def test_delete_paused_journal_closes_cli(api):
+    session_id = start(api)["session"]["id"]
+    turn(api, session_id, "바나나는?")
+    assert api.app.state.llm.is_alive(session_id)
+
+    pause(api, session_id)
+    assert api.delete(f"/api/journal/{session_id}").status_code == 204
+    assert not api.app.state.llm.is_alive(session_id)
+    assert api.app.state.runtimes.get(session_id) is None
+    assert session_row(api, session_id) is None
+
+
+def test_delete_cancels_running_extraction(fake_cli, home, oneshot, monkeypatch):
+    monkeypatch.setenv("FAKE_CLAUDE_FIXTURE", "multiturn")
+    oneshot("__hang__")
+    with make_api(fake_cli, extract_wait_s=0.2) as api:
+        session_id = start(api)["session"]["id"]
+        turn(api, session_id, "바나나는?")
+        api.post(f"/api/sessions/{session_id}/end")
+        task = api.app.state.extractions[session_id]
+        assert api.delete(f"/api/journal/{session_id}").status_code == 204
+        assert task.cancelled()  # 지우면서 정리를 멈췄다(CLI는 kill)
+        assert session_row(api, session_id) is None
+
+
+def pause(api, session_id: str) -> None:
+    async def fn(db):
+        convo = await db.get(ConversationSession, session_id)
+        convo.status = SessionStatus.PAUSED
+        await db.commit()
+
+    load(api, fn)
+
+
+def test_delete_is_refused_while_a_turn_holds_the_lock(api, monkeypatch):
+    monkeypatch.setattr(conversation, "_DELETE_LOCK_WAIT_S", 0.1)  # 잠깐 기다려도 턴이 안 끝난다
+    session_id = start(api)["session"]["id"]
+    turn(api, session_id, "바나나는?")
+    pause(api, session_id)
+    lock = api.app.state.runtimes.get(session_id).turn_lock
+    api.portal.call(lock.acquire)  # 쉬는 중인 대화에 막 턴이 시작됐다
+    try:
+        busy = api.delete(f"/api/journal/{session_id}")
+        assert busy.status_code == 409 and busy.json()["error"]["code"] == "turn_in_progress"
+    finally:
+        lock.release()
+    assert api.delete(f"/api/journal/{session_id}").status_code == 204
+
+
+def test_delete_waits_for_extraction_write_in_progress(api):
+    """추출 결과 쓰기는 취소에서 보호된 별도 태스크다. 지우기 전에 그 쓰기가 끝나길 기다린다."""
+    session_id = start(api)["session"]["id"]
+    turn(api, session_id, "바나나는?")
+    end(api, session_id)
+    finished: list[bool] = []
+
+    async def slow_write():
+        await asyncio.sleep(0.3)
+        finished.append(True)
+
+    async def spawn():
+        writes = api.app.state.extract_writes
+        task = asyncio.create_task(slow_write())
+        writes.add(task)
+        task.add_done_callback(writes.discard)
+
+    api.portal.call(spawn)
+    assert api.delete(f"/api/journal/{session_id}").status_code == 204
+    assert finished == [True]
+
+
+def test_concurrent_deletes_give_404_to_the_second(api):
+    session_id = start(api)["session"]["id"]
+    turn(api, session_id, "바나나는?")
+    end(api, session_id)
+
+    async def both():
+        async def one():
+            async with api.app.state.session_factory() as db:
+                try:
+                    await conversation.delete_session(api.app, db, session_id)
+                    return 204
+                except SessionNotFound:
+                    return 404
+
+        return await asyncio.gather(one(), one())
+
+    codes = sorted(api.portal.call(both))
+    assert codes == [204, 404]
+    assert api.app.state.runtimes.get(session_id) is None

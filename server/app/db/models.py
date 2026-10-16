@@ -18,6 +18,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
 )
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -84,6 +85,9 @@ class ConversationSession(Base):
         server_default=ConversationMode.TEXT.value,
     )
     title: Mapped[str | None] = mapped_column(String(200))
+    # 사용자가 일지 목록에서 제목을 고쳤다. 일지를 다시 정리해도(늦게 온 턴·다시 정리) 제목은
+    # 그대로 둔다
+    title_edited: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     summary: Mapped[str | None] = mapped_column(Text)
     tags: Mapped[list[str]] = mapped_column(MutableList.as_mutable(JSON), default=list)
     # 이 대화에서 다룬 아이디어의 주제 이름(일지 정리 때 기존 주제에서 고른다). 일지 목록의

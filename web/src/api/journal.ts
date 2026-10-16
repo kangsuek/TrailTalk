@@ -16,6 +16,16 @@ export async function getJournal(sessionId: string, signal?: AbortSignal): Promi
   return (await request(`/api/journal/${encodeURIComponent(sessionId)}`, 'GET', undefined, signal)).json()
 }
 
+/** 대화 제목을 고치고 바뀐 목록 항목을 돌려준다. 고친 제목은 일지를 다시 정리해도 남는다. */
+export async function renameJournal(sessionId: string, title: string, signal?: AbortSignal): Promise<JournalItem> {
+  return (await request(`/api/journal/${encodeURIComponent(sessionId)}`, 'PATCH', { title }, signal)).json()
+}
+
+/** 대화를 지운다(노트·전문 포함). 진행 중인 대화는 409 session_active. */
+export async function deleteJournal(sessionId: string, signal?: AbortSignal): Promise<void> {
+  await request(`/api/journal/${encodeURIComponent(sessionId)}`, 'DELETE', undefined, signal)
+}
+
 /** 보낸 필드만 바꾸고 바뀐 노트를 돌려준다. */
 export async function updateNote(noteId: string, patch: NotePatch, signal?: AbortSignal): Promise<NoteOut> {
   return (await request(`/api/notes/${encodeURIComponent(noteId)}`, 'PATCH', patch, signal)).json()

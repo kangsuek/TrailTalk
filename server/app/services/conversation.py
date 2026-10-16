@@ -59,6 +59,7 @@ from app.db.models import (
 from app.db.types import new_id, utcnow
 from app.errors import AppError
 from app.jobs import extract
+from app.jobs.audio import remove_session_audio
 from app.llm.backend import LlmError, LlmSession
 from app.llm.claude_cli import delete_cli_session_file
 from app.llm.events import (
@@ -112,6 +113,11 @@ class VoiceTiming:
 class TurnNotFound(AppError):
     def __init__(self) -> None:
         super().__init__("turn_not_found", "답변을 찾을 수 없습니다.", 404)
+
+
+class SessionActive(AppError):
+    def __init__(self) -> None:
+        super().__init__("session_active", "진행 중인 대화는 끝낸 뒤 지울 수 있어요.", 409)
 
 
 class TurnBusy(AppError):
@@ -977,6 +983,55 @@ async def record_offline_turn(app: FastAPI, db: AsyncSession, session_id: str, t
         await db.commit()
     if ended:
         extract.ensure_extraction(app, session_id)
+
+
+_DELETE_EXTRACT_WAIT_S = 5.0
+_DELETE_LOCK_WAIT_S = 5.0
+
+
+async def delete_session(app: FastAPI, db: AsyncSession, session_id: str) -> None:
+    """대화를 지운다(전문·노트·지연 기록은 외래 키 CASCADE, 보관한 녹음은 폴더째). 진행 중이면 거절.
+
+    턴·오프라인 기록과 같은 잠금을 쥔 채 지워, 쉬는 중인 대화에 막 시작한 턴이 CLI를 다시 띄우거나
+    지운 대화에 턴을 쓰지 않게 한다. 돌던 일지 정리는 멈추고 그 결과 쓰기가 끝난 뒤 지운다.
+    """
+    convo = await get_session(db, session_id)
+    if convo.status is SessionStatus.ACTIVE:
+        raise SessionActive()
+    # 런타임이 없어도(서버 재시작 뒤 쉬는 대화) 만들어서 그 잠금을 쥔다. 턴도 같은 런타임의 잠금을
+    # 쓰므로 지우는 동안 시작한 턴은 거절되고(TurnBusy) 지운 뒤에는 SessionNotFound가 된다.
+    # 답변 중이면 잠깐 기다렸다가 그래도 안 끝나면 거절한다(같은 대화를 동시에 지우면 뒤 요청은 404)
+    runtime = app.state.runtimes.ensure(session_id)
+    try:
+        async with asyncio.timeout(_DELETE_LOCK_WAIT_S):
+            await runtime.turn_lock.acquire()
+    except TimeoutError:
+        raise TurnBusy() from None
+    try:
+        # 잠금을 기다리는 사이 바뀐 상태를 다시 읽는다(같은 대화를 동시에 지웠으면 404)
+        convo = await db.scalar(
+            select(ConversationSession)
+            .where(ConversationSession.id == session_id)
+            .execution_options(populate_existing=True)
+        )
+        if convo is None:
+            app.state.runtimes.discard(session_id)  # 방금 만든 런타임을 남기지 않는다
+            raise SessionNotFound()
+        if convo.status is SessionStatus.ACTIVE:  # 그사이 턴이 시작됐다(런타임은 그 턴이 쓴다)
+            raise SessionActive()
+        cli_session_id = convo.cli_session_id
+        await extract.cancel_extraction(app, session_id, _DELETE_EXTRACT_WAIT_S)
+        await db.delete(convo)
+        await db.commit()
+        # 행을 먼저 지운 뒤 정리한다(그 뒤 오는 턴은 SessionNotFound라 CLI를 다시 띄우지 않는다).
+        # 끝난 대화도 부른다(멱등): 끝내기가 정리를 마치기 전에 지워도 CLI·기록 파일이 남지 않게
+        await teardown(app, session_id, cli_session_id)
+    finally:
+        runtime.turn_lock.release()
+    try:
+        await asyncio.to_thread(remove_session_audio, app.state.settings.audio_dir, session_id)
+    except OSError:
+        logger.warning("지운 대화의 녹음 삭제 실패(session=%s)", session_id, exc_info=True)
 
 
 def _record_lock(app: FastAPI, session_id: str) -> asyncio.Lock:
