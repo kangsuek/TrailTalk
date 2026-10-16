@@ -1,3 +1,4 @@
 // 세션 상태 머신과 오프라인 큐 (설계서 4.8, 계획서 S3-08).
 // UI·브라우저 API에 의존하지 않는 순수 TypeScript로 작성해 안드로이드(Kotlin)로 포팅한다.
 export * from './sessionMachine'
+export * from './audio'

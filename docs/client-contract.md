@@ -33,7 +33,7 @@
 
 ## 3. 오디오 형식
 
-- 업로드: 말 한 번을 하나의 오디오로 보낸다. 권장은 16kHz 모노 Opus(웹 MediaRecorder `audio/webm;codecs=opus`, 안드로이드 `audio/ogg`). 서버는 webm·wav·mp3·m4a(mp4)는 그대로 인식에 넘기고, 그 밖의 형식(ogg 등)은 16kHz 모노 webm/opus로 바꾼다. 최대 10MB, 변환은 앞 120초까지.
+- 업로드: 말 한 번을 하나의 오디오로 보낸다. 권장은 16kHz 모노 Opus(웹 `audio/webm;codecs=opus`, 안드로이드 `audio/ogg`). 웹은 VAD가 준 16kHz 발화 오디오를 WebCodecs `AudioEncoder`로 24kbps Opus로 인코딩해 webm에 담고(mediabunny, `web/src/platform/encodeAudio.ts`), 브라우저가 Opus 인코딩을 못 하면 16bit PCM WAV(`audio/wav`, 약 10배 큼)로 보낸다. 서버는 webm·wav·mp3·m4a(mp4)는 그대로 인식에 넘기고, 그 밖의 형식(ogg 등)은 16kHz 모노 webm/opus로 바꾼다. 최대 10MB, 변환은 앞 120초까지.
 - 응답: 문장별 MP3(base64, `sentence.audio`), 인사말·마무리 멘트도 MP3(base64)다.
 
 ## 4. 세션 상태 머신
@@ -56,6 +56,7 @@
   - `sentence` 이벤트는 그 문장 소리를 재생 대기열에 넣은 뒤에 머신에 보낸다. `playback_idle`은 보내는 순간 대기열이 비어 있을 때만 보낸다(`done`보다 먼저 와도 된다).
   - 모든 요청(`startSession`·`sendTurn`·`endSession`)은 성공 이벤트나 실패 이벤트(`start_failed`·`turn_error`·`send_failed`·`end_failed`) 중 하나로 반드시 끝낸다. 시간 초과도 실패로 보낸다.
   - 처리 중에 들어온 발화(`speech_end`)는 버린다.
+  - 마이크 입력(`AudioInput`, 웹 `web/src/platform/audioInput.ts`)은 `micOn`→`start`, `micOff`→`stop`(트랙을 멈춰 마이크 표시가 꺼진다), `setVadMode`→`setMode`로 받는다. `speech_start`는 말소리가 `min_speech_ms` 동안 이어진 뒤에 보낸다(재생 중 짧은 소음 한 번으로 끼어들기가 되지 않게). 그보다 짧은 소리는 이벤트 없이 버린다. `stop` 뒤에는 이벤트를 보내지 않는다. 마이크 권한 거부(`mic_denied`)·장치 없음(`mic_unavailable`)·감지 모델 로드 실패(`vad_failed`)를 화면에 어떻게 알리고 상태를 어떻게 바꿀지는 S3-13에서 정한다.
   - 큐 비우기가 끝나면 남은 발화 수를 `queue_flushed {remaining}`로 알린다. 큐 항목이 어느 세션에 속하는지와 끝내기 전에 큐를 비울지는 S3-12(LocalQueue)에서 정한다.
 
 ## 5. 클라이언트 설정값
@@ -75,7 +76,7 @@
 | `audio.response` | `{codec: "mp3"}` | 답변 문장 오디오 형식(3절) |
 | `offline_notice` | "지금은 산이 깊어서 메모만 해둘게요!" | 오프라인 보관 때 기기 TTS로 읽는 안내 문구 |
 
-VAD 수치는 시작값이며 S3-10과 실제 산책 측정에서 조정한다.
+VAD 수치는 시작값이며 실제 산책 측정에서 조정한다. 웹은 `@ricky0123/vad-web`(Silero `v5` 모델)에 `speech/silence_threshold` → `positive/negativeSpeechThreshold`, `end_of_speech_silence_ms` → `redemptionMs`, `min_speech_ms` → `minSpeechMs`로 넘기고, 재생 중(`setVadMode playback`)에는 `playback_*` 값으로 바꾼다. 감지 전 소리 300ms를 발화 앞에 붙인다(웹 상수 `PRE_SPEECH_PAD_MS`). 모델·worklet·onnxruntime wasm은 CDN이 아니라 앱이 `/vad/`에서 서빙한다(약 16MB, wasm이 대부분).
 
 ## 6. 알림음·안내 문구
 

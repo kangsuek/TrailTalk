@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { StreamEvent } from '../core/conversation'
-import { ApiError, endSession, sendTurn, startSession } from './conversation'
+import { ApiError, endSession, sendAudioTurn, sendTurn, startSession } from './conversation'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -132,5 +132,40 @@ describe('sendTurn', () => {
     await expect(sendTurn('s1', '안녕', () => {}, controller.signal)).rejects.toMatchObject({
       name: 'AbortError',
     })
+  })
+})
+
+describe('sendAudioTurn', () => {
+  it('녹음 바이트를 녹음 형식 그대로 보내고 transcript부터 넘긴다', async () => {
+    const events: StreamEvent[] = [{ type: 'transcript', text: '안녕' }, ...EVENTS]
+    const fetchMock = vi.fn(async () => sseResponse([new TextEncoder().encode(sse(events))]))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const bytes = new Uint8Array([0x1a, 0x45, 0xdf, 0xa3])
+    const received: StreamEvent[] = []
+    await sendAudioTurn('s1', { bytes, mimeType: 'audio/webm;codecs=opus', durationMs: 900 }, (e) =>
+      received.push(e),
+    )
+    expect(received).toEqual(events)
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('/api/sessions/s1/turns/audio')
+    expect(init.method).toBe('POST')
+    expect(init.headers).toEqual({ 'Content-Type': 'audio/webm;codecs=opus' })
+    expect(init.body).toBe(bytes)
+  })
+
+  it('말이 없으면 스트림 전에 no_speech로 던진다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: { code: 'no_speech', message: '말소리를 듣지 못했어요.' } }), {
+            status: 422,
+          }),
+      ),
+    )
+    const audio = { bytes: new Uint8Array(4), mimeType: 'audio/wav', durationMs: 100 }
+    const error = await sendAudioTurn('s1', audio, () => {}).catch((e) => e)
+    expect(error).toMatchObject({ code: 'no_speech', status: 422 })
   })
 })

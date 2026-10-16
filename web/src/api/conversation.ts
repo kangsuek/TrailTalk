@@ -1,7 +1,8 @@
 // 대화 세션 API(docs/client-contract.md 2절 "세션 API"). 타입은 서버 OpenAPI에서 생성한 schema.d.ts를 쓴다.
 import type { StreamEvent } from '../core/conversation'
 import { SseParser } from '../core/sse'
-import { ApiError, request } from './http'
+import type { RecordedAudio } from '../core/audio'
+import { ApiError, RawBody, request } from './http'
 import type { components } from './schema'
 
 export { ApiError }
@@ -49,6 +50,32 @@ export async function sendTurn(
     { text },
     signal,
   )
+  await readTurnStream(response, onEvent, signal)
+}
+
+/**
+ * 말 한 번의 녹음을 보내고 답변 이벤트를 넘긴다(transcript → turn → …). 인식 오류·말 없음(no_speech)은
+ * 스트림 전에 ApiError로 던진다(규약 2절 음성 턴).
+ */
+export async function sendAudioTurn(
+  sessionId: string,
+  audio: RecordedAudio,
+  onEvent: (event: StreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await post(
+    `/api/sessions/${encodeURIComponent(sessionId)}/turns/audio`,
+    new RawBody(audio.bytes, audio.mimeType),
+    signal,
+  )
+  await readTurnStream(response, onEvent, signal)
+}
+
+async function readTurnStream(
+  response: Response,
+  onEvent: (event: StreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
   if (!response.body) throw new ApiError('stream_closed', '답변을 받지 못했어요.', 0)
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
