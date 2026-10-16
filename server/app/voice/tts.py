@@ -53,6 +53,28 @@ def has_speech(text: str) -> bool:
     return any(c.isalnum() for c in text)
 
 
+# 설정 화면에서 고를 수 있는 OpenAI TTS 보이스(gpt-4o-mini-tts가 받는 이름).
+# 캐릭터가 아닌 제공자 정보라 코드에 둔다
+OPENAI_VOICES = (
+    "alloy",
+    "ash",
+    "ballad",
+    "cedar",
+    "coral",
+    "echo",
+    "fable",
+    "marin",
+    "nova",
+    "onyx",
+    "sage",
+    "shimmer",
+    "verse",
+)
+# 설정 화면의 말 속도 범위(OpenAI speed는 0.25~4.0이지만 걸으며 듣기에 알맞은 범위로 묶는다)
+SPEAKING_RATE_MIN = 0.75
+SPEAKING_RATE_MAX = 1.5
+
+
 class TtsProvider(Protocol):
     async def synthesize(self, text: str, voice: VoiceStyle) -> bytes:
         """MP3. 읽을 글자가 없으면 빈 bytes."""

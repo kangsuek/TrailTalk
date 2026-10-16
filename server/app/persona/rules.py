@@ -75,6 +75,19 @@ INTERRUPTED_NOTHING = (
     "필요하면 짧게 다시 말한다.)\n\n"
 )
 
+# 설정 화면의 말 속도(S3-18). 음성 합성 말투 지시(instructions) 끝에 붙인다. gpt-4o-mini-tts는
+# speed 값을 무시한다는 보고가 있어 말로도 지시한다. 캐릭터 지시의 빠르기보다 이것을 따르게 한다
+SPEECH_RATE_SLOW = "빠르기는 앞의 지시보다 이것을 따른다: 평소보다 천천히, 또박또박 말한다."
+SPEECH_RATE_NORMAL = "빠르기는 앞의 지시보다 이것을 따른다: 보통 빠르기로 말한다."
+SPEECH_RATE_FAST = (
+    "빠르기는 앞의 지시보다 이것을 따른다: "
+    "평소보다 눈에 띄게 빠르게, 쉼을 짧게 하고 막힘없이 말한다."
+)
+# 설정 화면에서 보이스를 미리 들어 보는 문장(캐릭터 이름 없이)
+VOICE_SAMPLE_TEXT = (
+    "안녕하세요! 오늘도 같이 걸으면서 이야기해요. 떠오르는 생각이 있으면 편하게 말해 주세요."
+)
+
 # 세션 종료 추출(일지 정리, app/jobs/extract.py) 지시문. {assistant}는 페르소나 이름(YAML)이다.
 # {saved}는 대화 중 save_note로 이미 저장한 노트 절(없으면 빈 문자열, EXTRACT_SAVED_SECTION)
 # {topics}는 지난 대화의 아이디어 주제 절(없으면 빈 문자열, EXTRACT_TOPICS_SECTION)

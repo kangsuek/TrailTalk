@@ -1,4 +1,4 @@
-# 작업 인계 (2026-10-16, 3단계 진행 중: S3-01~S3-13 완료)
+# 작업 인계 (2026-10-17, 3단계 진행 중: S3-01~S3-14 완료)
 
 새 세션은 이 문서부터 읽는다. 작업 규칙과 명령은 [CLAUDE.md](../CLAUDE.md)에 있다. 진행 상태의 기준은 [구현 계획서](implementation-plan.md)의 진행 대시보드(2장)다. 이 문서에는 계획서·설계서에 없는 맥락만 둔다. 상태가 바뀌면 이 문서도 갱신하거나 지운다.
 
@@ -8,7 +8,7 @@
 
 ```text
 TrailTalk 작업을 이어서 진행합니다. 먼저 docs/handoff.md를 읽고, 구현 계획서(docs/implementation-plan.md)의 진행 대시보드(2장)와 3단계 절(6장)을 확인하세요.
-지금은 3단계(웹 음성 대화) 진행 중이고 S3-01~S3-13이 끝났고, PC 브라우저에서 음성 대화가 됩니다. 다음 작업 후보는 handoff 1장 "다음 작업"에 있습니다.
+지금은 3단계(웹 음성 대화) 진행 중이고 S3-01~S3-14가 끝났고, PC 브라우저와 폰(Tailscale)에서 음성 대화가 됩니다. 다음 작업 후보는 handoff 1장 "다음 작업"에 있습니다.
 작업 규칙: 응답은 한글, 소스 수정 전 Plan Mode로 계획 승인, 유닛 테스트에 더해 Playwright 실제 구동 검증, 커밋 전 서브에이전트 diff 리뷰, 이 저장소는 자동 커밋·push 허용, 작업 시작·끝에 계획서 상태 갱신.
 주의: .env 값은 열어 보지 마세요. 포트 8000에 떠 있는 사용자 서버(실제 DB)는 건드리지 말고, 실제 구동 검증은 handoff 2장의 방법대로 다른 포트에서 하세요. 실제 Claude CLI(구독 사용량)와 OpenAI API(과금)는 필요할 때만 쓰고 쓸 때 알려 주세요.
 다음 작업(handoff 1장의 순서)을 확인하고 Plan Mode로 계획을 세우세요.
@@ -16,7 +16,7 @@ TrailTalk 작업을 이어서 진행합니다. 먼저 docs/handoff.md를 읽고,
 
 ## 1. 지금 어디까지 왔나
 
-- **0·1·2단계 완료**(2단계는 2026-10-16 사용자 확인, 마일스톤 `5749ea3`). **3단계(웹 음성 대화) 진행 중 13/16**, 전체 38/56. PC 브라우저(localhost)에서 "음성으로 대화"로 말로 대화할 수 있다. 폰은 HTTPS(S3-14)가 필요하다.
+- **0·1·2단계 완료**(2단계는 2026-10-16 사용자 확인, 마일스톤 `5749ea3`). **3단계(웹 음성 대화) 진행 중**(진행 수치는 계획서 대시보드). PC 브라우저와 폰(`./run.sh --phone`, Tailscale HTTPS, S3-14)에서 "음성으로 대화"로 말로 대화할 수 있다.
 - **3단계에서 끝낸 것**: S3-08 세션 상태 머신·S3-09 상태 전이 표(`9202e04`), S3-06 클라이언트 설정값(`2b643a9`). S3-01·S3-02·S3-03은 아래 절에 따로 적었다.
   - S3-06: `GET/PUT /api/profile`이 `client`(VAD·세션·오디오·오프라인 안내, 읽기 전용)를 준다. 서버가 시작할 때 `shared/client-defaults.json`을 `app/client_config.py`로 검증하고 틀리면 시작하지 않는다. `idle_timeout_minutes`는 서버 `IDLE_TIMEOUT_S`로 덮어쓴다. VAD 수치(0.5/0.35, 재생 중 0.8/0.65)는 시작값이라 실제 산책 측정에서 조정한다. 웹은 S3-13 컨트롤러가 `getProfile`로 받아 VAD(`vadSettingsFrom`)와 무발화 시간에 쓴다.
   - `web/src/core/sessionMachine.ts`: 이벤트 → 다음 상태 + 명령을 내는 순수 함수다. 마이크·재생·서버 호출은 하지 않는다.
@@ -60,7 +60,7 @@ TrailTalk 작업을 이어서 진행합니다. 먼저 docs/handoff.md를 읽고,
   - 음성 모듈은 `lazyPlatform.ts`로 지연 로딩한다. 다 불러오기 전에는 "음성으로 대화"가 막힌다(오디오를 누른 동작 안에서 열려고).
   - 실제 구동 확인: 가짜 마이크 wav는 "무음 1초 + 문장 + 무음 30초"처럼 뒤를 길게 둔다(반복 재생이 겹치면 말하는 중 끼어들기로 잡힌다). "생각하는 중"은 가짜 음성 백엔드에서 0.1초뿐이라 Playwright로 기다리면 놓친다. 빌드본은 `WEB_DIST_DIR`로 FastAPI가 서빙하게 해서 `/vad/`·지연 청크를 운영 경로로 확인한다.
   - 상태 머신 변경: 처리 중 탭에도 `stopPlayback`(검색 안내 음성 정지). 전이 표 사례 1개 갱신(안드로이드도 반영).
-- **S3-05 음성 원본 보관(`d8d5876`, 완료)**: 프로필 `keep_audio`가 켜진 음성 턴의 녹음을 `AUDIO_DIR`(기본 `server/data/audio`)에 저장하고 30일 뒤 지운다(`app/jobs/audio.py`, 무발화 감시 루프). 켜는 화면은 S5-01이라 지금은 API로 켠다. 실제 구동 확인 때는 `AUDIO_DIR`을 scratchpad로 준다.
+- **S3-05 음성 원본 보관(`d8d5876`, 완료)**: 프로필 `keep_audio`가 켜진 음성 턴의 녹음을 `AUDIO_DIR`(기본 `server/data/audio`)에 저장하고 30일 뒤 지운다(`app/jobs/audio.py`, 무발화 감시 루프). 설정 화면(S3-18)에서 켠다. 실제 구동 확인 때는 `AUDIO_DIR`을 scratchpad로 준다.
 - **S3-07 지연 측정(`dce5350`, 완료)**: 음성 턴마다 `turn_latency`(마이그레이션 0005)에 서버 단계 시간과 웹 보고(말 끝 → 요청, 요청 → 첫 소리, 첫 소리가 검색 안내였는지)를 남기고 `GET /api/latency`로 중앙값·p90을 본다(NFR-01 측정 방법은 계획서 완료 기준 표 아래).
   - 첫 측정(실제 OpenAI 음성, 가짜 CLI, 1턴): 총 5.8초 = 말 끝 → 요청 1.3초(무음 대기 1.2초 포함) + 인식 2.9초 + … 첫 소리(검색 안내). 인식이 앞선 실측(0.9~1.6초)보다 길어 변동이 크다. 3초 목표에서 무음 대기 1.2초가 큰 몫이라, 산책 측정 뒤 `end_of_speech_silence_ms` 조정과 인식 모델 선택을 검토한다.
 - **S3-12 오프라인 큐(`30b8576`, 완료)**: 사용자 결정(2026-10-16)으로 **복구되면 쌓인 말을 보통 턴처럼 차례로 보내 캐릭터가 대답**한다.
@@ -73,18 +73,23 @@ TrailTalk 작업을 이어서 진행합니다. 먼저 docs/handoff.md를 읽고,
   - 글 대화에서 답변을 기다리는 동안 "대화 끝내기"가 막혀 CLI가 멈추면 최대 2분 못 끝내던 문제. 받던 말풍선은 끊긴 답변으로 마무리한다.
   - **상태 머신·전이 표 변경(안드로이드도 반영 필요)**: 처리 중(답변 대기) `speech_end`는 버리지 않고 항상 `queueUtterance`로 큐 뒤에 넣는다. 턴이 끝나면 기존 규칙대로 큐부터 보낸다. 큐 순번은 말이 끝난 때 정해, 보내던 말이 나중에 실패해 큐에 들어가도 그사이 넣은 뒷말보다 앞에 선다(커밋 전 리뷰에서 발견). 화면은 연결돼 있으면 "이어서 한 말 N개 · 답변 뒤에/다음 차례에 보내요". `sendingQueued`는 이제 정보용이다. 처리 중 검색 안내 음성이 마이크에 잡히면 큐에 들어갈 수 있다(말소리 없음이면 버려짐) — 실기기에서 확인한다.
   - 점검했지만 그대로 둔 것: 말풍선 마크다운 원문 노출(4장 과제), 쉬기 안내의 "30분" 고정 문구(서버 기본값과 같음).
-- **테스트(현재)**: pytest 통과 525·건너뜀 4(실제 CLI·OpenAI), Vitest 220, E2E 6.
-- **S3-14 진행 중(10-17)**: 결정 D1 = 집 Mac + Tailscale Serve(tailnet 안에서만 HTTPS, 공개 Funnel 안 씀 — 서버 API에 인증이 없어서). 폰은 tailnet의 안드로이드 "강석의 A35"(Galaxy A35).
+- **테스트(현재)**: pytest 통과 556·건너뜀 4(실제 CLI·OpenAI), Vitest 233, E2E 6.
+- **S3-14 완료(10-17, 폰 A35에서 음성 대화 사용자 확인)**: 결정 D1 = 집 Mac + Tailscale Serve(tailnet 안에서만 HTTPS, 공개 Funnel 안 씀 — 서버 API에 인증이 없어서). 폰은 tailnet의 안드로이드 "강석의 A35"(Galaxy A35).
   - `./run.sh --phone`: 웹을 `web/dist`로 빌드해 서버(8000)가 서빙, `caffeinate -is`로 잠자기 방지, `tailscale serve --bg --https=443`, Ctrl+C 때 serve off. 인증서가 꺼져 있으면 안내 후 종료, serve가 허용 링크를 내며 멈추면 15초 뒤 끊고 출력을 보여 준다. 사용법은 `docs/phone.md`.
   - PWA: vite-plugin-pwa **1.3.0**(2.0.0은 배포 2주 미만이라 보류). `registerType: 'prompt'`(자동 새로 고침 없음), 앱 셸 precache, `/vad/`는 런타임 CacheFirst(첫 방문은 서비스 워커가 페이지를 아직 제어하지 않아 두 번째 열기부터 저장됨), `/api`·`/internal`·`/docs` 제외. 아이콘은 `web/public/icon.svg`에서 Playwright로 PNG를 만들었다(favicon도 교체).
   - `/internal/*` 방어: MCP 미들웨어가 Tailscale Serve가 늘 붙이는 `X-Forwarded-Host`(그리고 `X-Forwarded-Proto`·`Tailscale-User-Login`)도 프록시 요청으로 보고 403(기존 X-Forwarded-For 검사와 함께).
   - 음성 감지 자산은 버전 폴더 `/vad/<vad-web>-<onnxruntime>/`(`web/vadAssets.ts`, `__VAD_DIR__` define)에 둔다. 해시 없는 이름이라 CacheFirst가 의존성을 올린 뒤에도 옛 wasm을 줄 수 있어서다(커밋 전 리뷰).
   - 새 버전: `registerType: 'prompt'` + `UpdateBanner`(useRegisterSW, 한 시간마다 확인) "새 버전 적용" 버튼. 홈 화면 앱은 잘 닫히지 않아 버튼 없이 두면 옛 앱에 갇힌다(커밋 전 리뷰).
   - 알려진 위험(나중 과제): 인증 없는 `/api`가 tailnet에 열려, 폰 브라우저의 악성 사이트가 단순 POST(CSRF)로 부작용을 낼 여지가 있다(응답은 못 읽음). 필요하면 Origin·Content-Type 검사를 넣는다.
-  - localhost 실제 확인: 서비스 워커 등록·manifest·오프라인 다시 열기·제어 상태 음성 한 바퀴·vad 캐시 4개. 사용자가 Serve를 허용한 뒤(10-17) Mac에서 ts.net 주소(임시 8443 → 8300)로 같은 확인과 음성 턴 2회, `/internal/mcp/` 403을 실측했다. Serve가 붙이는 헤더: X-Forwarded-For/Host/Proto, Tailscale-User-Login/Name/Profile-Pic, Tailscale-Headers-Info. **남은 것**: A35 실기기(마이크·음성 한 바퀴·홈 화면 추가·이어폰 버튼).
-- **다음 작업**(사용자 요청: S3-04부터 계획서 순서대로 진행, 작업마다 Plan Mode 승인)
-  1. S3-14 PWA·HTTPS 터널(폰에서 쓰기, 결정 D1 필요). 이때 iOS Safari 오디오·마이크, Media Session 이어폰 버튼을 실기기로 확인한다.
-  2. S3-15 클라이언트 규약 확정, S3-16 음성 흐름 E2E, 이어서 3단계 마일스톤 종료 점검.
+  - localhost 실제 확인: 서비스 워커 등록·manifest·오프라인 다시 열기·제어 상태 음성 한 바퀴·vad 캐시 4개. 사용자가 Serve를 허용한 뒤(10-17) Mac에서 ts.net 주소(임시 8443 → 8300)로 같은 확인과 음성 턴 2회, `/internal/mcp/` 403을 실측했다. Serve가 붙이는 헤더: X-Forwarded-For/Host/Proto, Tailscale-User-Login/Name/Profile-Pic, Tailscale-Headers-Info. 사용자가 A35 Chrome에서 음성 대화가 잘 되는 것을 확인했다(10-17). 홈 화면 추가·이어폰 버튼(Media Session)은 아직 따로 확인하지 않았다 — 실제 산책 때 본다. 끄기는 `./stop.sh`(이 저장소 server/·web/ 작업 폴더의 프로세스만, 443이 이 서버를 가리킬 때만 Serve off).
+- **S3-18 웹 설정 화면(10-17, 사용자 요청으로 S5-01 웹 부분 앞당김)**: 호칭·관심사·보이스(미리 듣기)·말 속도·음성 원본 보관. 서버는 `speaking_rate`(마이그레이션 0007), 보이스 검증(`app/voice/tts.py` `OPENAI_VOICES`), `GET /api/voices`·`/voices/{voice}/sample`, `services/profile.voice_style`로 페르소나 보이스에 프로필 값을 덮어써 턴·인사말·마무리에 쓴다(`open_llm`이 보이스도 돌려준다).
+  - 말 속도는 `speed`만으로 약해서 말투 지시(`rules.SPEECH_RATE_*`)를 함께 붙인다. 실측(같은 문장): 기본 6.67초, 느리게 0.85 8.93초, 빠르게 1.35 5.28초. 1.2는 6.0~6.3초로 차이가 작았다.
+  - 미리 듣기는 속도를 0.05 단위로 묶고, 합성 캐시(`app/voice/speech.py`)는 최근 64개만 둔다. 예전 API가 저장한 목록 밖 보이스는 캐릭터 기본으로 본다.
+  - 알려진 점: 보이스만 바꾸면 페르소나 말투 지시("20대 여성…")가 다른 보이스(남성 보이스 포함)에도 그대로 붙는다.
+  - 안드로이드 설정 화면은 5단계 S5-01에 남았다. 바뀐 필드 계산은 `web/src/core/settings.ts`(포팅 대상).
+- **다음 작업**(사용자 요청 10-17: "3단계를 모두 개발", 작업마다 Plan Mode 승인)
+  1. S3-15 클라이언트 규약 확정, S3-16 음성 흐름 E2E, 이어서 3단계 마일스톤 종료 점검(S3-17은 다른 세션이 진행 중).
+  2. 실제 산책에서 확인할 것: 홈 화면 추가·이어폰 버튼(Media Session), 지연(NFR-01)·인식률, VAD 수치.
 
 ## 2. 3단계를 진행할 때 알아야 할 것
 

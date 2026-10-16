@@ -12,6 +12,9 @@ from sqlalchemy import func, select
 from app.db.models import Turn, TurnRole
 from app.errors import AppError
 from app.main import create_app
+from app.persona.rules import SPEECH_RATE_FAST, SPEECH_RATE_NORMAL, SPEECH_RATE_SLOW
+from app.persona.schema import VoiceStyle
+from app.services.profile import voice_style
 from app.voice.fake import SILENCE_MP3, FakeStt, FakeTts
 from tests.test_sessions import _http, events_of, start
 
@@ -503,3 +506,48 @@ def test_fake_backend_is_selected_by_setting(api, client):
     assert isinstance(api.app.state.stt, FakeStt)
     assert isinstance(api.app.state.tts, FakeTts)
     assert not isinstance(client.app.state.stt, FakeStt)  # 기본은 OpenAI
+
+
+# ---- 설정 화면의 보이스·말 속도(S3-18) ----
+
+
+class VoiceRecordingTts:
+    """받은 보이스를 기록하는 모의 TTS."""
+
+    def __init__(self):
+        self.voices = []
+
+    async def synthesize(self, text, voice):
+        self.voices.append(voice)
+        return text.encode()
+
+
+def test_profile_voice_and_rate_apply_to_greeting_and_turns(api):
+    tts = VoiceRecordingTts()
+    api.app.state.tts = tts
+    assert api.put("/api/profile", json={"voice": "coral", "speaking_rate": 1.2}).status_code == 200
+    session_id = start(api, "voice")["session"]["id"]
+    greeting = tts.voices[-1]
+    assert (greeting.tts_voice, greeting.speaking_rate) == ("coral", 1.2)
+    assert greeting.instructions.endswith(SPEECH_RATE_FAST)
+    # 대화 중에 바꿔도 다음 답변부터 쓴다
+    api.put("/api/profile", json={"voice": "sage", "speaking_rate": None})
+    events_of(api.post(f"/api/sessions/{session_id}/turns", json={"text": f"__say__:{THREE}"}))
+    turn = tts.voices[-1]
+    assert (turn.tts_voice, turn.speaking_rate) == ("sage", 1.05)  # 속도는 캐릭터 기본
+    assert SPEECH_RATE_FAST not in turn.instructions
+
+
+@pytest.mark.parametrize(
+    ("rate", "hint"),
+    [(0.85, SPEECH_RATE_SLOW), (1.05, SPEECH_RATE_NORMAL), (1.2, SPEECH_RATE_FAST)],
+)
+def test_voice_style_adds_rate_hint(rate, hint):
+    base = VoiceStyle(
+        tts_voice="nova", speaking_rate=1.05, instructions="밝게 말해요.", search_notice="잠깐만요"
+    )
+    style = voice_style(base, None, rate)
+    assert style.tts_voice == "nova" and style.speaking_rate == rate
+    assert style.instructions == f"밝게 말해요. {hint}"
+    assert voice_style(base, None, None) is base  # 설정이 없으면 캐릭터 그대로
+    assert voice_style(base, "robot", None) is base  # 목록 밖 보이스는 캐릭터 기본

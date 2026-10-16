@@ -11,13 +11,20 @@ function stubFetch(response: () => Promise<Response>) {
   vi.stubGlobal('fetch', vi.fn(response))
 }
 
+const PROFILE = { nickname: null, interests: [], persona_id: 'p1', voice: null, speaking_rate: null, keep_audio: false, client: {} }
+const VOICES = { voices: ['nova'], default_voice: 'nova', default_rate: 1, min_rate: 0.75, max_rate: 1.5 }
+
 function stubHealth(ok: boolean) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string) =>
       url.startsWith('/api/journal')
         ? new Response('[]')
-        : new Response(JSON.stringify({ status: ok ? 'ok' : 'down' })),
+        : url === '/api/profile'
+          ? new Response(JSON.stringify(PROFILE))
+          : url === '/api/voices'
+            ? new Response(JSON.stringify(VOICES))
+            : new Response(JSON.stringify({ status: ok ? 'ok' : 'down' })),
     ),
   )
 }

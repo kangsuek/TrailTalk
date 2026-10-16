@@ -74,7 +74,8 @@ from app.persona.loader import LoadedPersona
 from app.persona.memory import load_memory
 from app.persona.prompt import MemoryContext, build_system_prompt
 from app.persona.rules import GREETING_INSTRUCTION, INTERRUPTED_HEARD, INTERRUPTED_NOTHING
-from app.services.profile import profile_with_persona
+from app.persona.schema import VoiceStyle
+from app.services.profile import profile_voice, profile_with_persona
 from app.services.runtime import ConversationRuntime
 from app.voice.audio import AudioFile
 from app.voice.sentences import SentenceSplitter
@@ -225,8 +226,11 @@ async def _get_cli(
 
 async def open_llm(
     app: FastAPI, db: AsyncSession, convo: ConversationSession
-) -> tuple[LlmSession, LoadedPersona]:
-    """대화의 CLI 세션과 프롬프트에 쓴 페르소나. CLI가 살아 있으면 재사용하고 없으면 --resume.
+) -> tuple[LlmSession, LoadedPersona, VoiceStyle]:
+    """대화의 CLI 세션, 프롬프트에 쓴 페르소나, 합성할 보이스(설정 화면 값, S3-18).
+
+    CLI가 살아 있으면 재사용하고 없으면 --resume. 보이스는 부를 때마다 프로필에서 읽으므로
+    대화 중에 바꿔도 다음 답변부터 쓴다.
 
     프롬프트는 세션을 처음 열 때 만들어 세션 행에 고정한다. 그 뒤 프로필을 바꿔도 CLI를 다시 띄울
     때(유휴 정리·크래시·서버 재시작 후 --resume) 같은 프롬프트를 쓴다. 다음 커밋 때 함께 저장된다.
@@ -239,7 +243,7 @@ async def open_llm(
         )
         await db.commit()  # 이 턴이 오류로 끝나도 고정한 프롬프트는 남긴다
     session = await _get_cli(app, convo.id, convo.system_prompt, convo.cli_session_id)
-    return session, loaded
+    return session, loaded, profile_voice(profile, loaded)
 
 
 @dataclass
@@ -379,7 +383,7 @@ async def teardown(app: FastAPI, session_id: str, cli_session_id: str | None) ->
 
 async def start_session(
     app: FastAPI, db: AsyncSession, mode: ConversationMode
-) -> tuple[ConversationSession, Turn, LoadedPersona]:
+) -> tuple[ConversationSession, Turn, LoadedPersona, VoiceStyle]:
     profile, loaded = await _profile(app, db)
     prepared = await _take_prepared(app, db, mode, profile, loaded)
     if prepared is not None:
@@ -404,7 +408,7 @@ async def start_session(
     cli_session_id = None
     try:
         async with runtime.turn_lock:
-            session, persona = await open_llm(app, db, convo)
+            session, persona, voice = await open_llm(app, db, convo)
             parts: list[str] = []
             finished = None
             async with aclosing(session.send(GREETING_INSTRUCTION)) as stream:
@@ -439,7 +443,7 @@ async def start_session(
         if isinstance(exc, AppError):
             raise start_error(exc) from exc
         raise
-    return convo, greeting, persona
+    return convo, greeting, persona, voice
 
 
 async def _discard_new_session(
@@ -601,10 +605,10 @@ async def _run_turn(
             await db.refresh(convo)  # 그사이 종료 API가 끝냈으면 CLI를 다시 띄우지 않는다
             if convo.status is SessionStatus.ENDED:
                 raise SessionEnded()
-            session, loaded = await open_llm(app, db, convo)
+            session, loaded, profile_style = await open_llm(app, db, convo)
         runtime.active_turn = (assistant_id, session)  # 끼어들기 API가 인터럽트를 보낸다
         # 음성 세션이면 문장마다 소리를 만든다(텍스트로 보낸 턴도 마찬가지)
-        voice = loaded.persona.voice if convo.mode is ConversationMode.VOICE else None
+        voice = profile_style if convo.mode is ConversationMode.VOICE else None
         speech = app.state.speech
         splitter = SentenceSplitter()
         index = 0

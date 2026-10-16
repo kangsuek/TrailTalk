@@ -30,7 +30,7 @@ const GATEWAY_STATUSES = new Set([502, 503, 504])
 /** 서버 API 요청(본문은 JSON, RawBody면 바이트 그대로). 응답이 실패면 ApiError를 던진다. */
 export async function request(
   path: string,
-  method: 'GET' | 'POST' | 'PATCH',
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH',
   body?: unknown,
   signal?: AbortSignal,
 ): Promise<Response> {

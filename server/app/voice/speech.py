@@ -7,6 +7,7 @@
 import asyncio
 import base64
 import logging
+from collections import OrderedDict
 
 from fastapi import FastAPI
 
@@ -16,12 +17,13 @@ from app.persona.schema import VoiceStyle
 logger = logging.getLogger("trailtalk.voice")
 
 MAX_CONCURRENT = 3
+MAX_CACHED = 64  # 캐시하는 문구 수(검색 안내·보이스 미리 듣기). 넘으면 오래 안 쓴 것부터 버린다
 
 
 class Speech:
     def __init__(self) -> None:
         self._semaphore = asyncio.Semaphore(MAX_CONCURRENT)
-        self._cache: dict[tuple[str, VoiceStyle], str] = {}
+        self._cache: OrderedDict[tuple[str, VoiceStyle], str] = OrderedDict()
 
     async def synthesize(self, app: FastAPI, text: str, voice: VoiceStyle) -> str | None:
         """문장의 MP3(base64). 읽을 글자가 없거나 실패하면 None."""
@@ -39,9 +41,13 @@ class Speech:
     async def cached(self, app: FastAPI, text: str, voice: VoiceStyle) -> str | None:
         """같은 문구(검색 안내 등)는 한 번만 합성한다. 실패는 캐시하지 않는다."""
         key = (text, voice)
-        if key not in self._cache:
-            audio = await self.synthesize(app, text, voice)
-            if audio is None:
-                return None
-            self._cache[key] = audio
-        return self._cache[key]
+        if key in self._cache:
+            self._cache.move_to_end(key)
+            return self._cache[key]
+        audio = await self.synthesize(app, text, voice)
+        if audio is None:
+            return None
+        self._cache[key] = audio
+        while len(self._cache) > MAX_CACHED:
+            self._cache.popitem(last=False)
+        return audio

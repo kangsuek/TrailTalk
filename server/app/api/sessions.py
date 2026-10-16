@@ -14,7 +14,7 @@ from app.db.session import DbSession
 from app.errors import AppError
 from app.jobs import closing, extract
 from app.services import conversation
-from app.services.profile import PROFILE_ID, profile_with_persona
+from app.services.profile import PROFILE_ID, profile_voice, profile_with_persona
 from app.voice.audio import prepare_for_stt
 from app.voice.tts import has_speech
 
@@ -104,10 +104,12 @@ class TurnCreate(BaseModel):
 @router.post("/sessions", status_code=201)
 async def create_session(body: SessionCreate, request: Request, db: DbSession) -> SessionStarted:
     app = request.app
-    convo, greeting, loaded = await conversation.start_session(app, db, ConversationMode(body.mode))
+    convo, greeting, loaded, voice = await conversation.start_session(
+        app, db, ConversationMode(body.mode)
+    )
     audio = None
     if convo.mode is ConversationMode.VOICE:
-        audio = await app.state.speech.synthesize(app, greeting.text, loaded.persona.voice)
+        audio = await app.state.speech.synthesize(app, greeting.text, voice)
     return SessionStarted(
         session=SessionOut.of(convo),
         greeting=GreetingOut(turn_id=greeting.id, text=greeting.text, audio=audio),
@@ -313,12 +315,12 @@ async def end_session(session_id: str, request: Request, db: DbSession) -> Sessi
     await extract.wait_extraction(app, session_id, app.state.settings.extract_wait_s)
     await db.refresh(convo)
     counts = await closing.count_notes(db, session_id)
-    _, loaded = await profile_with_persona(db, app.state.settings)
+    profile, loaded = await profile_with_persona(db, app.state.settings)
     await db.commit()
     message = closing.closing_message(loaded.persona, counts)
     audio = None
     if convo.mode is ConversationMode.VOICE:
-        audio = await app.state.speech.synthesize(app, message, loaded.persona.voice)
+        audio = await app.state.speech.synthesize(app, message, profile_voice(profile, loaded))
     return SessionClosed(
         session=SessionOut.of(convo),
         closing=message,

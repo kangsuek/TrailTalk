@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.config import REPO_DIR
 from app.db.models import Persona
+from app.errors import AppError
 from app.main import create_app
 
 
@@ -28,6 +29,7 @@ def _check_default_profile(client):
         "interests": [],
         "persona_id": "jenny",
         "voice": None,
+        "speaking_rate": None,
         "keep_audio": False,
         "client": _repo_client_defaults(),
     }
@@ -67,6 +69,9 @@ def test_put_updates_only_sent_fields(client):
         {"interests": ["가" * 31]},
         {"persona_id": "../etc"},
         {"unknown": 1},
+        {"voice": "robot"},
+        {"speaking_rate": 0.5},
+        {"speaking_rate": 2},
     ],
 )
 def test_put_validation(client, body):
@@ -151,3 +156,105 @@ async def test_persona_row_inserted_concurrently_is_reused(db_session, make_sett
     await db_session.commit()
     row = await original(Persona, "jenny")
     assert row.version == loaded.version and row.yaml_path == str(loaded.path)
+
+
+def test_put_voice_and_rate_and_reset(client):
+    body = client.put("/api/profile", json={"voice": "coral", "speaking_rate": 0.85}).json()
+    assert (body["voice"], body["speaking_rate"]) == ("coral", 0.85)
+    body = client.put("/api/profile", json={"voice": None, "speaking_rate": None}).json()
+    assert (body["voice"], body["speaking_rate"]) == (None, None)  # 캐릭터 기본으로
+
+
+def test_voices_lists_openai_voices_and_persona_defaults(client):
+    body = client.get("/api/voices").json()
+    assert "nova" in body["voices"] and "coral" in body["voices"]
+    assert body["default_voice"] == "nova"  # 페르소나 YAML
+    assert body["min_rate"] == 0.75 and body["max_rate"] == 1.5
+    assert body["min_rate"] <= body["default_rate"] <= body["max_rate"]
+
+
+def test_voice_sample_is_mp3_and_cached(make_settings):
+    with TestClient(create_app(make_settings(voice_backend="fake"))) as client:
+        calls = []
+        tts = client.app.state.tts
+        original = tts.synthesize
+
+        async def counting(text, voice):
+            calls.append((voice.tts_voice, voice.speaking_rate))
+            return await original(text, voice)
+
+        tts.synthesize = counting
+        for _ in range(2):
+            response = client.get("/api/voices/coral/sample?rate=1.2")
+            assert response.status_code == 200
+            assert response.headers["content-type"] == "audio/mpeg"
+            assert response.content
+        assert calls == [("coral", 1.2)]  # 두 번째는 캐시
+        assert client.get("/api/voices/robot/sample").status_code == 422
+        assert client.get("/api/voices/coral/sample?rate=3").status_code == 422
+
+
+def test_voice_sample_unavailable_is_503(make_settings):
+    with TestClient(create_app(make_settings(voice_backend="fake"))) as client:
+
+        async def broken(text, voice):
+            raise AppError("voice_unavailable", "키 없음", 503)
+
+        client.app.state.tts.synthesize = broken
+        response = client.get("/api/voices/coral/sample")
+        assert response.status_code == 503
+        assert response.json()["error"]["code"] == "voice_unavailable"
+
+
+def test_voice_sample_rate_is_rounded_for_cache(make_settings):
+    with TestClient(create_app(make_settings(voice_backend="fake"))) as client:
+        rates = []
+        tts = client.app.state.tts
+        original = tts.synthesize
+
+        async def counting(text, voice):
+            rates.append(voice.speaking_rate)
+            return await original(text, voice)
+
+        tts.synthesize = counting
+        for rate in ("0.85", "0.851", "0.8501"):
+            assert client.get(f"/api/voices/coral/sample?rate={rate}").status_code == 200
+        assert rates == [0.85]
+
+
+def test_unknown_stored_voice_falls_back_to_persona(client):
+    async def store():
+        from app.services.profile import get_profile
+
+        async with client.app.state.session_factory() as db:
+            (await get_profile(db)).voice = "옛날 자유 문자열"
+            await db.commit()
+
+    client.portal.call(store)
+    assert client.get("/api/profile").json()["voice"] is None
+
+
+async def test_speech_cache_keeps_recent_items_only():
+    from types import SimpleNamespace
+
+    from app.persona.schema import VoiceStyle
+    from app.voice import speech as speech_module
+
+    calls = []
+
+    class Tts:
+        async def synthesize(self, text, voice):
+            calls.append(text)
+            return b"mp3"
+
+    app = SimpleNamespace(state=SimpleNamespace(tts=Tts()))
+    voice = VoiceStyle(
+        tts_voice="nova", speaking_rate=1.0, instructions="밝게", search_notice="잠깐"
+    )
+    cache = speech_module.Speech()
+    for i in range(speech_module.MAX_CACHED + 1):
+        await cache.cached(app, f"문구{i}", voice)
+    await cache.cached(app, f"문구{speech_module.MAX_CACHED}", voice)  # 최근 것은 캐시에 있다
+    await cache.cached(app, "문구0", voice)  # 가장 오래된 것은 밀려났다
+    assert calls.count(f"문구{speech_module.MAX_CACHED}") == 1
+    assert calls.count("문구0") == 2

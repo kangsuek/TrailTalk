@@ -10,6 +10,9 @@ from app.config import Settings
 from app.db.models import Persona as PersonaRow
 from app.db.models import UserProfile
 from app.persona.loader import LoadedPersona, load_persona
+from app.persona.rules import SPEECH_RATE_FAST, SPEECH_RATE_NORMAL, SPEECH_RATE_SLOW
+from app.persona.schema import VoiceStyle
+from app.voice.tts import OPENAI_VOICES
 
 PROFILE_ID = 1
 
@@ -30,6 +33,31 @@ def line_field(limit: int) -> AfterValidator:
 
 # 프로필 API와 MCP set_nickname이 같은 규칙을 쓴다
 Nickname = Annotated[str, line_field(20)]
+
+
+def voice_style(base: VoiceStyle, voice: str | None, rate: float | None) -> VoiceStyle:
+    """캐릭터 보이스(페르소나 YAML)에 설정 화면의 보이스·말 속도를 덮어쓴다(S3-18).
+
+    voice·rate가 None이면 캐릭터 기본을 쓴다. 목록 밖 보이스(예전 API가 자유 문자열로 저장한 값)도
+    캐릭터 기본으로 본다. 말 속도를 정했으면 말투 지시에도 빠르기를 붙인다."""
+    update: dict = {}
+    if voice in OPENAI_VOICES:
+        update["tts_voice"] = voice
+    if rate is not None:
+        update["speaking_rate"] = rate
+        if rate < 1.0:
+            hint = SPEECH_RATE_SLOW
+        elif rate > 1.1:
+            hint = SPEECH_RATE_FAST
+        else:
+            hint = SPEECH_RATE_NORMAL
+        update["instructions"] = f"{base.instructions} {hint}"
+    return base.model_copy(update=update) if update else base
+
+
+def profile_voice(profile: UserProfile, loaded: LoadedPersona) -> VoiceStyle:
+    """이 프로필로 합성할 보이스(턴·인사말·마무리 멘트가 함께 쓴다)."""
+    return voice_style(loaded.persona.voice, profile.voice, profile.speaking_rate)
 
 
 async def sync_persona(db: AsyncSession, settings: Settings, persona_id: str) -> LoadedPersona:

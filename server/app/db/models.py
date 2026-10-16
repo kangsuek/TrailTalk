@@ -11,6 +11,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Enum,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -198,6 +199,7 @@ class UserProfile(Base):
     nickname: Mapped[str | None] = mapped_column(String(50))
     interests: Mapped[list[str]] = mapped_column(MutableList.as_mutable(JSON), default=list)
     persona_id: Mapped[str | None] = mapped_column(ForeignKey("persona.id", ondelete="SET NULL"))
-    voice: Mapped[str | None] = mapped_column(String(100))
+    voice: Mapped[str | None] = mapped_column(String(100))  # OpenAI 보이스(null이면 캐릭터 기본)
+    speaking_rate: Mapped[float | None] = mapped_column(Float)  # 말 속도(null이면 캐릭터 기본)
     keep_audio: Mapped[bool] = mapped_column(Boolean, default=False)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)

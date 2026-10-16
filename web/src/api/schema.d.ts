@@ -195,6 +195,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/voices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Voices */
+        get: operations["list_voices_api_voices_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/voices/{voice}/sample": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Voice Sample
+         * @description 보이스를 고정 문장으로 미리 들려준다(보이스·속도별로 한 번만 합성해 둔다).
+         */
+        get: operations["voice_sample_api_voices__voice__sample_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/journal": {
         parameters: {
             query?: never;
@@ -502,13 +539,15 @@ export interface components {
             persona_id: string;
             /** Voice */
             voice: string | null;
+            /** Speaking Rate */
+            speaking_rate: number | null;
             /** Keep Audio */
             keep_audio: boolean;
             client: components["schemas"]["ClientConfig"];
         };
         /**
          * ProfileUpdate
-         * @description 보낸 필드만 바꾼다. nickname을 null로 보내면 기본 호칭으로 돌아간다.
+         * @description 보낸 필드만 바꾼다. nickname·voice·speaking_rate를 null로 보내면 기본값으로 돌아간다.
          */
         ProfileUpdate: {
             /** Nickname */
@@ -521,7 +560,9 @@ export interface components {
             /** Persona Id */
             persona_id?: string | null;
             /** Voice */
-            voice?: string | null;
+            voice?: ("alloy" | "ash" | "ballad" | "cedar" | "coral" | "echo" | "fable" | "marin" | "nova" | "onyx" | "sage" | "shimmer" | "verse") | null;
+            /** Speaking Rate */
+            speaking_rate?: number | null;
             /**
              * Keep Audio
              * @default false
@@ -692,6 +733,22 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /**
+         * VoicesOut
+         * @description 설정 화면에서 고를 수 있는 보이스와 캐릭터 기본값(페르소나 YAML).
+         */
+        VoicesOut: {
+            /** Voices */
+            voices: string[];
+            /** Default Voice */
+            default_voice: string;
+            /** Default Rate */
+            default_rate: number;
+            /** Min Rate */
+            min_rate: number;
+            /** Max Rate */
+            max_rate: number;
         };
         /**
          * DoneEvent
@@ -1181,6 +1238,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProfileOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_voices_api_voices_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoicesOut"];
+                };
+            };
+        };
+    };
+    voice_sample_api_voices__voice__sample_get: {
+        parameters: {
+            query?: {
+                rate?: number | null;
+            };
+            header?: never;
+            path: {
+                voice: "alloy" | "ash" | "ballad" | "cedar" | "coral" | "echo" | "fable" | "marin" | "nova" | "onyx" | "sage" | "shimmer" | "verse";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 미리 듣기 MP3 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "audio/mpeg": unknown;
                 };
             };
             /** @description Validation Error */
