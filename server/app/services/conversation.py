@@ -17,11 +17,14 @@
 """
 
 import asyncio
+import contextlib
 import logging
+import os
 from collections.abc import AsyncIterator
 from contextlib import aclosing
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import anyio
@@ -70,6 +73,7 @@ from app.persona.prompt import MemoryContext, build_system_prompt
 from app.persona.rules import GREETING_INSTRUCTION, INTERRUPTED_HEARD, INTERRUPTED_NOTHING
 from app.services.profile import profile_with_persona
 from app.services.runtime import ConversationRuntime
+from app.voice.audio import AudioFile
 from app.voice.sentences import SentenceSplitter
 
 logger = logging.getLogger("trailtalk.conversation")
@@ -481,11 +485,17 @@ async def last_reply(db: AsyncSession, session_id: str, max_chars: int = 200) ->
 
 
 async def stream_turn(
-    app: FastAPI, session_id: str, text: str, *, from_voice: bool = False
+    app: FastAPI,
+    session_id: str,
+    text: str,
+    *,
+    from_voice: bool = False,
+    audio: AudioFile | None = None,
 ) -> AsyncIterator[bytes]:
     """사용자 메시지 한 턴을 처리하며 SSE 바이트를 낸다.
 
     from_voice: 음성 업로드의 인식 결과다. turn 바로 앞에 transcript 이벤트로 알린다.
+    audio: 보관할 녹음(프로필 keep_audio가 켜진 음성 턴, S3-05). 사용자 턴에 붙여 저장한다.
 
     클라이언트가 끊기면 이 제너레이터가 닫히고 aclosing이 CLI 턴을 멈춘다. 이때 사용자 턴과
     보낸 문장까지의 답변(interrupted)이 남는다.
@@ -498,7 +508,7 @@ async def stream_turn(
         db = app.state.session_factory()
         try:
             # 안쪽 제너레이터도 바로 닫아야 락을 풀기 전에 CLI 턴 정리(인터럽트)가 끝난다
-            turn = _run_turn(app, db, runtime, session_id, text, from_voice)
+            turn = _run_turn(app, db, runtime, session_id, text, from_voice, audio)
             async with aclosing(turn) as chunks:
                 async for chunk in chunks:
                     yield chunk
@@ -520,6 +530,7 @@ async def _run_turn(
     session_id: str,
     text: str,
     from_voice: bool,
+    audio: AudioFile | None = None,
 ) -> AsyncIterator[bytes]:
     """턴 락을 잡은 상태에서 한 턴을 처리한다.
 
@@ -546,13 +557,16 @@ async def _run_turn(
         app.state.runtimes.discard(session_id)  # 위에서 새로 만든 런타임(토큰)을 남기지 않는다
         yield _error(SessionNotFound() if convo is None else SessionEnded())
         return
+    user_turn_id = user_turn.id  # 아래 커밋·롤백 뒤에도 쓰도록 미리 꺼내 둔다
+    if audio is not None:
+        await _keep_audio(app, db, session_id, user_turn_id, audio)
 
     assistant_id = new_id()
     if from_voice:
         yield encode_sse(TranscriptEvent(text=text))
     yield encode_sse(TurnEvent(turn_id=assistant_id))
     runtime.requested_status = None
-    runtime.current_user_turn_id = user_turn.id
+    runtime.current_user_turn_id = user_turn_id
     # 합성 중이거나 보낼 차례를 기다리는 문장(순서대로). 분할기가 한 번에 내놓은 문장들의
     # 소리는 동시에 만들고, 보낼 때는 순서를 지킨다
     pending: list[tuple[str, asyncio.Task[str | None] | None]] = []
@@ -838,6 +852,50 @@ def _heard_note(heard: list[str]) -> str:
     last = heard[-1][-_HEARD_MAX_CHARS:]
     last = last.replace('"', "'").translate(str.maketrans("", "", "()[]{}"))
     return INTERRUPTED_HEARD.format(heard=last)
+
+
+def _write_audio(path: Path, data: bytes) -> None:
+    """본인만 읽을 수 있게(폴더 0700, 파일 0600) 쓴다. 녹음은 민감한 개인 정보다."""
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as file:
+        file.write(data)
+
+
+async def _set_audio_path(db: AsyncSession, turn_id: str, relative: str) -> None:
+    await db.execute(
+        update(Turn)
+        .where(Turn.id == turn_id)
+        .values(audio_path=relative)
+        .execution_options(synchronize_session=False)
+    )
+    await db.commit()
+
+
+async def _keep_audio(
+    app: FastAPI, db: AsyncSession, session_id: str, turn_id: str, audio: AudioFile
+) -> None:
+    """녹음을 audio_dir/<세션>/<사용자 턴>.<확장자>에 두고 경로(상대)를 사용자 턴에 남긴다.
+
+    부가 기능이라 실패해도 턴은 계속한다. 연결이 끊겨도 쓰기와 커밋은 끝까지 한다. 경로를 남기지
+    못하면 쓴 파일을 지운다(DB에 없는 파일은 보관 기간 정리에서도 빠져 영구히 남는다).
+    """
+    relative = Path(session_id) / f"{turn_id}{Path(audio.filename).suffix or '.webm'}"
+    path = app.state.settings.audio_dir / relative
+    with anyio.CancelScope(shield=True):
+        try:
+            await asyncio.to_thread(_write_audio, path, audio.data)
+        except OSError:
+            logger.exception("음성 원본 저장 실패(session=%s)", session_id)
+            return
+        try:
+            await _set_audio_path(db, turn_id, relative.as_posix())
+        except Exception:
+            logger.exception("음성 원본 경로 저장 실패, 파일을 지움(session=%s)", session_id)
+            with contextlib.suppress(Exception):
+                await db.rollback()
+            with contextlib.suppress(OSError):
+                await asyncio.to_thread(path.unlink, missing_ok=True)
 
 
 async def _save_reply(

@@ -8,12 +8,12 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.events import sse_response_doc
-from app.db.models import ConversationMode, ConversationSession
+from app.db.models import ConversationMode, ConversationSession, UserProfile
 from app.db.session import DbSession
 from app.errors import AppError
 from app.jobs import closing, extract
 from app.services import conversation
-from app.services.profile import profile_with_persona
+from app.services.profile import PROFILE_ID, profile_with_persona
 from app.voice.audio import prepare_for_stt
 from app.voice.tts import has_speech
 
@@ -205,6 +205,8 @@ async def create_audio_turn(session_id: str, request: Request, db: DbSession) ->
     convo = await conversation.get_session(db, session_id)
     conversation.check_turn_allowed(app, convo)
     hint = await conversation.last_reply(db, session_id)
+    profile = await db.get(UserProfile, PROFILE_ID)  # 읽기만 한다(없으면 기본값: 보관 안 함)
+    keep_audio = profile is not None and profile.keep_audio
     await db.close()  # 인식하는 동안 커넥션을 쥐지 않는다
     audio = await prepare_for_stt(
         await _read_body(request, settings.stt_max_bytes),
@@ -217,7 +219,9 @@ async def create_audio_turn(session_id: str, request: Request, db: DbSession) ->
     if not has_speech(text):
         raise AppError("no_speech", "말소리를 알아듣지 못했어요.", 422)
     return EventStreamResponse(
-        conversation.stream_turn(app, session_id, text, from_voice=True),
+        conversation.stream_turn(
+            app, session_id, text, from_voice=True, audio=audio if keep_audio else None
+        ),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )

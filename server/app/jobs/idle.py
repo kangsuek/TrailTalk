@@ -5,7 +5,8 @@
 종료는 conversation.end_session을 그대로 쓴다.
 
 앱이 시작하면 바로 한 번 돌고(서버가 꺼진 동안 지난 세션, 정리 중에 꺼져 pending으로 남은 추출),
-그 뒤 idle_check_interval_s마다 돈다.
+그 뒤 idle_check_interval_s마다 돈다. 보관 기간이 지난 음성 원본 정리(app/jobs/audio.py)도
+함께 한다.
 """
 
 import asyncio
@@ -17,7 +18,7 @@ from sqlalchemy import func, select
 
 from app.db.models import ConversationSession, ExtractStatus, SessionStatus, Turn
 from app.db.types import utcnow
-from app.jobs import extract
+from app.jobs import audio, extract
 from app.llm.claude_cli import delete_cli_session_file
 from app.services import conversation
 
@@ -116,4 +117,10 @@ async def run(app: FastAPI) -> None:
             raise
         except Exception:
             logger.exception("무발화 감시 실패")
+        try:
+            await audio.purge_old_audio(app)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("음성 원본 정리 실패")
         await asyncio.sleep(app.state.settings.idle_check_interval_s)

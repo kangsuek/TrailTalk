@@ -68,6 +68,10 @@ class Settings(BaseSettings):
     # 업로드 오디오 변환(app/voice/audio.py)
     ffmpeg_path: str = "ffmpeg"
     ffmpeg_timeout_s: float = 10
+    # 음성 원본 보관(S3-05): 프로필 keep_audio가 켜져 있으면 음성 턴 녹음을 여기에 두고,
+    # audio_retention_days가 지나면 지운다(app/jobs/audio.py)
+    audio_dir: Path = SERVER_DIR / "data" / "audio"
+    audio_retention_days: int = Field(default=30, gt=0)
 
     @field_validator("timezone")
     @classmethod
