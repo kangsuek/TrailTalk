@@ -69,6 +69,6 @@ docs/              설계서, 계획서, 규약, 인계(handoff.md), 검증 기�
 # 웹
 (cd web && npm run dev)                                # http://127.0.0.1:5173, /api → 8000 프록시
 (cd web && npm run test && npm run lint && npm run build)
-(cd web && npm run e2e)                                # Playwright: 가짜 CLI 서버·웹 자동 기동 후 실제 구동 검증
+(cd web && npm run e2e)                                # Playwright: 가짜 CLI 서버·웹 자동 기동 후 실제 구동 검증(음성은 가짜 마이크 e2e/fixtures/utterance.wav)
 (cd web && npm run gen:api)                            # 서버 OpenAPI → src/api/schema.d.ts (-- --check: 차이만 확인)
 ```

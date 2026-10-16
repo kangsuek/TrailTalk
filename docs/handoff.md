@@ -73,7 +73,8 @@ TrailTalk 작업을 이어서 진행합니다. 먼저 docs/handoff.md를 읽고,
   - 글 대화에서 답변을 기다리는 동안 "대화 끝내기"가 막혀 CLI가 멈추면 최대 2분 못 끝내던 문제. 받던 말풍선은 끊긴 답변으로 마무리한다.
   - **상태 머신·전이 표 변경(안드로이드도 반영 필요)**: 처리 중(답변 대기) `speech_end`는 버리지 않고 항상 `queueUtterance`로 큐 뒤에 넣는다. 턴이 끝나면 기존 규칙대로 큐부터 보낸다. 큐 순번은 말이 끝난 때 정해, 보내던 말이 나중에 실패해 큐에 들어가도 그사이 넣은 뒷말보다 앞에 선다(커밋 전 리뷰에서 발견). 화면은 연결돼 있으면 "이어서 한 말 N개 · 답변 뒤에/다음 차례에 보내요". `sendingQueued`는 이제 정보용이다. 처리 중 검색 안내 음성이 마이크에 잡히면 큐에 들어갈 수 있다(말소리 없음이면 버려짐) — 실기기에서 확인한다.
   - 점검했지만 그대로 둔 것: 말풍선 마크다운 원문 노출(4장 과제), 쉬기 안내의 "30분" 고정 문구(서버 기본값과 같음).
-- **테스트(현재)**: pytest 통과 565·건너뜀 4(실제 CLI·OpenAI), Vitest 234, E2E 6.
+- **S3-16 음성 흐름 E2E(10-17)**: `web/e2e/voice.spec.ts`(Playwright 프로젝트 `voice`)가 발화 → 답변 → 끼어들기 → 오프라인 보관·복구 → 끝내기를 가짜 마이크로 시험한다. 가짜 마이크 `web/e2e/fixtures/utterance.wav`는 앞 무음 1초 + macOS `say -v Yuna` 문장(가짜 인식 결과와 같은 글) + 뒤 무음 20초(약 24초마다 말함, `make-utterance.sh`로 다시 만듦). 상태는 `.voice-controls[data-state]`로 기다리고 기기 TTS는 2초로 고정한다(`addInitScript`). 시간에 민감하므로 고칠 때는 3번 연속 돌려 본다(지금 약 35초, 전체 E2E 약 45초). 오프라인 단계는 Chromium 오프라인 흉내가 Vite HMR 웹소켓을 끊지 않는 데 기댄다.
+- **테스트(현재)**: pytest 통과 565·건너뜀 4(실제 CLI·OpenAI), Vitest 234, E2E 7(음성 1 포함).
 - **S3-14 완료(10-17, 폰 A35에서 음성 대화 사용자 확인)**: 결정 D1 = 집 Mac + Tailscale Serve(tailnet 안에서만 HTTPS, 공개 Funnel 안 씀 — 서버 API에 인증이 없어서). 폰은 tailnet의 안드로이드 "강석의 A35"(Galaxy A35).
   - `./run.sh --phone`: 웹을 `web/dist`로 빌드해 서버(8000)가 서빙, `caffeinate -is`로 잠자기 방지, `tailscale serve --bg --https=443`, Ctrl+C 때 serve off. 인증서가 꺼져 있으면 안내 후 종료, serve가 허용 링크를 내며 멈추면 15초 뒤 끊고 출력을 보여 준다. 사용법은 `docs/phone.md`.
   - PWA: vite-plugin-pwa **1.3.0**(2.0.0은 배포 2주 미만이라 보류). `registerType: 'prompt'`(자동 새로 고침 없음), 앱 셸 precache, `/vad/`는 런타임 CacheFirst(첫 방문은 서비스 워커가 페이지를 아직 제어하지 않아 두 번째 열기부터 저장됨), `/api`·`/internal`·`/docs` 제외. 아이콘은 `web/public/icon.svg`에서 Playwright로 PNG를 만들었다(favicon도 교체).

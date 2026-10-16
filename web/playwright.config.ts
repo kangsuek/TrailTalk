@@ -11,12 +11,33 @@ const FAKE_CLI = fileURLToPath(new URL('../server/tests/fakes/fake-claude', impo
 const EXTRACT_FIXTURE = fileURLToPath(
   new URL('../server/tests/fixtures/claude_cli/extract.jsonl', import.meta.url),
 )
+// 음성 흐름 E2E의 가짜 마이크: 약 24초마다 한국어 문장 하나를 되풀이한다(e2e/fixtures/make-utterance.sh)
+const FAKE_MIC = fileURLToPath(new URL('./e2e/fixtures/utterance.wav', import.meta.url))
 
 export default defineConfig({
   testDir: './e2e',
   outputDir: './test-results',
   use: { baseURL: `http://127.0.0.1:${WEB_PORT}`, trace: 'retain-on-failure' },
-  projects: [{ name: 'mobile-chrome', use: { ...devices['Pixel 7'] } }],
+  projects: [
+    { name: 'mobile-chrome', use: { ...devices['Pixel 7'] }, testIgnore: /voice\.spec\.ts/ },
+    {
+      // 음성 대화(S3-16): Chromium 가짜 마이크로 녹음 파일을 넣는다. 서버 음성 인식·합성은 가짜다
+      name: 'voice',
+      testMatch: /voice\.spec\.ts/,
+      use: {
+        ...devices['Pixel 7'],
+        permissions: ['microphone'],
+        launchOptions: {
+          args: [
+            '--use-fake-ui-for-media-stream',
+            '--use-fake-device-for-media-stream',
+            `--use-file-for-fake-audio-capture=${FAKE_MIC}`,
+            '--autoplay-policy=no-user-gesture-required',
+          ],
+        },
+      },
+    },
+  ],
   // 서버 하나·가짜 CLI 녹화 순서를 함께 쓰므로 테스트를 순서대로 돌린다
   workers: 1,
   webServer: [
