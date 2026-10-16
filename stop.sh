@@ -81,9 +81,12 @@ for pid in $(pgrep -f 'run\.sh' 2>/dev/null || true); do
   esac
   # 명령줄의 스크립트 경로(상대 경로면 그 프로세스의 작업 폴더 기준)가 이 저장소의 run.sh인가
   script=""
+  set -f # 명령줄의 * ? 가 이 폴더 파일 이름으로 펼쳐지지 않게
   for word in $cmd; do
-    case "$word" in *run.sh) script="$word"; break ;; esac
+    case "$word" in run.sh | */run.sh) script="$word"; break ;; esac
   done
+  set +f
+  [ -n "$script" ] || continue
   case "$script" in
     /*) ;;
     *) script="$(cwd_of "$pid")/$script" ;;
@@ -102,6 +105,11 @@ for _ in $(seq 1 10); do
   for pid in ${run_sh_pids[@]+"${run_sh_pids[@]}"}; do kill -0 "$pid" 2>/dev/null && alive=1; done
   [ "$alive" = 0 ] && break
   sleep 0.5
+done
+for pid in ${run_sh_pids[@]+"${run_sh_pids[@]}"}; do
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "run.sh(pid $pid)는 하던 작업(설치·빌드 등)을 마친 뒤 종료됩니다."
+  fi
 done
 
 # 3. 남은 서버·웹(run.sh 없이 남은 것)
