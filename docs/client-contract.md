@@ -56,6 +56,7 @@
   - `sentence` 이벤트는 그 문장 소리를 재생 대기열에 넣은 뒤에 머신에 보낸다. `playback_idle`은 보내는 순간 대기열이 비어 있을 때만 보낸다(`done`보다 먼저 와도 된다).
   - 모든 요청(`startSession`·`sendTurn`·`endSession`)은 성공 이벤트나 실패 이벤트(`start_failed`·`turn_error`·`send_failed`·`end_failed`) 중 하나로 반드시 끝낸다. 시간 초과도 실패로 보낸다.
   - 처리 중에 들어온 발화(`speech_end`)는 버린다.
+  - 이어 재생(`AudioOutput`, 웹 `web/src/platform/audioOutput.ts`)은 넣은 순서대로 하나씩 재생하고(디코드는 넣는 즉시 병렬), 답변 문장이 끝날 때마다 `sentence_played {index}`, 대기열이 비면 `playback_idle`을 보낸다. 인사말·검색 안내(`tool.notice`)·마무리 멘트는 문장 번호 없이 넣는다(`sentence_played` 없음). 소리가 없는 문장(`audio: null`)과 디코드·재생에 실패한 소리는 길이 0으로 보고 순서대로 넘어간다. `stopPlayback`은 즉시 멈추고 대기열을 비우며 이벤트를 보내지 않는다. 브라우저 자동 재생 제한 때문에 시작 버튼을 누를 때 오디오를 연다(`unlock`). 소리가 나지 않는 상황(자동 재생 제한, 오디오 중단)에서도 대기열은 멈추지 않는다(다시 켜기를 0.5초만 기다리고, 끝 알림이 오지 않으면 소리 길이 + 2초 뒤 넘어간다). 소리 없는 문장은 넣자마자 `sentence_played`가 나갈 수 있으므로, 플랫폼은 대기열에 넣은 직후 같은 동기 흐름에서 머신에 `sentence`를 보낸다(사이에 `await`을 두지 않는다).
   - 마이크 입력(`AudioInput`, 웹 `web/src/platform/audioInput.ts`)은 `micOn`→`start`, `micOff`→`stop`(트랙을 멈춰 마이크 표시가 꺼진다), `setVadMode`→`setMode`로 받는다. `speech_start`는 말소리가 `min_speech_ms` 동안 이어진 뒤에 보낸다(재생 중 짧은 소음 한 번으로 끼어들기가 되지 않게). 그보다 짧은 소리는 이벤트 없이 버린다. `stop` 뒤에는 이벤트를 보내지 않는다. 마이크 권한 거부(`mic_denied`)·장치 없음(`mic_unavailable`)·감지 모델 로드 실패(`vad_failed`)를 화면에 어떻게 알리고 상태를 어떻게 바꿀지는 S3-13에서 정한다.
   - 큐 비우기가 끝나면 남은 발화 수를 `queue_flushed {remaining}`로 알린다. 큐 항목이 어느 세션에 속하는지와 끝내기 전에 큐를 비울지는 S3-12(LocalQueue)에서 정한다.
 

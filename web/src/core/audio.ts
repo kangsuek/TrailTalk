@@ -61,3 +61,23 @@ export interface AudioInput {
   setMode(mode: VadMode): void
   dispose(): Promise<void>
 }
+
+export type SoundName = 'listen' | 'saved' | 'offline'
+
+/** 재생 대기열에 넣는 소리. index: 답변 문장 번호(인사말·검색 안내·마무리 멘트는 null) */
+export interface PlaybackItem {
+  audio: string | null // base64 MP3. null이면(합성 실패) 길이 0으로 보고 순서대로 넘어간다
+  index: number | null
+}
+
+// sentence_played: 그 문장을 끝까지 들려줬다. playback_idle: 보내는 순간 대기열이 비어 있다(규약 4절)
+export type AudioOutputEvent = { type: 'sentence_played'; index: number } | { type: 'playback_idle' }
+
+/** 답변 소리 이어 재생. 상태 머신 명령 stopPlayback → stop, playSound → playEffect */
+export interface AudioOutput {
+  unlock(): Promise<void> // 사용자 동작(버튼) 안에서 불러 소리를 낼 수 있게 한다
+  enqueue(item: PlaybackItem): void
+  stop(): void // 즉시 멈추고 대기열을 비운다(이벤트를 보내지 않는다)
+  playEffect(name: SoundName): void // 알림음. 대기열과 상관없이 바로 낸다
+  dispose(): Promise<void>
+}
