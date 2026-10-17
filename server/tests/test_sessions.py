@@ -274,9 +274,6 @@ def test_web_search_tool_event(api, monkeypatch):
     assert summary.kind == "web_search" and summary.query and summary.links and summary.sources
     sentences = [e.text for e in events if e.type == "sentence"]
     assert len(sentences) > 1 and events[-1].text.startswith(sentences[0])
-    # 일지 인용용으로 답변 턴에 검색 링크(제목·URL)를 남긴다(S3-22)
-    reply = [t for t in turns_of(api, session_id) if t.role is TurnRole.ASSISTANT][-1]
-    assert reply.sources == [{"title": link.title, "url": link.url} for link in summary.links]
 
 
 def test_turn_errors_before_stream_are_json(api):

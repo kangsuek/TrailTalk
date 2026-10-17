@@ -11,7 +11,6 @@
 
 import asyncio
 import logging
-import re
 from collections.abc import Sequence
 from typing import Annotated
 
@@ -21,15 +20,9 @@ from sqlalchemy import func, select
 
 from app.db.models import ConversationSession, ExtractStatus, Note, NoteKind, Turn, TurnRole
 from app.jobs.dedupe import matches_saved, new_items, normalize
-from app.jobs.page_title import improve_titles
 from app.llm.backend import LlmError
 from app.llm.claude_cli import run_oneshot
-from app.persona.rules import (
-    EXTRACT_INSTRUCTION,
-    EXTRACT_SAVED_SECTION,
-    EXTRACT_SOURCES_SECTION,
-    EXTRACT_TOPICS_SECTION,
-)
+from app.persona.rules import EXTRACT_INSTRUCTION, EXTRACT_SAVED_SECTION, EXTRACT_TOPICS_SECTION
 from app.services.profile import profile_with_persona
 
 logger = logging.getLogger("trailtalk.extract")
@@ -37,24 +30,11 @@ logger = logging.getLogger("trailtalk.extract")
 ATTEMPTS = 2  # 첫 시도 + 재시도 1회
 TRANSCRIPT_LIMIT = 100_000  # 이보다 긴 전문은 앞부분을 잘라 뒷부분을 남긴다
 MAX_KNOWN_TOPICS = 50  # 추출에 알려 주는 지난 주제 수(최근 대화 순)
-MAX_SOURCES = 30  # 추출에 알려 주는 출처 수(대화 순서, URL 중복 없이)
 
 Title = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60)]
 Line = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 Tag = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=20)]
 Topic = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=30)]
-# 한 항목이 조금 넘쳐도 정리 전체가 실패하지 않게 여유를 둔다(지시는 한 문장)
-Sentence = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
-SourceIds = Annotated[list[Annotated[int, Field(ge=1, le=MAX_SOURCES)]], Field(max_length=10)]
-
-
-class ReportLine(BaseModel):
-    """일지 보고서의 한 문장과 근거 출처 번호(<출처> 목록의 번호). 번호는 서버가 검증한다."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    text: Sentence
-    sources: SourceIds
 
 
 class Extraction(BaseModel):
@@ -63,11 +43,7 @@ class Extraction(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     title: Title
-    # 일지 보고서(S3-22): 첫 문장 결론 → 핵심 내용 → 세부 내용. 문장마다 근거 출처 번호
-    conclusion: Sentence
-    conclusion_sources: SourceIds
-    key_points: Annotated[list[ReportLine], Field(min_length=1, max_length=5)]
-    details: Annotated[list[ReportLine], Field(max_length=8)]
+    summary: Annotated[list[Line], Field(min_length=1, max_length=3)]
     ideas: Annotated[list[Line], Field(max_length=10)]
     todos: Annotated[list[Line], Field(max_length=10)]
     memos: Annotated[list[Line], Field(max_length=10)]
@@ -100,7 +76,7 @@ def clean_topics(topics: Sequence[str], known: Sequence[str]) -> list[str]:
 
 def _escape_tags(text: str) -> str:
     """글 안에서 프롬프트의 구분 태그(<대화>, <저장한 노트>, <기존 주제>)를 닫지 못하게 한다."""
-    for tag in ("대화", "저장한 노트", "기존 주제", "출처"):
+    for tag in ("대화", "저장한 노트", "기존 주제"):
         text = text.replace(f"</{tag}>", f"</ {tag}>")
     return text
 
@@ -123,21 +99,6 @@ def build_transcript(turns: list[Turn], assistant: str) -> str:
     return "\n".join(reversed(kept))
 
 
-def collect_sources(turns: list[Turn]) -> list[dict]:
-    """대화에서 캐릭터가 본 출처를 대화 순서대로 모은다(URL 중복 없이, 최대 MAX_SOURCES개)."""
-    found: dict[str, dict] = {}
-    for turn in turns:
-        for source in turn.sources or []:
-            url = source.get("url") if isinstance(source, dict) else None
-            if not isinstance(url, str) or url in found:
-                continue
-            if len(found) >= MAX_SOURCES:
-                return list(found.values())
-            title = source.get("title")
-            found[url] = {"title": title if isinstance(title, str) else None, "url": url}
-    return list(found.values())
-
-
 SAVED_LABELS = {NoteKind.IDEA: "아이디어", NoteKind.TODO: "할 일", NoteKind.MEMO: "메모"}
 
 
@@ -146,7 +107,6 @@ def build_prompt(
     assistant: str,
     saved: Sequence[tuple[NoteKind, str]] = (),
     topics: Sequence[str] = (),
-    sources: Sequence[dict] = (),
 ) -> str:
     """saved: 대화 중 save_note로 이미 저장한 노트(종류, 내용). 추출이 같은 항목을 다시 뽑지 않게
     알려 준다. 종류를 붙여 다른 종류의 항목까지 빼지 않게 한다. 노트는 모델이 만든 글이라
@@ -163,17 +123,9 @@ def build_prompt(
     topic_section = (
         EXTRACT_TOPICS_SECTION.format(items="\n".join(topic_lines)) if topic_lines else ""
     )
-    source_lines = []
-    for n, src in enumerate(sources, start=1):
-        title = _escape_tags(_one_line(src.get("title") or "(제목 없음)"))
-        source_lines.append(f"[{n}] {title} — {_escape_tags(src['url'])}")
-    source_section = (
-        EXTRACT_SOURCES_SECTION.format(items="\n".join(source_lines)) if source_lines else ""
-    )
     return EXTRACT_INSTRUCTION.format(
         assistant=assistant,
         topics=topic_section,
-        sources=source_section,
         saved=section,
         transcript=build_transcript(turns, assistant),
     )
@@ -228,65 +180,6 @@ async def _set_status(app: FastAPI, session_id: str, status: ExtractStatus) -> N
     await _shielded(app, write())
 
 
-# 모델이 문장 끝에 직접 적은 출처 번호(번호는 sources로만 받는다). 문장 중간의 "[2024]"는 둔다
-_CITE_MARK = re.compile(r"(?:\s*\[\d{1,2}\])+(?=[.!?。]?\s*$)")
-
-
-def _sentence(text: str) -> str:
-    one = _one_line(text)
-    return _CITE_MARK.sub("", one).strip() or one
-
-
-def _host(url: str) -> str:
-    host = re.sub(r"^https?://", "", url).split("/")[0]
-    return host.removeprefix("www.") or url
-
-
-def build_report(result: Extraction, sources: Sequence[dict]) -> tuple[dict, list[str]]:
-    """추출 결과로 일지 보고서와 평문 요약 줄을 만든다.
-
-    출처 번호는 <출처> 목록에 있는 것만 남기고, 실제로 인용된 출처만 처음 인용된 순서대로 1부터
-    다시 번호를 매긴다(모델이 URL·번호를 지어내지 못하게). 요약 줄(목록·기억 블록·주제 분류용)은
-    결론과 핵심 내용 앞 두 개를 굵게 표시 없이 쓴다.
-    """
-    renumber: dict[int, int] = {}
-    citations: list[dict] = []
-
-    def cites(ids: Sequence[int]) -> list[int]:
-        out: list[int] = []
-        for i in ids:
-            if not 1 <= i <= len(sources):
-                continue  # 목록에 없는 번호는 버린다
-            if i not in renumber:
-                renumber[i] = len(renumber) + 1
-                src = sources[i - 1]
-                title = _one_line(src.get("title") or "") or _host(src["url"])
-                citations.append({"n": renumber[i], "title": title, "url": src["url"]})
-            if renumber[i] not in out:
-                out.append(renumber[i])
-        return out
-
-    def lines(items: Sequence[ReportLine]) -> list[dict]:
-        kept = []
-        for item in items:
-            text = _sentence(item.text)
-            if text:
-                kept.append({"text": text, "cites": cites(item.sources)})
-        return kept
-
-    conclusion = _sentence(result.conclusion)
-    report = {
-        "conclusion": conclusion,
-        "conclusion_cites": cites(result.conclusion_sources),
-        "key_points": lines(result.key_points),
-        "details": lines(result.details),
-        "citations": citations,
-    }
-    plain = [conclusion, *(p["text"] for p in report["key_points"][:2])]
-    summary = [line for line in (p.replace("**", "") for p in plain) if line][:3]
-    return report, summary
-
-
 async def run_extraction(app: FastAPI, session_id: str) -> Extraction | None:
     """세션 하나를 정리한다. 이미 done/failed면 아무것도 하지 않는다. 결과(실패면 None)."""
     settings = app.state.settings
@@ -307,17 +200,13 @@ async def run_extraction(app: FastAPI, session_id: str) -> Extraction | None:
         saved = [(kind, content) for kind, content in notes]  # 대화 중 save_note로 저장한 노트
         topics = await known_topics(db, exclude_session_id=session_id)
         _, loaded = await profile_with_persona(db, settings)
-        # 예전 형식(요약 줄만)으로 정리를 마친 일지를 새 형식으로 다시 정리한다: 노트는 이미
-        # 뽑았으므로 다시 넣지 않는다(고친 노트가 되살아나거나 표현만 다른 중복이 생기지 않게)
-        reformat = convo.report is None and bool(convo.summary)
         await db.commit()
     if not any(t.role is TurnRole.USER for t in turns):
         # 인사만 하고 끝난 대화는 정리할 것이 없다(사용량을 쓰지 않는다)
         await _set_status(app, session_id, ExtractStatus.DONE)
         return None
 
-    sources = collect_sources(turns)
-    prompt = build_prompt(turns, loaded.persona.name, saved, topics[:MAX_KNOWN_TOPICS], sources)
+    prompt = build_prompt(turns, loaded.persona.name, saved, topics[:MAX_KNOWN_TOPICS])
     result: Extraction | None = None
     for attempt in range(1, ATTEMPTS + 1):
         try:
@@ -336,23 +225,17 @@ async def run_extraction(app: FastAPI, session_id: str) -> Extraction | None:
     if result is None:
         await _set_status(app, session_id, ExtractStatus.FAILED)
         return None
-    if settings.fetch_source_titles:
-        # 인용된 출처 가운데 제목이 도메인뿐인 것은 기사 제목을 읽어 온다(S3-22)
-        cited = [*result.conclusion_sources]
-        for line in [*result.key_points, *result.details]:
-            cited.extend(line.sources)
-        sources = await improve_titles(sources, cited)
 
     async def save() -> None:
         async with app.state.session_factory() as db:
             convo = await db.get(ConversationSession, session_id)
             if convo is None:
                 return
+            # 요약은 줄 목록으로 저장하므로 항목 안의 줄바꿈은 한 칸으로 줄인다
+            # (빈 줄·줄 수 초과 방지)
             if not convo.title_edited:  # 사용자가 고친 제목은 두고 간다
                 convo.title = _one_line(result.title)
-            # 요약은 줄 목록으로 저장한다(각 줄은 한 줄로 정리돼 있다)
-            convo.report, summary = build_report(result, sources)
-            convo.summary = "\n".join(summary)
+            convo.summary = "\n".join(line for line in map(_one_line, result.summary) if line)
             convo.tags = _clean_tags(result.tags)
             # 정리하는 사이 다른 대화가 붙인 주제까지 보고 표기를 맞춘다
             known = await known_topics(db, exclude_session_id=session_id)
@@ -365,9 +248,9 @@ async def run_extraction(app: FastAPI, session_id: str) -> Extraction | None:
             saved_notes = [(kind, content) for kind, content in rows]
             existing = [content for _, content in saved_notes]
             for kind, items in (
-                (NoteKind.IDEA, [] if reformat else result.ideas),
-                (NoteKind.TODO, [] if reformat else result.todos),
-                (NoteKind.MEMO, [] if reformat else result.memos),
+                (NoteKind.IDEA, result.ideas),
+                (NoteKind.TODO, result.todos),
+                (NoteKind.MEMO, result.memos),
             ):
                 same_kind = [content for k, content in saved_notes if k is kind]
                 fresh = [i for i in items if not any(matches_saved(s, i) for s in same_kind)]

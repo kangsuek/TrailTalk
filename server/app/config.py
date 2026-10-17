@@ -42,9 +42,6 @@ class Settings(BaseSettings):
     # (넘으면 그때까지 저장된 개수로 마무리 멘트를 만들고 정리는 백그라운드에서 계속한다)
     extract_timeout_s: float = 60
     extract_wait_s: float = 45
-    # 일지 인용(S3-22)의 제목이 도메인뿐이면(검색 결과가 기사 제목을 주지 않음) 정리할 때
-    # 그 페이지를 열어 기사 제목을 읽는다. 테스트·E2E는 끈다(외부 네트워크)
-    fetch_source_titles: bool = True
     # 무발화 타임아웃(app/jobs/idle.py): 마지막 턴 뒤 이 시간이 지나면 서버가 세션을 끝낸다
     idle_timeout_s: float = 1800
     idle_check_interval_s: float = 60

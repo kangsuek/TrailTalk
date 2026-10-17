@@ -246,7 +246,7 @@ def report(results: list[Result], settings: Settings, minutes: float, full: bool
             lines += [f"- 오류: {r.error}", ""]
             continue
         ex = r.extraction
-        lines.append(f"- 제목: {ex.title} / 결론: {cell(ex.conclusion)}")
+        lines.append(f"- 제목: {ex.title} / 요약: {cell(' '.join(ex.summary))}")
         if r.saved:
             notes = " / ".join(f"[{SAVED_LABELS[NoteKind(k)]}] {c}" for k, c in r.saved)
             lines.append(f"- 대화 중 저장한 노트: {cell(notes)}")

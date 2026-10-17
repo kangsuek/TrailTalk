@@ -250,22 +250,3 @@ def test_delete_active_journal_is_refused(client):
     response = client.delete(f"/api/journal/{session_id}")
     assert response.status_code == 409 and response.json()["error"]["code"] == "session_active"
     assert client.get(f"/api/journal/{session_id}").status_code == 200
-
-
-def test_detail_has_report_when_organized_in_new_format(client):
-    old = add_session(client, kst(2026, 10, 15, 9))
-    assert client.get(f"/api/journal/{old}").json()["report"] is None  # 옛 형식(요약 줄만)
-    report = {
-        "conclusion": "**A**가 바뀌었다",
-        "conclusion_cites": [1],
-        "key_points": [{"text": "핵심", "cites": [1]}],
-        "details": [],
-        "citations": [{"n": 1, "title": "기사", "url": "https://example.com/a"}],
-    }
-
-    async def fn(db):
-        convo = await db.get(ConversationSession, old)
-        convo.report = report
-
-    run(client, fn)
-    assert client.get(f"/api/journal/{old}").json()["report"] == report

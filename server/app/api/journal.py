@@ -95,31 +95,8 @@ class TurnOut(BaseModel):
     created_at: datetime
 
 
-class ReportLineOut(BaseModel):
-    text: str  # 핵심 수치·명칭은 **굵게**(별표 두 개)로 감싸 온다
-    cites: list[int]  # 근거 출처 번호(citations의 n)
-
-
-class CitationOut(BaseModel):
-    n: int
-    title: str  # 기사·문서 제목(없으면 호스트 이름)
-    url: str
-
-
-class ReportOut(BaseModel):
-    """일지 보고서(S3-22): 결론 → 핵심 내용 → 세부 내용 → 인용. 검색어는 일지 항목의 tags다."""
-
-    conclusion: str
-    conclusion_cites: list[int]
-    key_points: list[ReportLineOut]
-    details: list[ReportLineOut]
-    citations: list[CitationOut]
-
-
 class JournalDetail(BaseModel):
     session: JournalItem
-    # 새 형식 일지. null이면 새 형식으로 정리하기 전이다(session.summary 줄만, 다시 정리할 수 있다)
-    report: ReportOut | None
     # 전문의 assistant 화자 이름(현재 페르소나 YAML). 클라이언트는 캐릭터 이름을 코드에 두지 않는다
     persona_name: str
     notes: list[NoteOut]
@@ -241,7 +218,6 @@ async def get_journal(session_id: str, request: Request, db: DbSession) -> Journ
     counts = {kind: sum(n.kind is kind for n in note_rows) for kind in NoteKind}
     return JournalDetail(
         session=_item(convo, counts, tz),
-        report=ReportOut.model_validate(convo.report) if convo.report else None,
         persona_name=loaded.persona.name,
         notes=[NoteOut.of(n) for n in note_rows],
         turns=[
@@ -303,8 +279,7 @@ class SessionNotEnded(AppError):
 
 @router.post("/journal/{session_id}/retry", status_code=202)
 async def retry_journal(session_id: str, request: Request, db: DbSession) -> JournalItem:
-    """정리에 실패한(또는 정리 기록이 없는) 끝난 대화를 다시 정리한다. 새 형식 보고서가 없는 옛 형식
-    일지(정리 완료)도 다시 정리한다. 정리 중이거나 새 형식으로 정리를 마쳤으면 그대로 둔다.
+    """정리에 실패한(또는 정리 기록이 없는) 끝난 대화를 다시 정리한다. 정리 중·완료면 그대로 둔다.
 
     정리는 백그라운드로 돈다. 응답의 journal_status가 pending이면 상세를 다시 불러와 끝을 본다.
     """
@@ -313,11 +288,7 @@ async def retry_journal(session_id: str, request: Request, db: DbSession) -> Jou
         raise SessionNotFound()
     if convo.status is not SessionStatus.ENDED:
         raise SessionNotEnded()
-    # 예전 형식(요약 줄만). 인사만 나눈 대화(요약 없음)는 정리할 것이 없다
-    old_format = (
-        convo.extract_status is ExtractStatus.DONE and convo.report is None and bool(convo.summary)
-    )
-    if convo.extract_status in (None, ExtractStatus.FAILED) or old_format:
+    if convo.extract_status in (None, ExtractStatus.FAILED):
         convo.extract_status = ExtractStatus.PENDING
         await db.commit()
         extract.ensure_extraction(request.app, session_id)
