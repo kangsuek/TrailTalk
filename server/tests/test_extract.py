@@ -25,6 +25,7 @@ from app.jobs.extract import (
     build_transcript,
     clean_topics,
     collect_sources,
+    merge_titles,
     number_citations,
 )
 from app.llm.events import TurnStarted
@@ -102,10 +103,13 @@ def test_end_extracts_title_summary_tags(api):
     row = session_row(api, session_id)
     assert row.extract_status is ExtractStatus.DONE
     assert row.title == "Claude Code 최신 버전과 uv 알아보기"
+    # 요약 줄 = 결론(첫 줄) + 알게 된 것(S3-24). 목록·기억 블록은 이 평문 줄을 그대로 쓴다
     assert row.summary.splitlines() == [
-        "Claude Code 최신 버전을 웹에서 찾아봤다.",
-        "uv 공식 문서를 읽고 핵심을 정리해 메모로 남겼다.",
+        "Claude Code 최신 버전 소식을 확인하고 uv 공식 문서의 핵심을 정리했다.",
+        "Claude Code: 최신 버전 소식은 릴리스 노트와 변경 기록에서 확인할 수 있다.",
+        "uv: 파이썬 패키지와 프로젝트를 관리하는 빠른 도구다.",
     ]
+    assert row.checks == ["Claude Code 공식 최신 버전 번호(공식 문서에서 확인 필요)"]
     assert row.tags == ["Claude Code", "uv", "개발 도구"]
 
     [record] = oneshot_records(api.fake_cli)
@@ -129,10 +133,9 @@ def test_extracted_title_summary_tags_are_cleaned(api, oneshot):
     oneshot(
         cli_output(
             title="산책\n아이디어",
-            summary=[
-                {"text": "첫 줄\n\n이어지는 말 [1]", "sources": []},  # 문장 끝 번호는 뗀다
-                {"text": "둘째 줄", "sources": []},
-            ],
+            conclusion={"text": "첫 줄\n\n이어지는 말 [1]", "sources": []},  # 문장 끝 번호는 뗀다
+            findings=[{"text": "둘째 줄", "sources": []}],
+            checks=["  확인\n할 것 "],
             tags=["#산책", "산책", " ＃ 아이디어 ", "#"],
         )
     )
@@ -143,6 +146,7 @@ def test_extracted_title_summary_tags_are_cleaned(api, oneshot):
     row = session_row(api, session_id)
     assert row.title == "산책 아이디어"
     assert row.summary.splitlines() == ["첫 줄 이어지는 말", "둘째 줄"]
+    assert row.checks == ["확인 할 것"]
     assert row.tags == ["산책", "아이디어"]
 
 
@@ -390,7 +394,7 @@ def test_extracted_items_become_notes_without_duplicates(api):
             (NoteKind.IDEA, "산책하면서 개발 도구 소식을 음성으로 듣는 습관 만들기", None),
             (
                 NoteKind.MEMO,
-                "uv는 파이썬 패키지와 프로젝트를 관리하는 빠른 도구다(docs.astral.sh)",
+                "uv 문서는 docs.astral.sh에서 본다",
                 None,
             ),
         ]
@@ -668,10 +672,8 @@ def test_build_citations_keeps_listed_sources_as_urls():
     """<출처> 목록에 있는 번호만 URL로 바꾼다(목록 밖 번호는 버림). 문장 끝 번호는 뗀다."""
     cited = build_citations(
         _extraction(
-            summary=[
-                {"text": "A가 3월부터 바뀌었다 [7].", "sources": [3]},
-                {"text": "사용자가 말한 것", "sources": []},
-            ],
+            conclusion={"text": "A가 3월부터 바뀌었다 [7].", "sources": [3]},
+            findings=[{"text": "사용자가 말한 것", "sources": []}],
             memos=[
                 {"text": "규격 [2024]를 따른다", "sources": [2, 3, 3]},
                 {"text": "목록 밖", "sources": [30, 1]},
@@ -722,8 +724,9 @@ def test_search_sources_become_citations(api, monkeypatch):
     end(api, session_id)
     detail = api.get(f"/api/journal/{session_id}").json()
     links = [t for t in turns_of(api, session_id) if t.sources][0].sources
-    # 녹화: 요약 1줄의 출처 1·2 → 1·2, 요약 2줄 없음, 메모의 9 → 3(30은 목록 밖)
-    assert detail["summary_cites"] == [[1, 2], []]
+    # 녹화: 결론의 출처 1·2 → 1·2, 알게 된 것 2 → 2, 9 → 3(30은 목록 밖)
+    assert detail["summary_cites"] == [[1, 2], [2], [3]]
+    assert detail["checks"] == ["Claude Code 공식 최신 버전 번호(공식 문서에서 확인 필요)"]
     assert [c["url"] for c in detail["citations"]] == [
         links[0]["url"],
         links[1]["url"],
@@ -731,7 +734,7 @@ def test_search_sources_become_citations(api, monkeypatch):
     ]
     assert detail["citations"][0] == {"n": 1, "title": links[0]["title"], "url": links[0]["url"]}
     [memo] = [n for n in detail["notes"] if n["kind"] == "memo"]
-    assert memo["cites"] == [3]
+    assert memo["cites"] == []  # 녹화의 메모는 사용자가 알려 준 것(출처 없음)
     assert [n["cites"] for n in detail["notes"] if n["kind"] != "memo"] == [[], []]
 
 
@@ -740,7 +743,7 @@ def test_journal_without_search_has_no_citations(api):
     turn(api, session_id, "바나나는?")
     end(api, session_id)
     detail = api.get(f"/api/journal/{session_id}").json()
-    assert detail["summary_cites"] == [[], []] and detail["citations"] == []
+    assert detail["summary_cites"] == [[], [], []] and detail["citations"] == []
     row = session_row(api, session_id)
     assert row.citations is None and row.summary_cites is None
 
@@ -751,7 +754,8 @@ def test_filtered_memo_leaves_no_orphan_citation(api, oneshot, monkeypatch):
     base = json.loads(FIXTURE.read_text(encoding="utf-8"))["structured_output"]
     oneshot(
         cli_output(
-            summary=[{"text": base["summary"][0]["text"], "sources": []}],
+            conclusion={"text": base["conclusion"]["text"], "sources": []},
+            findings=[],
             memos=[
                 {"text": "이미 저장한 메모", "sources": [1]},  # 걸러진다
                 {"text": "새 메모", "sources": [2]},
@@ -773,3 +777,116 @@ def test_filtered_memo_leaves_no_orphan_citation(api, oneshot, monkeypatch):
     assert [c["url"] for c in detail["citations"]] == [links[1]["url"]]  # 고아 인용 없음
     cites = {n["content"]: n["cites"] for n in detail["notes"] if n["kind"] == "memo"}
     assert cites == {"이미 저장한 메모": [], "새 메모": [1]}
+
+
+def test_reformat_old_journal_keeps_notes(api):
+    """예전 형식(확인할 것 없음) 일지를 다시 정리하면 새 형식이 되고, 노트는 다시 넣지 않는다."""
+    session_id = start(api)["session"]["id"]
+    turn(api, session_id, "바나나는?")
+    end(api, session_id)
+
+    async def old_format_with_edited_note(db):
+        convo = await db.get(ConversationSession, session_id)
+        convo.checks = None  # 예전 형식
+        for note in (await db.execute(select(Note).where(Note.session_id == session_id))).scalars():
+            note.content = "사용자가 고친 " + note.content
+        await db.commit()
+
+    load(api, old_format_with_edited_note)
+
+    async def notes(db):
+        rows = await db.execute(select(Note.content).where(Note.session_id == session_id))
+        return sorted(rows.scalars())
+
+    before = load(api, notes)
+    assert api.get(f"/api/journal/{session_id}").json()["checks"] is None
+    assert api.post(f"/api/journal/{session_id}/retry").json()["journal_status"] == "pending"
+    wait_extraction(api, session_id)
+    assert api.get(f"/api/journal/{session_id}").json()["checks"] is not None
+    assert load(api, notes) == before  # 원래 표현의 노트가 되살아나지 않는다
+    calls = len(oneshot_records(api.fake_cli))
+    # 새 형식으로 정리했으면 다시 하지 않는다
+    assert api.post(f"/api/journal/{session_id}/retry").json()["journal_status"] == "done"
+    wait_extraction(api, session_id)
+    assert len(oneshot_records(api.fake_cli)) == calls
+
+
+def test_merge_titles_keeps_good_title_over_domain():
+    stored = [
+        {"title": "리사 수 AMD CEO 내달 방한", "url": "https://meeco.kr/news/1"},
+        {"title": "앞 회차 메모의 출처", "url": "https://a.example/old"},
+    ]
+    merged = merge_titles(
+        stored, {"https://meeco.kr/news/1": "meeco.kr", "https://b.example/new": "새 기사"}
+    )
+    assert merged == [
+        {
+            "title": "리사 수 AMD CEO 내달 방한",
+            "url": "https://meeco.kr/news/1",
+        },  # 도메인으로 덮지 않음
+        {"title": "앞 회차 메모의 출처", "url": "https://a.example/old"},
+        {"title": "새 기사", "url": "https://b.example/new"},
+    ]
+    assert merge_titles(None, {"https://x.example/1": "더 나은 제목"})[0]["title"] == "더 나은 제목"
+
+
+def test_rerun_without_reformat_request_still_extracts_notes(api):
+    """예전 형식이라도 '다시 정리' 요청이 아닌 이유(늦게 온 턴 등)로 다시 돌면 노트를 뽑는다."""
+    session_id = start(api)["session"]["id"]
+    turn(api, session_id, "바나나는?")
+    end(api, session_id)
+
+    async def old_format_without_notes(db):
+        convo = await db.get(ConversationSession, session_id)
+        convo.checks = None
+        convo.extract_status = ExtractStatus.PENDING  # 오프라인 큐 기록과 같은 경로
+        for note in (await db.execute(select(Note).where(Note.session_id == session_id))).scalars():
+            await db.delete(note)
+        await db.commit()
+
+    load(api, old_format_without_notes)
+    api.portal.call(lambda: _ensure(api, session_id))
+    wait_extraction(api, session_id)
+
+    async def kinds(db):
+        rows = await db.execute(select(Note.kind).where(Note.session_id == session_id))
+        return sorted(k.value for k in rows.scalars())
+
+    assert load(api, kinds) == ["idea", "memo", "todo"]  # 새 말의 노트가 사라지지 않는다
+
+
+async def _ensure(api, session_id):
+    from app.jobs import extract
+
+    extract.ensure_extraction(api.app, session_id)
+
+
+def test_failed_reformat_retry_still_skips_notes(api, oneshot):
+    """예전 형식 다시 정리가 실패한 뒤 다시 눌러도 노트를 다시 넣지 않는다."""
+    session_id = start(api)["session"]["id"]
+    turn(api, session_id, "바나나는?")
+    end(api, session_id)
+
+    async def old_format(db):
+        convo = await db.get(ConversationSession, session_id)
+        convo.checks = None
+        for note in (await db.execute(select(Note).where(Note.session_id == session_id))).scalars():
+            note.content = "고친 " + note.content
+        await db.commit()
+
+    load(api, old_format)
+
+    async def notes(db):
+        rows = await db.execute(select(Note.content).where(Note.session_id == session_id))
+        return sorted(rows.scalars())
+
+    before = load(api, notes)
+    oneshot('{"type": "result", "is_error": true, "result": "rate limited"}')
+    api.post(f"/api/journal/{session_id}/retry")
+    wait_extraction(api, session_id)
+    assert session_row(api, session_id).extract_status is ExtractStatus.FAILED
+    oneshot(FIXTURE.read_text(encoding="utf-8").strip())  # 이번에는 성공한다
+    assert api.post(f"/api/journal/{session_id}/retry").json()["journal_status"] == "pending"
+    wait_extraction(api, session_id)
+    assert api.get(f"/api/journal/{session_id}").json()["checks"] is not None
+    assert load(api, notes) == before

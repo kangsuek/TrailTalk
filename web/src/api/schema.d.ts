@@ -311,7 +311,8 @@ export interface paths {
         put?: never;
         /**
          * Retry Journal
-         * @description 정리에 실패한(또는 정리 기록이 없는) 끝난 대화를 다시 정리한다. 정리 중·완료면 그대로 둔다.
+         * @description 정리에 실패한(또는 정리 기록이 없는) 끝난 대화, 예전 형식으로 정리된 대화를 다시 정리한다.
+         *     정리 중이거나 새 형식으로 정리를 마쳤으면 그대로 둔다.
          *
          *     정리는 백그라운드로 돈다. 응답의 journal_status가 pending이면 상세를 다시 불러와 끝을 본다.
          */
@@ -394,6 +395,8 @@ export interface components {
             summary_cites: number[][];
             /** Citations */
             citations: components["schemas"]["CitationOut"][];
+            /** Checks */
+            checks: string[] | null;
             /** Persona Name */
             persona_name: string;
             /** Notes */

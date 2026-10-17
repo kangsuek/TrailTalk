@@ -21,7 +21,7 @@ from sqlalchemy import func, select
 
 from app.db.models import ConversationSession, ExtractStatus, Note, NoteKind, Turn, TurnRole
 from app.jobs.dedupe import matches_saved, new_items, normalize
-from app.jobs.page_title import improve_titles
+from app.jobs.page_title import improve_titles, is_weak_title
 from app.llm.backend import LlmError
 from app.llm.claude_cli import run_oneshot
 from app.persona.rules import (
@@ -61,7 +61,10 @@ class Extraction(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     title: Title
-    summary: Annotated[list[CitedLine], Field(min_length=1, max_length=3)]
+    # 일지(S3-24): 결론 1줄 → 알게 된 것 → 확인할 것. 사실 하나는 한 곳에만
+    conclusion: CitedLine
+    findings: Annotated[list[CitedLine], Field(max_length=5)]
+    checks: Annotated[list[Line], Field(max_length=5)]
     ideas: Annotated[list[Line], Field(max_length=10)]
     todos: Annotated[list[Line], Field(max_length=10)]
     memos: Annotated[list[CitedLine], Field(max_length=10)]
@@ -177,7 +180,19 @@ def build_citations(result: "Extraction", sources: Sequence[dict]) -> Cited:
     def lines(items: Sequence[CitedLine]) -> list[tuple[str, list[str]]]:
         return [(cited_text(item.text), urls(item.sources)) for item in items]
 
-    return Cited(summary=lines(result.summary), memos=lines(result.memos), titles=titles)
+    # 요약 줄 = 결론(첫 줄) + 알게 된 것
+    summary = lines([result.conclusion, *result.findings])
+    return Cited(summary=summary, memos=lines(result.memos), titles=titles)
+
+
+def merge_titles(stored: list | None, new: dict[str, str]) -> list[dict]:
+    """출처 제목을 합친다(URL → 제목). 다시 정리해도 앞 회차 메모가 가리키는 출처는 남기고,
+    이번에 제목을 읽지 못했으면(도메인뿐) 앞 회차에 읽어 둔 기사 제목을 덮지 않는다."""
+    titles = {c["url"]: c["title"] for c in stored or [] if isinstance(c, dict)}
+    for url, title in new.items():
+        if url not in titles or not is_weak_title(title, url):
+            titles[url] = title
+    return [{"title": t, "url": u} for u, t in titles.items()]
 
 
 def number_citations(
@@ -317,6 +332,14 @@ async def run_extraction(app: FastAPI, session_id: str) -> Extraction | None:
         saved = [(kind, content) for kind, content in notes]  # 대화 중 save_note로 저장한 노트
         topics = await known_topics(db, exclude_session_id=session_id)
         _, loaded = await profile_with_persona(db, settings)
+        # 예전 형식 일지를 새 형식으로 '다시 정리'해 달라는 요청이면 노트는 이미 뽑았으므로
+        # 다시 넣지 않는다(고친 노트가 되살아나거나 중복이 생기지 않게). 요청으로 시작한 이번만:
+        # 늦게 온 턴 때문에 다시 도는 정리는 새 말의 노트를 뽑아야 한다(남은 한계: 다시 정리 중에
+        # 턴이 들어와 한 번 더 돌거나, 다시 정리하는 도중 서버가 재시작돼 요청(메모리)이 사라지면
+        # 그 회차는 노트를 전부 다시 뽑아 고친 노트와 겹칠 수 있다)
+        requests: set[str] = app.state.reformat_requests
+        reformat = session_id in requests and convo.checks is None and bool(convo.summary)
+        requests.discard(session_id)
         await db.commit()
     if not any(t.role is TurnRole.USER for t in turns):
         # 인사만 하고 끝난 대화는 정리할 것이 없다(사용량을 쓰지 않는다)
@@ -345,7 +368,8 @@ async def run_extraction(app: FastAPI, session_id: str) -> Extraction | None:
         return None
     if settings.fetch_source_titles:
         # 인용된 출처 가운데 제목이 도메인뿐인 것은 기사 제목을 읽어 온다(S3-23)
-        cited_ids = [i for line in [*result.summary, *result.memos] for i in line.sources]
+        lines = [result.conclusion, *result.findings, *result.memos]
+        cited_ids = [i for line in lines for i in line.sources]
         sources = await improve_titles(sources, cited_ids)
     cited = build_citations(result, sources)
 
@@ -362,9 +386,8 @@ async def run_extraction(app: FastAPI, session_id: str) -> Extraction | None:
             summary_urls = [urls for text, urls in cited.summary if text]
             convo.summary_cites = summary_urls if any(summary_urls) else None
             # 출처 제목(URL → 제목). 다시 정리해도 앞 회차 메모가 가리키는 출처 제목은 남긴다
-            titles = {c["url"]: c["title"] for c in convo.citations or [] if isinstance(c, dict)}
-            titles.update(cited.titles)
-            convo.citations = [{"title": t, "url": u} for u, t in titles.items()] or None
+            convo.citations = merge_titles(convo.citations, cited.titles) or None
+            convo.checks = [line for line in map(_one_line, result.checks) if line]
             convo.tags = _clean_tags(result.tags)
             # 정리하는 사이 다른 대화가 붙인 주제까지 보고 표기를 맞춘다
             known = await known_topics(db, exclude_session_id=session_id)
@@ -380,9 +403,9 @@ async def run_extraction(app: FastAPI, session_id: str) -> Extraction | None:
                 memo_cites.setdefault(text, urls)  # 같은 글이 또 오면 남는 쪽(앞)의 출처를 쓴다
             existing = [content for _, content in saved_notes]
             for kind, items in (
-                (NoteKind.IDEA, result.ideas),
-                (NoteKind.TODO, result.todos),
-                (NoteKind.MEMO, [text for text, _ in cited.memos]),
+                (NoteKind.IDEA, [] if reformat else result.ideas),
+                (NoteKind.TODO, [] if reformat else result.todos),
+                (NoteKind.MEMO, [] if reformat else [text for text, _ in cited.memos]),
             ):
                 same_kind = [content for k, content in saved_notes if k is kind]
                 fresh = [i for i in items if not any(matches_saved(s, i) for s in same_kind)]

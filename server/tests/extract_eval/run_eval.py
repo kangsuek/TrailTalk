@@ -51,7 +51,7 @@ def case_turns(case: dict) -> list[Turn]:
 FLAG_KEYS = ("gold_found", "extracted_supported", "extracted_duplicate", "memo_process")
 
 
-def judge_schema(gold: int, extracted: int, memos: int) -> dict:
+def judge_schema(gold: int, extracted: int, memos: int, summary: int = 0) -> dict:
     def flags(n: int) -> dict:
         return {"type": "array", "items": {"type": "boolean"}, "minItems": n, "maxItems": n}
 
@@ -60,9 +60,11 @@ def judge_schema(gold: int, extracted: int, memos: int) -> dict:
         "type": "object",
         "properties": {
             **{key: flags(n) for key, n in sizes.items()},
+            "summary_process": flags(summary),
+            "repeated_fact": {"type": "boolean"},
             "reason": {"type": "string"},
         },
-        "required": [*FLAG_KEYS, "reason"],
+        "required": [*FLAG_KEYS, "summary_process", "repeated_fact", "reason"],
         "additionalProperties": False,
     }
 
@@ -79,6 +81,8 @@ def judge_prompt(
     todos: list[str],
     memos: list[str],
     saved: list[tuple[str, str]],
+    summary: list[str] = (),
+    checks: list[str] = (),
 ) -> str:
     gold = [f"[아이디어] {x}" for x in gold_ideas] + [f"[할 일] {x}" for x in gold_todos]
     extracted = [f"[아이디어] {x}" for x in ideas] + [f"[할 일] {x}" for x in todos]
@@ -95,7 +99,12 @@ def judge_prompt(
 4) memo_process: 메모 목록의 항목마다, 사용자에게 쓸모 있는 정보가 아니라 대화 진행 기록이면 true.
    예: 아직 정하지 않았다, 질문에 답하지 않았다, 누가 무엇을 물었거나 저장했다,
    지난 대화를 언급했다.
-reason에는 1·2번이 false이거나 3·4번이 true인 항목의 이유를 한국어로 짧게 쓴다.
+5) summary_process: 정리 문장 목록(첫 줄은 결론, 나머지는 알게 된 것)의 항목마다, 대화나 검색이
+   어떻게 흘러갔는지를 적은 문장이면 true. 예: 찾아봤다, 찾지 못했다, 검색 결과는 ~였다,
+   ~에 대한 대화였다. 대화로 알게 되거나 정한 내용 자체면 false.
+6) repeated_fact: 정리 문장(결론 제외)·확인할 것·메모·추출 목록 사이(또는 각 목록 안)에 같은
+   사실이나 같은 일이 두 번 이상 나오면 true. 결론과 추출(아이디어·할 일)이 겹치는 것은 허용한다.
+reason에는 1·2번이 false이거나 3·4·5·6번이 true인 항목의 이유를 한국어로 짧게 쓴다.
 
 <대화>
 {transcript}
@@ -111,7 +120,13 @@ reason에는 1·2번이 false이거나 3·4번이 true인 항목의 이유를 �
 {numbered(extracted)}
 
 메모 목록:
-{numbered(memos)}"""
+{numbered(memos)}
+
+정리 문장 목록:
+{numbered(list(summary))}
+
+확인할 것 목록:
+{numbered(list(checks))}"""
 
 
 @dataclass
@@ -126,6 +141,8 @@ class Result:
     supported: list[bool] = field(default_factory=list)
     duplicate: list[bool] = field(default_factory=list)
     memo_process: list[bool] = field(default_factory=list)
+    summary_process: list[bool] = field(default_factory=list)
+    repeated: bool = False
     reason: str = ""
     seconds: float = 0.0
     error: str = ""
@@ -166,9 +183,16 @@ async def evaluate_case(settings: Settings, assistant: str, case: dict, r: Resul
             r.extraction.todos,
             [m.text for m in r.extraction.memos],
             r.saved,
+            summary_lines(r.extraction),
+            r.extraction.checks,
         ),
         model=settings.llm_chat_model,  # 추출 모델보다 강한 모델이 채점한다(자기 채점 관대함 방지)
-        json_schema=judge_schema(len(r.gold), len(r.extracted), len(r.extraction.memos)),
+        json_schema=judge_schema(
+            len(r.gold),
+            len(r.extracted),
+            len(r.extraction.memos),
+            len(summary_lines(r.extraction)),
+        ),
         timeout_s=settings.extract_timeout_s,
     )
     sizes = (len(r.gold), len(r.extracted), len(r.extracted), len(r.extraction.memos))
@@ -176,8 +200,17 @@ async def evaluate_case(settings: Settings, assistant: str, case: dict, r: Resul
     if [len(f) for f in flags] != list(sizes):
         raise ValueError("채점 결과 개수가 맞지 않습니다")
     r.gold_found, r.supported, r.duplicate, r.memo_process = flags
+    r.summary_process = [bool(x) for x in verdict["summary_process"]]
+    if len(r.summary_process) != len(summary_lines(r.extraction)):
+        raise ValueError("채점 결과 개수가 맞지 않습니다")
+    r.repeated = bool(verdict["repeated_fact"])
     r.reason = str(verdict.get("reason", "")).strip()
     r.seconds = time.monotonic() - started
+
+
+def summary_lines(ex: Extraction) -> list[str]:
+    """정리 문장: 결론(첫 줄)과 알게 된 것(S3-24)."""
+    return [line.text for line in [ex.conclusion, *ex.findings]]
 
 
 def cell(text: str) -> str:
@@ -200,6 +233,9 @@ def report(results: list[Result], settings: Settings, minutes: float, full: bool
     with_saved = sum(len(r.extracted) for r in done if r.saved)
     process = sum(r.memo_process.count(True) for r in done)
     memos = sum(len(r.extraction.memos) for r in done)
+    summary_process = sum(r.summary_process.count(True) for r in done)
+    summary_total = sum(len(r.summary_process) for r in done)
+    repeated = sum(r.repeated for r in done)
     if not full:
         verdict = f"일부 실행({len(results)}개, 기준 판정 안 함)"
     elif len(done) < len(results):
@@ -216,6 +252,8 @@ def report(results: list[Result], settings: Settings, minutes: float, full: bool
         f"  - 대화에 근거 없는 아이디어·할 일(지어냄·거절한 제안): {unsupported}/{extracted}",
         f"  - 대화 중 저장한 노트와 중복된 추출 항목: {duplicates}/{with_saved}",
         f"  - 대화 진행 기록 메모(쓸모없음): {process}/{memos}",
+        f"  - 결론·알게 된 것 중 진행 기록·대화 설명(S3-24): {summary_process}/{summary_total}",
+        f"  - 같은 사실을 되풀이한 일지(S3-24): {repeated}/{len(done)}",
         f"- 추출 모델 `{settings.llm_light_model}`, 채점 모델 `{settings.llm_chat_model}`, "
         f"대화 {len(results)}개, "
         f"소요 {minutes:.1f}분, 실행 {now:%Y-%m-%d %H:%M}",
@@ -246,7 +284,16 @@ def report(results: list[Result], settings: Settings, minutes: float, full: bool
             lines += [f"- 오류: {r.error}", ""]
             continue
         ex = r.extraction
-        lines.append(f"- 제목: {ex.title} / 요약: {cell(' '.join(s.text for s in ex.summary))}")
+        lines.append(f"- 제목: {ex.title}")
+        marks = iter(r.summary_process)
+        for label, item in [("결론", ex.conclusion), *(("알게 된 것", f) for f in ex.findings)]:
+            noise = next(marks, False)
+            cites = "".join(f"[{n}]" for n in item.sources)
+            lines.append(f"- {label}: {'**진행 기록** ' if noise else ''}{cell(item.text)}{cites}")
+        if ex.checks:
+            lines.append(f"- 확인할 것: {cell(' / '.join(ex.checks))}")
+        if r.repeated:
+            lines.append("- **같은 사실 되풀이**")
         if r.saved:
             notes = " / ".join(f"[{SAVED_LABELS[NoteKind(k)]}] {c}" for k, c in r.saved)
             lines.append(f"- 대화 중 저장한 노트: {cell(notes)}")

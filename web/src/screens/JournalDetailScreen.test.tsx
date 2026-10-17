@@ -111,7 +111,8 @@ describe('JournalDetailScreen', () => {
         return new Response(JSON.stringify({ ...DETAIL.session, journal_status: 'pending' }), { status: 202 })
       }
       const journal_status = phase === 'before' ? status : 'done'
-      return new Response(JSON.stringify({ ...DETAIL, session: { ...DETAIL.session, journal_status } }))
+      const checks = phase === 'before' ? null : [] // 정리가 끝나면 새 형식(S3-24)
+      return new Response(JSON.stringify({ ...DETAIL, checks, session: { ...DETAIL.session, journal_status } }))
     })
     vi.stubGlobal('fetch', fetchMock)
     render(<JournalDetailScreen sessionId="s1" pollMs={10} />)
@@ -230,5 +231,66 @@ describe('JournalDetailScreen', () => {
     render(<JournalDetailScreen sessionId="s1" />)
     await screen.findByRole('heading', { level: 3, name: '쓰레기통 지도' })
     expect(screen.queryByRole('region', { name: '인용' })).toBeNull()
+  })
+
+  it('새 형식은 결론(굵게) → 알게 된 것 → 확인할 것 → 노트 → 인용 → 태그 순서로 보인다', async () => {
+    const detail = {
+      ...DETAIL,
+      session: {
+        ...DETAIL.session,
+        summary: ['설악산과 내장산이 단풍 산행 후보다.', '설악산: 단풍 절정 10월 중순~하순', '내장산: 단풍 절정 11월 초'],
+      },
+      summary_cites: [[1], [1], [2]],
+      checks: ['올해 설악산 단풍 시기'],
+      citations: [
+        { n: 1, title: '설악산 단풍 시기', url: 'https://a.example/1' },
+        { n: 2, title: '내장산 단풍', url: 'https://b.example/2' },
+      ],
+    }
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(detail))))
+    const { container } = render(<JournalDetailScreen sessionId="s1" />)
+    const conclusion = await screen.findByLabelText('결론')
+    expect(conclusion).toHaveTextContent('설악산과 내장산이 단풍 산행 후보다.[1]')
+    expect(within(conclusion).getByText('설악산과 내장산이 단풍 산행 후보다.').tagName).toBe('STRONG')
+    const found = screen.getByRole('region', { name: '알게 된 것' })
+    expect(within(found).getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+      '설악산: 단풍 절정 10월 중순~하순[1]',
+      '내장산: 단풍 절정 11월 초[2]',
+    ])
+    expect(screen.getByRole('region', { name: '확인할 것' })).toHaveTextContent('올해 설악산 단풍 시기')
+    expect(screen.queryByRole('list', { name: '요약' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '다시 정리' })).toBeNull()
+    // 태그는 인용 뒤, 전문 앞(맨 아래)
+    const order = [...container.querySelectorAll('.journal-conclusion, section[aria-label], .journal-tags, details')].map(
+      (el) => el.getAttribute('aria-label') ?? el.className,
+    )
+    expect(order).toEqual([
+      '결론',
+      '알게 된 것',
+      '확인할 것',
+      '아이디어',
+      '할 일',
+      '메모',
+      '인용',
+      'journal-tags',
+      'journal-transcript',
+    ])
+  })
+
+  it('예전 형식(확인할 것 없음)으로 정리된 일지는 새 형식으로 다시 정리할 수 있다', async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/api/journal/s1/retry' && init?.method === 'POST') {
+        return new Response(JSON.stringify({ ...DETAIL.session, journal_status: 'pending' }), { status: 202 })
+      }
+      return new Response(JSON.stringify({ ...DETAIL, checks: null }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<JournalDetailScreen sessionId="s1" pollMs={10} />)
+    expect(await screen.findByText(/예전 형식으로 정리된 일지예요/)).toBeInTheDocument()
+    expect(screen.getByRole('list', { name: '요약' })).toBeInTheDocument() // 예전 모습 그대로
+    fireEvent.click(screen.getByRole('button', { name: '다시 정리' }))
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith('/api/journal/s1/retry', expect.objectContaining({ method: 'POST' })),
+    )
   })
 })

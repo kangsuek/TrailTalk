@@ -219,6 +219,16 @@ function Detail({
   const ideas = notes.filter((n) => n.kind === 'idea')
   const todos = notes.filter((n) => n.kind === 'todo')
   const memos = notes.filter((n) => n.kind === 'memo')
+  // 새 형식(S3-24): 요약 첫 줄이 결론, 나머지가 '알게 된 것'이고 확인할 것이 따로 온다.
+  // checks가 null이면 예전 형식(요약 줄만)이다
+  const checks = detail.checks ?? null
+  const newFormat = checks !== null
+  const cites = (i: number) => detail.summary_cites?.[i]
+  const oldFormat =
+    !newFormat && session.status === 'ended' && session.journal_status === 'done' && session.summary.length > 0
+  const tags = session.tags.length > 0 && (
+    <p className="journal-tags">{session.tags.map((tag) => `#${tag}`).join(' ')}</p>
+  )
   return (
     <article className="journal-detail">
       <h3>{session.title ?? '제목 없는 대화'}</h3>
@@ -247,18 +257,60 @@ function Detail({
             </button>
           </div>
         )}
-      {session.summary.length > 0 && (
-        <ul className="journal-summary-lines" aria-label="요약">
-          {session.summary.map((line, i) => (
-            <li key={i}>
-              {line}
-              <Cites cites={detail.summary_cites?.[i]} />
-            </li>
-          ))}
-        </ul>
+      {oldFormat && (
+        <div className="journal-note">
+          <p>예전 형식으로 정리된 일지예요. 결론·알게 된 것·확인할 것으로 다시 정리할 수 있어요.</p>
+          <button type="button" className="secondary" onClick={onRetry} disabled={retrying}>
+            다시 정리
+          </button>
+        </div>
       )}
-      {session.tags.length > 0 && (
-        <p className="journal-tags">{session.tags.map((tag) => `#${tag}`).join(' ')}</p>
+      {newFormat ? (
+        <>
+          {session.summary.length > 0 && (
+            <p className="journal-conclusion" aria-label="결론">
+              <strong>{session.summary[0]}</strong>
+              <Cites cites={cites(0)} />
+            </p>
+          )}
+          {session.summary.length > 1 && (
+            <section aria-label="알게 된 것">
+              <h4>알게 된 것</h4>
+              <ul className="journal-summary-lines">
+                {session.summary.slice(1).map((line, i) => (
+                  <li key={i}>
+                    {line}
+                    <Cites cites={cites(i + 1)} />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {checks.length > 0 && (
+            <section aria-label="확인할 것">
+              <h4>확인할 것</h4>
+              <ul className="journal-summary-lines journal-checks">
+                {checks.map((item, i) => (
+                  <li key={i}>{item}</li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </>
+      ) : (
+        <>
+          {session.summary.length > 0 && (
+            <ul className="journal-summary-lines" aria-label="요약">
+              {session.summary.map((line, i) => (
+                <li key={i}>
+                  {line}
+                  <Cites cites={cites(i)} />
+                </li>
+              ))}
+            </ul>
+          )}
+          {tags}
+        </>
       )}
 
       {ideas.length > 0 && (
@@ -331,6 +383,7 @@ function Detail({
       )}
 
       <Citations citations={detail.citations ?? []} />
+      {newFormat && tags /* 새 형식은 태그를 맨 아래에 */}
       <details className="journal-transcript">
         <summary>대화 전문 보기 ({turns.length})</summary>
         <ol>

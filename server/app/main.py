@@ -92,6 +92,9 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     app.state.extractions = {}  # 세션별 추출 작업(app/jobs/extract.py)
     app.state.extract_writes = set()  # 취소에서 보호하는 추출 결과 쓰기
     app.state.extract_closed = False
+    # 예전 형식 일지를 새 형식으로 '다시 정리'해 달라는 요청(S3-24). 이 요청으로 시작한 정리 한 번만
+    # 노트를 새로 넣지 않는다(오프라인 큐 등 다른 이유로 다시 도는 정리는 노트를 그대로 뽑는다)
+    app.state.reformat_requests = set()
     # 런타임 없는 대화의 기록만 남기기 잠금(services/conversation.py, 약한 참조)
     app.state.record_locks = weakref.WeakValueDictionary()
     app.add_middleware(RequestContextMiddleware)

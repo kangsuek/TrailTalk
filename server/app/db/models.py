@@ -100,6 +100,9 @@ class ConversationSession(Base):
     # 때 남은 요약·메모 기준으로 매긴다(app/jobs/extract.number_citations). 출처가 없으면 NULL
     summary_cites: Mapped[list | None] = mapped_column(JSON(none_as_null=True))
     citations: Mapped[list | None] = mapped_column(JSON(none_as_null=True))
+    # 확인할 것(S3-24): 정해지지 않았거나 찾지 못했거나 원문 확인이 필요한 것. 새 형식으로 정리한
+    # 일지는 빈 목록이라도 [], NULL이면 예전 형식이다(요약 첫 줄이 결론이 아니다)
+    checks: Mapped[list | None] = mapped_column(JSON(none_as_null=True))
     extract_status: Mapped[ExtractStatus | None] = mapped_column(
         _enum(ExtractStatus, "extract_status")
     )

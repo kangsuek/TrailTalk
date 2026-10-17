@@ -492,6 +492,13 @@ body {
   font-weight: 600;
 }
 
+.journal-summary {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2; /* 목록 미리보기(결론)는 2줄까지 */
+}
+
 .journal-summary,
 .journal-meta {
   color: var(--muted);
@@ -511,6 +518,20 @@ body {
 
 .journal-summary-lines {
   padding-left: 20px;
+}
+
+.journal-conclusion {
+  margin: 12px 0 4px;
+  font-size: 1.05rem;
+  line-height: 1.6;
+}
+
+.journal-checks {
+  color: var(--muted); /* 아직 확인되지 않은 것은 흐리게 */
+}
+
+.journal-citations + .journal-tags {
+  margin-top: 16px;
 }
 
 .journal-cite {

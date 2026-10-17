@@ -109,6 +109,9 @@ class JournalDetail(BaseModel):
     # 인용 목록. 검색하지 않은 대화·인용이 생기기 전 일지는 빈 목록이다
     summary_cites: list[list[int]]
     citations: list[CitationOut]
+    # 확인할 것(S3-24). null이면 예전 형식이다(요약 첫 줄이 결론이 아니다. 끝난 대화면 다시 정리
+    # 할 수 있다). 새 형식이면 session.summary 첫 줄이 결론, 나머지가 '알게 된 것'이다
+    checks: list[str] | None
     # 전문의 assistant 화자 이름(현재 페르소나 YAML). 클라이언트는 캐릭터 이름을 코드에 두지 않는다
     persona_name: str
     notes: list[NoteOut]
@@ -252,6 +255,7 @@ async def get_journal(session_id: str, request: Request, db: DbSession) -> Journ
         session=_item(convo, counts, tz),
         summary_cites=summary_ids,
         citations=[CitationOut(**c) for c in citations],
+        checks=list(convo.checks) if convo.checks is not None else None,
         persona_name=loaded.persona.name,
         notes=[NoteOut.of(n, note_ids.get(n.id)) for n in note_rows],
         turns=[
@@ -324,7 +328,8 @@ class SessionNotEnded(AppError):
 
 @router.post("/journal/{session_id}/retry", status_code=202)
 async def retry_journal(session_id: str, request: Request, db: DbSession) -> JournalItem:
-    """정리에 실패한(또는 정리 기록이 없는) 끝난 대화를 다시 정리한다. 정리 중·완료면 그대로 둔다.
+    """정리에 실패한(또는 정리 기록이 없는) 끝난 대화, 예전 형식으로 정리된 대화를 다시 정리한다.
+    정리 중이거나 새 형식으로 정리를 마쳤으면 그대로 둔다.
 
     정리는 백그라운드로 돈다. 응답의 journal_status가 pending이면 상세를 다시 불러와 끝을 본다.
     """
@@ -333,7 +338,18 @@ async def retry_journal(session_id: str, request: Request, db: DbSession) -> Jou
         raise SessionNotFound()
     if convo.status is not SessionStatus.ENDED:
         raise SessionNotEnded()
-    if convo.extract_status in (None, ExtractStatus.FAILED):
+    # 예전 형식(확인할 것 없이 요약 줄만)으로 정리를 마친 일지도 새 형식으로 다시 정리한다(S3-24).
+    # 인사만 나눈 대화(요약 없음)는 정리할 것이 없다
+    # 예전 형식 다시 정리가 실패해(FAILED) 다시 누른 경우도 같은 요청이다(요약이 있으면 예전
+    # 형식이고, 새 대화의 첫 정리 실패는 요약이 없다)
+    old_format = (
+        convo.extract_status in (ExtractStatus.DONE, ExtractStatus.FAILED)
+        and convo.checks is None
+        and bool(convo.summary)
+    )
+    if convo.extract_status in (None, ExtractStatus.FAILED) or old_format:
+        if old_format:
+            request.app.state.reformat_requests.add(session_id)
         convo.extract_status = ExtractStatus.PENDING
         await db.commit()
         extract.ensure_extraction(request.app, session_id)
