@@ -7,6 +7,8 @@
   서버 강제 종료)은 보낸 문장까지 interrupted로 남는다.
 - 종료: CLI를 닫고 대화 런타임(MCP 토큰)을 버린 뒤 CLI 대화 기록 파일을 지운다. 그다음 일지
   정리(추출, app/jobs/extract.py)를 백그라운드로 띄운다.
+- 다시 열기(S3-26): 끝난 대화를 같은 세션으로 다시 연다. CLI 기록 파일은 지웠으므로 저장된
+  전문을 새 프롬프트에 넣어 새 CLI를 띄우고, 재개 인사말을 다음 seq의 턴(greeting)으로 남긴다.
 
 프롬프트는 세션의 시작 시각·모드와 현재 프로필로 만든다. CLI가 죽어 --resume으로 다시 띄울 때도
 같은 값으로 다시 만든다.
@@ -73,8 +75,13 @@ from app.llm.events import (
 from app.mcp.server import mcp_client_config
 from app.persona.loader import LoadedPersona
 from app.persona.memory import load_memory
-from app.persona.prompt import MemoryContext, build_system_prompt
-from app.persona.rules import GREETING_INSTRUCTION, INTERRUPTED_HEARD, INTERRUPTED_NOTHING
+from app.persona.prompt import MemoryContext, PastTurn, build_system_prompt
+from app.persona.rules import (
+    GREETING_INSTRUCTION,
+    INTERRUPTED_HEARD,
+    INTERRUPTED_NOTHING,
+    REOPEN_GREETING_INSTRUCTION,
+)
 from app.persona.schema import VoiceStyle
 from app.services.profile import profile_voice, profile_with_persona
 from app.services.runtime import ConversationRuntime
@@ -92,6 +99,11 @@ class SessionNotFound(AppError):
 class SessionEnded(AppError):
     def __init__(self) -> None:
         super().__init__("session_ended", "이미 끝난 대화입니다.", 409)
+
+
+class SessionNotEnded(AppError):
+    def __init__(self) -> None:
+        super().__init__("session_not_ended", "아직 끝나지 않은 대화입니다.", 409)
 
 
 @dataclass
@@ -187,8 +199,10 @@ def _session_prompt(
     mode: ConversationMode,
     started_at: datetime,
     memory: MemoryContext,
+    previous: list[PastTurn] | None = None,
 ) -> str:
-    """세션의 시스템 프롬프트. 미리 띄우기와 open_llm이 같은 글자를 만들도록 여기서만 조립한다."""
+    """세션의 시스템 프롬프트. 미리 띄우기와 open_llm이 같은 글자를 만들도록 여기서만 조립한다.
+    previous: 다시 연 대화의 앞부분 기록(started_at에는 다시 연 시각을 넘긴다)."""
     return build_system_prompt(
         loaded.persona,
         nickname=profile.nickname,
@@ -196,14 +210,20 @@ def _session_prompt(
         now=started_at,
         timezone=settings.timezone,
         memory=memory,
+        previous=previous,
     )
 
 
 async def _memory(
-    app: FastAPI, db: AsyncSession, profile: UserProfile, now: datetime
+    app: FastAPI,
+    db: AsyncSession,
+    profile: UserProfile,
+    now: datetime,
+    exclude_session_id: str | None = None,
 ) -> MemoryContext:
-    """기억 블록 입력(S2-05). 읽기만 하므로 바로 트랜잭션을 닫는다."""
-    memory = await load_memory(db, app.state.settings, profile, now)
+    """기억 블록 입력(S2-05). 읽기만 하므로 바로 트랜잭션을 닫는다.
+    exclude_session_id: 다시 여는 대화 자신의 요약은 기억에서 뺀다(전문을 따로 넣는다)."""
+    memory = await load_memory(db, app.state.settings, profile, now, exclude_session_id)
     await db.commit()
     return memory
 
@@ -412,29 +432,14 @@ async def start_session(
     session_id = convo.id
     runtime = app.state.runtimes.ensure(session_id)
     cli_session_id = None
+    seen: list[str] = []  # 인사말이 실패해도 띄운 CLI의 기록 파일을 지우도록 ID를 남긴다
     try:
         async with runtime.turn_lock:
             session, persona, voice = await open_llm(app, db, convo)
-            parts: list[str] = []
-            finished = None
-            async with aclosing(session.send(GREETING_INSTRUCTION)) as stream:
-                async for event in stream:
-                    if isinstance(event, TurnStarted) and event.cli_session_id:
-                        cli_session_id = event.cli_session_id
-                    elif isinstance(event, TextDelta):
-                        parts.append(event.text)
-                    elif isinstance(event, TurnFinished):
-                        finished = event
-            if finished is None or finished.is_error:
-                detail = finished.error_message if finished else "응답 없음"
-                logger.warning("인사말 실패(session=%s): %s", session_id, detail)
-                raise LlmError("llm_error", "인사말을 받지 못했습니다.")
-            greeting = Turn(
-                session_id=convo.id,
-                seq=0,
-                role=TurnRole.ASSISTANT,
-                text="".join(parts).strip() or finished.text,
+            text, cli_session_id = await _receive_greeting(
+                session, GREETING_INSTRUCTION, session_id, seen
             )
+            greeting = Turn(session_id=convo.id, seq=0, role=TurnRole.ASSISTANT, text=text)
             db.add(greeting)
             convo.cli_session_id = cli_session_id
             await db.commit()
@@ -443,13 +448,41 @@ async def start_session(
         # 요청 취소·서버 종료 중에도 정리하도록 취소에서 보호한다
         try:
             with anyio.CancelScope(shield=True):  # 같은 태스크에서 끝까지 정리한다
-                await _discard_new_session(app, db, session_id, cli_session_id)
+                await _discard_new_session(app, db, session_id, cli_session_id or _last(seen))
         except Exception:
             logger.exception("시작 실패 정리 중 예외(session=%s)", session_id)
         if isinstance(exc, AppError):
             raise start_error(exc) from exc
         raise
     return convo, greeting, persona, voice
+
+
+def _last(items: list[str]) -> str | None:
+    return items[-1] if items else None
+
+
+async def _receive_greeting(
+    session: LlmSession, instruction: str, session_id: str, seen: list[str]
+) -> tuple[str, str | None]:
+    """숨은 안내를 보내 인사말을 받는다. (인사말, CLI 세션 ID)
+    seen: 받은 CLI 세션 ID를 바로 적는다(실패해도 호출한 쪽이 기록 파일을 지울 수 있게)."""
+    cli_session_id = None
+    parts: list[str] = []
+    finished = None
+    async with aclosing(session.send(instruction)) as stream:
+        async for event in stream:
+            if isinstance(event, TurnStarted) and event.cli_session_id:
+                cli_session_id = event.cli_session_id
+                seen.append(cli_session_id)
+            elif isinstance(event, TextDelta):
+                parts.append(event.text)
+            elif isinstance(event, TurnFinished):
+                finished = event
+    if finished is None or finished.is_error:
+        detail = finished.error_message if finished else "응답 없음"
+        logger.warning("인사말 실패(session=%s): %s", session_id, detail)
+        raise LlmError("llm_error", "인사말을 받지 못했습니다.")
+    return "".join(parts).strip() or finished.text, cli_session_id
 
 
 async def _discard_new_session(
@@ -467,22 +500,35 @@ async def end_session(
     convo: ConversationSession,
     ended_at: datetime | None = None,
 ) -> None:
-    """세션을 끝낸다. 이미 끝났으면 정리만 다시 한다(멱등). ended_at: 끝난 시각(기본은 지금)."""
+    """세션을 끝낸다. 이미 끝났으면 정리만 다시 한다(멱등). ended_at: 끝난 시각(기본은 지금).
+
+    정리(CLI 닫기·일지 정리 띄우기)는 턴 잠금을 쥐고 한다. 그 사이 다시 열기(S3-26)가 끼어들어
+    막 띄운 CLI를 닫지 않게, 잠금을 얻은 뒤 상태를 다시 읽어 다시 열렸으면 그대로 둔다.
+    """
+    if convo.status is not SessionStatus.ENDED:
+        # 예전 형식 다시 정리 요청이 남아 있으면 이번 정리에서 새 노트를 뽑지 않게 된다
+        app.state.reformat_requests.discard(convo.id)
     await _set_status(db, convo.id, SessionStatus.ENDED, ended_at)
     await db.commit()
-    runtime = app.state.runtimes.get(convo.id)
+    runtime = app.state.runtimes.ensure(convo.id)
     await app.state.llm.close(convo.id)  # 진행 중인 턴이 있으면 여기서 끊긴다
-    if runtime is not None:
-        try:
-            # 턴 스트림이 정리를 마칠 때까지 기다린다(CLI를 닫았으니 보통 바로 끝난다)
-            async with asyncio.timeout(_END_WAIT_S):
-                async with runtime.turn_lock:
-                    pass
-        except TimeoutError:
-            logger.warning("종료 중 턴 정리 대기 시간 초과(session=%s)", convo.id)
-    await db.refresh(convo)  # 턴 중에 바뀐 cli_session_id·상태를 다시 읽는다
-    await teardown(app, convo.id, convo.cli_session_id)
-    extract.ensure_extraction(app, convo.id)
+    locked = False
+    try:
+        # 턴 스트림이 정리를 마칠 때까지 기다린다(CLI를 닫았으니 보통 바로 끝난다)
+        async with asyncio.timeout(_END_WAIT_S):
+            await runtime.turn_lock.acquire()
+        locked = True
+    except TimeoutError:
+        logger.warning("종료 중 턴 정리 대기 시간 초과(session=%s)", convo.id)
+    try:
+        await db.refresh(convo)  # 턴 중에 바뀐 cli_session_id·상태를 다시 읽는다
+        if convo.status is not SessionStatus.ENDED:
+            return  # 그사이 다시 열렸다: 새 CLI와 런타임은 다시 연 대화의 것이다
+        await teardown(app, convo.id, convo.cli_session_id)
+        extract.ensure_extraction(app, convo.id)
+    finally:
+        if locked:
+            runtime.turn_lock.release()
 
 
 _END_WAIT_S = 10.0
@@ -831,7 +877,8 @@ async def cancel_turn(
     """끼어들기(S3-04): 답변을 멈추고 들려준 문장(last_played번까지)만 남긴다. 멱등이다.
 
     진행 중인 턴이면 CLI에 인터럽트를 보내고 턴이 끝나기를 기다린 뒤 자른다. 끝난 턴도 자른다.
-    인사말(seq 0)은 문장 번호 없이 재생돼 클라이언트가 늘 -1을 보내므로 자르지 않는다.
+    인사말(seq 0, 다시 연 대화의 인사말)은 문장 번호 없이 재생돼 클라이언트가 늘 -1을 보내므로
+    자르지 않는다.
     자르기와 다음 턴 안내는 턴 락 안에서 한다. 그래야 바로 뒤 턴이 안내를 놓치지 않고, 끝내기
     API(같은 락을 기다린다)의 일지 정리가 자르기 전 원문을 읽지 않는다.
     """
@@ -882,7 +929,7 @@ async def _trim_reply(
     if turn is None or turn.session_id != session_id or turn.role is not TurnRole.ASSISTANT:
         # 첫 문장 전에 연결이 끊겨 답변 기록이 없는 턴도 여기에 온다(클라이언트는 무시한다)
         raise TurnNotFound()
-    if turn.seq == 0:
+    if turn.seq == 0 or turn.greeting:
         return
     sentences = runtime.reply_sentences.get(turn_id) if runtime is not None else None
     if sentences is None:
@@ -1048,6 +1095,122 @@ async def delete_session(app: FastAPI, db: AsyncSession, session_id: str) -> Non
         await asyncio.to_thread(remove_session_audio, app.state.settings.audio_dir, session_id)
     except OSError:
         logger.warning("지운 대화의 녹음 삭제 실패(session=%s)", session_id, exc_info=True)
+
+
+async def reopen_session(
+    app: FastAPI, db: AsyncSession, session_id: str, mode: ConversationMode
+) -> tuple[ConversationSession, Turn, list[Turn], LoadedPersona, VoiceStyle]:
+    """끝난 대화를 같은 세션으로 다시 연다(S3-26). (세션, 재개 인사말, 전체 전문, 페르소나, 보이스)
+
+    지우기와 같은 턴 잠금을 쥔 채 상태를 다시 읽어, 지우는 중인 대화를 열거나 연 대화를 지우지
+    않게 한다. 돌던 일지 정리는 멈추고(다시 끝내면 처음부터 다시 정리한다) 정리 상태를 비운다.
+    CLI 기록 파일은 끝낼 때 지웠으므로 --resume 없이 전문을 넣은 새 프롬프트로 새 CLI를 띄운다.
+    인사말을 받지 못하면 끝난 상태로 되돌린다. 일지 날짜(started_at)는 그대로다.
+    """
+    await get_session(db, session_id)  # 없는 대화에 런타임을 만들지 않는다
+    runtime = app.state.runtimes.ensure(session_id)
+    try:
+        async with asyncio.timeout(_DELETE_LOCK_WAIT_S):
+            await runtime.turn_lock.acquire()
+    except TimeoutError:
+        raise TurnBusy() from None
+    backup: dict | None = None
+    stopped = False  # 돌던 정리를 멈췄다(실패하면 다시 띄운다)
+    seen: list[str] = []
+    try:
+        convo = await db.scalar(
+            select(ConversationSession)
+            .where(ConversationSession.id == session_id)
+            .execution_options(populate_existing=True)
+        )
+        if convo is None:  # 잠금을 기다리는 사이 지워졌다
+            app.state.runtimes.discard(session_id)
+            raise SessionNotFound()
+        if convo.status is not SessionStatus.ENDED:
+            raise SessionNotEnded()  # 진행 중인 대화의 런타임이라 버리지 않는다
+        stopped = True
+        await extract.cancel_extraction(app, session_id, _DELETE_EXTRACT_WAIT_S)
+        app.state.reformat_requests.discard(session_id)
+        await db.refresh(convo)  # 멈춘 정리가 쓴 값을 다시 읽는다
+        backup = {
+            "status": SessionStatus.ENDED,
+            "mode": convo.mode,
+            "ended_at": convo.ended_at,
+            "extract_status": convo.extract_status,
+            "cli_session_id": convo.cli_session_id,
+            "system_prompt": convo.system_prompt,
+            "reopened_at": convo.reopened_at,
+        }
+        now = utcnow()
+        profile, loaded = await _profile(app, db)
+        memory = await _memory(app, db, profile, now, exclude_session_id=session_id)
+        rows = await db.scalars(
+            select(Turn).where(Turn.session_id == session_id).order_by(Turn.seq)
+        )
+        previous = [PastTurn(t.role.value, t.text, t.interrupted) for t in rows if t.text.strip()]
+        # 상태와 프롬프트를 한 번에 바꾼다(그 사이 서버가 꺼져도 전문 없는 프롬프트가 남지 않게)
+        convo.status = SessionStatus.ACTIVE
+        convo.mode = mode
+        convo.ended_at = None
+        convo.extract_status = None
+        convo.cli_session_id = None
+        convo.reopened_at = now
+        convo.system_prompt = _session_prompt(
+            app.state.settings, profile, loaded, mode, now, memory, previous
+        )
+        await db.commit()
+        session, persona, voice = await open_llm(app, db, convo)
+        text, cli_session_id = await _receive_greeting(
+            session, REOPEN_GREETING_INSTRUCTION, session_id, seen
+        )
+        last_seq = await db.scalar(select(func.max(Turn.seq)).where(Turn.session_id == session_id))
+        greeting = Turn(
+            session_id=session_id,
+            seq=(last_seq if last_seq is not None else -1) + 1,
+            role=TurnRole.ASSISTANT,
+            text=text,
+            greeting=True,
+        )
+        db.add(greeting)
+        convo.cli_session_id = cli_session_id
+        await db.commit()
+        await db.refresh(convo)  # 그사이 끝내기가 끼어들었으면 실제 상태를 돌려준다
+        turns = list(
+            await db.scalars(select(Turn).where(Turn.session_id == session_id).order_by(Turn.seq))
+        )
+    except BaseException as exc:
+        # 요청 취소·서버 종료 중에도 끝난 상태로 되돌리도록 취소에서 보호한다
+        try:
+            with anyio.CancelScope(shield=True):
+                if backup is not None:
+                    await _restore_ended(app, db, session_id, backup, _last(seen))
+                elif stopped:  # 상태를 바꾸기 전에 실패했다: 멈춘 정리만 다시 띄운다
+                    extract.ensure_extraction(app, session_id)
+        except Exception:
+            logger.exception("다시 열기 실패 복구 중 예외(session=%s)", session_id)
+        if isinstance(exc, AppError):
+            raise start_error(exc) from exc
+        raise
+    finally:
+        runtime.turn_lock.release()
+    return convo, greeting, turns, persona, voice
+
+
+async def _restore_ended(
+    app: FastAPI, db: AsyncSession, session_id: str, backup: dict, cli_session_id: str | None
+) -> None:
+    """다시 열기에 실패하면 끝난 상태와 정리 상태를 되돌리고 새로 띄운 CLI를 정리한다."""
+    await db.rollback()
+    await teardown(app, session_id, cli_session_id)
+    await db.execute(
+        update(ConversationSession)
+        .where(ConversationSession.id == session_id)
+        .values(**backup)
+        .execution_options(synchronize_session=False)
+    )
+    await db.commit()
+    if backup["extract_status"] is ExtractStatus.PENDING:  # 멈췄던 정리를 다시 띄운다
+        extract.ensure_extraction(app, session_id)
 
 
 def _record_lock(app: FastAPI, session_id: str) -> asyncio.Lock:

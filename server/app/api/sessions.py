@@ -1,4 +1,4 @@
-"""대화 세션 API(설계서 4.6): 시작(인사말), 턴(SSE), 종료(마무리 멘트)."""
+"""대화 세션 API(설계서 4.6): 시작(인사말), 턴(SSE), 종료(마무리 멘트), 다시 열기(S3-26)."""
 
 import time
 from datetime import datetime
@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.events import sse_response_doc
+from app.api.journal import TurnOut
 from app.db.models import ConversationMode, ConversationSession, UserProfile
 from app.db.session import DbSession
 from app.errors import AppError
@@ -97,6 +98,12 @@ class SessionStarted(BaseModel):
     persona: PersonaOut
 
 
+class SessionReopened(SessionStarted):
+    """다시 연 대화. greeting은 재개 인사말, turns는 그 인사말까지 포함한 전체 전문이다."""
+
+    turns: list[TurnOut]
+
+
 class TurnCreate(BaseModel):
     text: Annotated[str, Field(min_length=1, max_length=4000, pattern=r"\S")]
 
@@ -114,6 +121,39 @@ async def create_session(body: SessionCreate, request: Request, db: DbSession) -
         session=SessionOut.of(convo),
         greeting=GreetingOut(turn_id=greeting.id, text=greeting.text, audio=audio),
         persona=PersonaOut(id=loaded.persona.id, name=loaded.persona.name),
+    )
+
+
+@router.post("/sessions/{session_id}/reopen")
+async def reopen_session(
+    session_id: str, body: SessionCreate, request: Request, db: DbSession
+) -> SessionReopened:
+    """끝난 대화를 같은 세션으로 다시 연다(S3-26). 다시 끝내면 일지를 새로 정리한다.
+
+    진행 중인 대화는 409 session_not_ended, 없으면 404 session_not_found.
+    """
+    app = request.app
+    convo, greeting, turns, loaded, voice = await conversation.reopen_session(
+        app, db, session_id, ConversationMode(body.mode)
+    )
+    audio = None
+    if convo.mode is ConversationMode.VOICE:
+        audio = await app.state.speech.synthesize(app, greeting.text, voice)
+    return SessionReopened(
+        session=SessionOut.of(convo),
+        greeting=GreetingOut(turn_id=greeting.id, text=greeting.text, audio=audio),
+        persona=PersonaOut(id=loaded.persona.id, name=loaded.persona.name),
+        turns=[
+            TurnOut(
+                id=t.id,
+                seq=t.seq,
+                role=t.role.value,
+                text=t.text,
+                interrupted=t.interrupted,
+                created_at=t.created_at,
+            )
+            for t in turns
+        ],
     )
 
 
@@ -314,7 +354,7 @@ async def end_session(session_id: str, request: Request, db: DbSession) -> Sessi
     await db.commit()
     await extract.wait_extraction(app, session_id, app.state.settings.extract_wait_s)
     await db.refresh(convo)
-    counts = await closing.count_notes(db, session_id)
+    counts = await closing.count_notes(db, session_id, since=convo.reopened_at)
     profile, loaded = await profile_with_persona(db, app.state.settings)
     await db.commit()
     message = closing.closing_message(loaded.persona, counts)

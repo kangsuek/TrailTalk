@@ -36,10 +36,16 @@ def _last_turn_at():
 async def _idle_sessions(
     app: FastAPI, cutoff: datetime, session_id: str | None = None
 ) -> dict[str, datetime]:
-    """끝나지 않았고 마지막 턴(없으면 시작 시각)이 cutoff보다 오래된 세션 → 마지막 활동 시각."""
+    """끝나지 않았고 마지막 턴(없으면 시작 시각)이 cutoff보다 오래된 세션 → 마지막 활동 시각.
+    다시 연 대화는 다시 연 시각도 활동으로 본다(재개 인사말을 받기 전에 끝내지 않게)."""
     last_turn = _last_turn_at()
     query = (
-        select(ConversationSession.id, ConversationSession.started_at, last_turn.c.last_at)
+        select(
+            ConversationSession.id,
+            ConversationSession.started_at,
+            ConversationSession.reopened_at,
+            last_turn.c.last_at,
+        )
         .outerjoin(last_turn, last_turn.c.session_id == ConversationSession.id)
         .where(ConversationSession.status != SessionStatus.ENDED)
     )
@@ -47,7 +53,10 @@ async def _idle_sessions(
         query = query.where(ConversationSession.id == session_id)
     async with app.state.session_factory() as db:
         rows = await db.execute(query)
-        last = {sid: last_at or started_at for sid, started_at, last_at in rows}
+        last = {
+            sid: max(at for at in (started_at, reopened_at, last_at) if at is not None)
+            for sid, started_at, reopened_at, last_at in rows
+        }
         return {sid: at for sid, at in last.items() if at < cutoff}
 
 

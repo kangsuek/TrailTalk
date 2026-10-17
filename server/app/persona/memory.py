@@ -35,8 +35,13 @@ def _summary_line(convo: ConversationSession, timezone: str) -> str:
 
 
 async def load_memory(
-    db: AsyncSession, settings: Settings, profile: UserProfile, now: datetime
+    db: AsyncSession,
+    settings: Settings,
+    profile: UserProfile,
+    now: datetime,
+    exclude_session_id: str | None = None,
 ) -> MemoryContext:
+    """exclude_session_id: 요약에서 뺄 대화(다시 여는 대화 자신, S3-26)."""
     since = now - timedelta(days=RECENT_DAYS)
     sessions = await db.execute(
         select(ConversationSession)
@@ -44,6 +49,7 @@ async def load_memory(
             ConversationSession.status == SessionStatus.ENDED,
             ConversationSession.summary.is_not(None),
             ConversationSession.started_at >= since,
+            ConversationSession.id != (exclude_session_id or ""),
         )
         .order_by(ConversationSession.started_at.desc())
         .limit(MAX_SUMMARIES)

@@ -27,7 +27,7 @@ from app.db.session import DbSession
 from app.errors import AppError
 from app.jobs import extract
 from app.services import conversation
-from app.services.conversation import SessionNotFound
+from app.services.conversation import SessionNotEnded, SessionNotFound
 from app.services.profile import profile_with_persona
 
 router = APIRouter(tags=["journal"])
@@ -319,11 +319,6 @@ async def update_note(note_id: str, body: NotePatch, db: DbSession) -> NoteOut:
         _, note_ids, _ = _number(convo, list(rows.scalars()))
         cites = note_ids.get(note.id, [])
     return NoteOut.of(note, cites)
-
-
-class SessionNotEnded(AppError):
-    def __init__(self) -> None:
-        super().__init__("session_not_ended", "아직 끝나지 않은 대화입니다.", 409)
 
 
 @router.post("/journal/{session_id}/retry", status_code=202)

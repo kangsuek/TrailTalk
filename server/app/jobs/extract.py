@@ -19,7 +19,15 @@ from fastapi import FastAPI
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 from sqlalchemy import func, select
 
-from app.db.models import ConversationSession, ExtractStatus, Note, NoteKind, Turn, TurnRole
+from app.db.models import (
+    ConversationSession,
+    ExtractStatus,
+    Note,
+    NoteKind,
+    SessionStatus,
+    Turn,
+    TurnRole,
+)
 from app.jobs.dedupe import matches_saved, new_items, normalize
 from app.jobs.page_title import improve_titles, is_weak_title
 from app.llm.backend import LlmError
@@ -319,6 +327,8 @@ async def run_extraction(app: FastAPI, session_id: str) -> Extraction | None:
         convo = await db.get(ConversationSession, session_id)
         if convo is None or convo.extract_status in (ExtractStatus.DONE, ExtractStatus.FAILED):
             return None
+        if convo.status is not SessionStatus.ENDED:
+            return None  # 다시 연 대화(S3-26)는 다시 끝낼 때 정리한다
         convo.extract_status = ExtractStatus.PENDING
         rows = await db.execute(
             select(Turn).where(Turn.session_id == session_id).order_by(Turn.seq)
@@ -459,6 +469,10 @@ async def wait_extraction(app: FastAPI, session_id: str, timeout_s: float) -> No
         await asyncio.wait_for(asyncio.shield(task), timeout_s)
     except TimeoutError:
         logger.info("추출이 아직 끝나지 않아 먼저 응답(session=%s)", session_id)
+    except asyncio.CancelledError:
+        # 지우기·다시 열기(S3-26)가 정리를 멈췄다. 기다리던 쪽(끝내기 응답)까지 깨뜨리지 않는다
+        if not task.cancelled():
+            raise  # 기다리던 쪽 자신이 취소됐다
     except Exception:  # 정리 실패가 끝내기 응답까지 실패로 만들지 않는다(세션은 이미 끝났다)
         logger.exception("추출 대기 중 예외(session=%s)", session_id)
 

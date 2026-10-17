@@ -35,6 +35,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sessions/{session_id}/reopen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reopen Session
+         * @description 끝난 대화를 같은 세션으로 다시 연다(S3-26). 다시 끝내면 일지를 새로 정리한다.
+         *
+         *     진행 중인 대화는 409 session_not_ended, 없으면 404 session_not_found.
+         */
+        post: operations["reopen_session_api_sessions__session_id__reopen_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sessions/prepare": {
         parameters: {
             query?: never;
@@ -670,6 +692,17 @@ export interface components {
             /** Ended At */
             ended_at: string | null;
         };
+        /**
+         * SessionReopened
+         * @description 다시 연 대화. greeting은 재개 인사말, turns는 그 인사말까지 포함한 전체 전문이다.
+         */
+        SessionReopened: {
+            session: components["schemas"]["SessionOut"];
+            greeting: components["schemas"]["GreetingOut"];
+            persona: components["schemas"]["PersonaOut"];
+            /** Turns */
+            turns: components["schemas"]["TurnOut"][];
+        };
         /** SessionStarted */
         SessionStarted: {
             session: components["schemas"]["SessionOut"];
@@ -1029,6 +1062,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SessionStarted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reopen_session_api_sessions__session_id__reopen_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionReopened"];
                 };
             };
             /** @description Validation Error */

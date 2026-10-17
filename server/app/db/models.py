@@ -76,6 +76,9 @@ class ConversationSession(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     started_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
     ended_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    # 끝난 대화를 마지막으로 다시 연 시각(S3-26). 일지 날짜는 started_at 그대로 두고, 프롬프트의
+    # 대화 시작 시각·마무리 멘트의 "이번에 남긴 노트" 기준으로 쓴다. 다시 연 적이 없으면 NULL
+    reopened_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     status: Mapped[SessionStatus] = mapped_column(
         _enum(SessionStatus, "session_status"), default=SessionStatus.ACTIVE
     )
@@ -142,6 +145,8 @@ class Turn(Base):
     # 캐릭터 답변이 웹 검색·페이지 읽기로 본 출처 [{title, url}](S3-23, 일지 인용용). 없으면 NULL
     sources: Mapped[list | None] = mapped_column(JSON(none_as_null=True))
     interrupted: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 다시 연 대화의 인사말(S3-26). 첫 인사말(seq 0)처럼 끼어들어도 자르지 않는다
+    greeting: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
     session: Mapped[ConversationSession] = relationship(back_populates="turns")
