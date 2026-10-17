@@ -9,6 +9,7 @@ import {
   type NotePatch,
 } from '../api/journal'
 import { dateLabel, MAX_POLLS, POLL_MS } from '../core/journal'
+import { boldSegments, citeLabel, isWebUrl, searchUrl } from '../core/report'
 
 type DetailState =
   | { kind: 'loading' }
@@ -170,6 +171,86 @@ export function JournalDetailScreen({
   )
 }
 
+type Report = NonNullable<JournalDetail['report']>
+type ReportLine = Report['key_points'][number]
+
+/** 핵심 수치·명칭은 굵게, 문장 끝에 출처 번호 */
+function Sentence({ text, cites }: { text: string; cites: number[] }) {
+  return (
+    <>
+      {boldSegments(text).map((part, i) => (part.bold ? <strong key={i}>{part.text}</strong> : part.text))}
+      {cites.length > 0 && <sup className="journal-cite">{citeLabel(cites)}</sup>}
+    </>
+  )
+}
+
+function ReportLines({ title, lines }: { title: string; lines: ReportLine[] }) {
+  if (lines.length === 0) return null
+  return (
+    <section aria-label={title}>
+      <h4>{title}</h4>
+      <ul className="journal-report-lines">
+        {lines.map((line, i) => (
+          <li key={i}>
+            <Sentence text={line.text} cites={line.cites} />
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+/** 일지 보고서(S3-22): 결론 → 핵심 내용 → 세부 내용 → 인용 → 검색어 */
+function ReportView({ report, tags }: { report: Report; tags: string[] }) {
+  return (
+    <div className="journal-report">
+      <p className="journal-conclusion">
+        <Sentence text={report.conclusion} cites={report.conclusion_cites} />
+      </p>
+      <ReportLines title="핵심 내용" lines={report.key_points} />
+      <ReportLines title="세부 내용" lines={report.details} />
+      {report.citations.length > 0 && (
+        <section aria-label="인용" className="journal-citations">
+          <p className="journal-citations-label">인용:</p>
+          <ol>
+            {report.citations.map((c) => (
+              <li key={c.n}>
+                [{c.n}]{' '}
+                {isWebUrl(c.url) ? (
+                  <a href={c.url} target="_blank" rel="noopener noreferrer">
+                    {c.title}
+                  </a>
+                ) : (
+                  c.title
+                )}{' '}
+                <span className="journal-url">{c.url}</span>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+      <SearchTerms tags={tags} />
+    </div>
+  )
+}
+
+/** 검색어: 누르면 새 탭에서 웹 검색 */
+function SearchTerms({ tags }: { tags: string[] }) {
+  if (tags.length === 0) return null
+  return (
+    <p className="journal-tags" aria-label="검색어">
+      {tags.map((tag, i) => (
+        <span key={tag}>
+          {i > 0 && ', '}
+          <a href={searchUrl(tag)} target="_blank" rel="noopener noreferrer">
+            #{tag}
+          </a>
+        </span>
+      ))}
+    </p>
+  )
+}
+
 function Detail({
   detail,
   onChange,
@@ -184,6 +265,9 @@ function Detail({
   retrying: boolean
 }) {
   const { session, notes, turns } = detail
+  const report = detail.report ?? null // 예전 서버 응답에는 없다
+  // 예전 형식(요약 줄만)으로 정리된 일지는 새 형식으로 다시 정리할 수 있다
+  const oldFormat = session.status === 'ended' && session.journal_status === 'done' && report === null && session.summary.length > 0
   const ideas = notes.filter((n) => n.kind === 'idea')
   const todos = notes.filter((n) => n.kind === 'todo')
   const memos = notes.filter((n) => n.kind === 'memo')
@@ -215,15 +299,27 @@ function Detail({
             </button>
           </div>
         )}
-      {session.summary.length > 0 && (
-        <ul className="journal-summary-lines" aria-label="요약">
-          {session.summary.map((line, i) => (
-            <li key={i}>{line}</li>
-          ))}
-        </ul>
+      {oldFormat && (
+        <div className="journal-note">
+          <p>예전 형식으로 정리된 일지예요. 결론·핵심 내용·출처 형식으로 다시 정리할 수 있어요.</p>
+          <button type="button" className="secondary" onClick={onRetry} disabled={retrying}>
+            다시 정리
+          </button>
+        </div>
       )}
-      {session.tags.length > 0 && (
-        <p className="journal-tags">{session.tags.map((tag) => `#${tag}`).join(' ')}</p>
+      {report !== null ? (
+        <ReportView report={report} tags={session.tags} />
+      ) : (
+        <>
+          {session.summary.length > 0 && (
+            <ul className="journal-summary-lines" aria-label="요약">
+              {session.summary.map((line, i) => (
+                <li key={i}>{line}</li>
+              ))}
+            </ul>
+          )}
+          <SearchTerms tags={session.tags} />
+        </>
       )}
 
       {ideas.length > 0 && (

@@ -7,6 +7,17 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+const REPORT = {
+  conclusion: '**등산로 쓰레기통 지도** 앱을 **다음 달**부터 만들기로 했다',
+  conclusion_cites: [1],
+  key_points: [{ text: '**공공데이터** 위치 자료가 있다', cites: [1, 2] }],
+  details: [{ text: '구청에 문의할 수 있다', cites: [] }],
+  citations: [
+    { n: 1, title: '쓰레기통 위치 공개', url: 'https://news.example.com/a' },
+    { n: 2, title: 'data.example.org', url: 'https://data.example.org/b' },
+  ],
+}
+
 const DETAIL = {
   session: {
     id: 's1',
@@ -20,6 +31,7 @@ const DETAIL = {
     journal_status: 'done',
     counts: { idea: 1, todo: 1, memo: 1 },
   },
+  report: null as null | typeof REPORT, // 예전 형식(요약 줄만)
   persona_name: '도우미',
   notes: [
     { id: 'n1', kind: 'idea', content: '쓰레기통 지도 앱', starred: false, done: false, created_at: '' },
@@ -61,7 +73,12 @@ describe('JournalDetailScreen', () => {
     expect(await screen.findByRole('heading', { level: 3, name: '쓰레기통 지도' })).toBeInTheDocument()
     expect(screen.getByText('10월 15일 (목)')).toBeInTheDocument()
     expect(within(screen.getByRole('list', { name: '요약' })).getAllByRole('listitem')).toHaveLength(2)
-    expect(screen.getByText('#등산 #지도')).toBeInTheDocument()
+    const terms = screen.getByLabelText('검색어')
+    expect(terms).toHaveTextContent('#등산, #지도')
+    expect(within(terms).getByRole('link', { name: '#등산' })).toHaveAttribute(
+      'href',
+      'https://www.google.com/search?q=%EB%93%B1%EC%82%B0',
+    )
     expect(within(screen.getByRole('region', { name: '메모' })).getByText('구청에 문의 가능')).toBeInTheDocument()
 
     const transcript = screen.getByText('대화 전문 보기 (3)').closest('details')!
@@ -111,7 +128,8 @@ describe('JournalDetailScreen', () => {
         return new Response(JSON.stringify({ ...DETAIL.session, journal_status: 'pending' }), { status: 202 })
       }
       const journal_status = phase === 'before' ? status : 'done'
-      return new Response(JSON.stringify({ ...DETAIL, session: { ...DETAIL.session, journal_status } }))
+      const report = phase === 'before' ? null : REPORT // 정리가 끝나면 새 형식 보고서가 온다
+      return new Response(JSON.stringify({ ...DETAIL, report, session: { ...DETAIL.session, journal_status } }))
     })
     vi.stubGlobal('fetch', fetchMock)
     render(<JournalDetailScreen sessionId="s1" pollMs={10} />)
@@ -198,5 +216,44 @@ describe('JournalDetailScreen', () => {
     expect(screen.queryByText('저장한 아이디어·할 일·메모가 없어요.')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '다시 불러오기' }))
     expect(await screen.findByText('쓰레기통 지도 앱')).toBeInTheDocument()
+  })
+
+  it('새 형식 보고서를 결론·핵심 내용·세부 내용·인용·검색어 순으로 보인다', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ...DETAIL, report: REPORT }))))
+    render(<JournalDetailScreen sessionId="s1" />)
+    await screen.findByRole('heading', { level: 3, name: '쓰레기통 지도' })
+    expect(screen.queryByRole('list', { name: '요약' })).toBeNull() // 예전 요약 줄 대신 보고서
+    expect(screen.queryByRole('button', { name: '다시 정리' })).toBeNull()
+    const conclusion = screen.getByText((_, el) => el?.classList.contains('journal-conclusion') ?? false)
+    expect(conclusion).toHaveTextContent('등산로 쓰레기통 지도 앱을 다음 달부터 만들기로 했다[1]')
+    expect(within(conclusion).getByText('등산로 쓰레기통 지도').tagName).toBe('STRONG')
+    const key = screen.getByRole('region', { name: '핵심 내용' })
+    expect(within(key).getByRole('heading', { level: 4, name: '핵심 내용' })).toBeInTheDocument()
+    expect(key).toHaveTextContent('공공데이터 위치 자료가 있다[1][2]')
+    expect(screen.getByRole('region', { name: '세부 내용' })).toHaveTextContent('구청에 문의할 수 있다')
+    const cited = screen.getByRole('region', { name: '인용' })
+    expect(cited).toHaveTextContent('인용:')
+    const link = within(cited).getByRole('link', { name: '쓰레기통 위치 공개' })
+    expect(link).toHaveAttribute('href', 'https://news.example.com/a')
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    expect(cited).toHaveTextContent('[1] 쓰레기통 위치 공개 https://news.example.com/a')
+    expect(screen.getByLabelText('검색어')).toHaveTextContent('#등산, #지도')
+  })
+
+  it('예전 형식으로 정리된 일지는 새 형식으로 다시 정리할 수 있다', async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/api/journal/s1/retry' && init?.method === 'POST') {
+        return new Response(JSON.stringify({ ...DETAIL.session, journal_status: 'pending' }), { status: 202 })
+      }
+      return new Response(JSON.stringify(DETAIL))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<JournalDetailScreen sessionId="s1" pollMs={10} />)
+    expect(await screen.findByText(/예전 형식으로 정리된 일지예요/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '다시 정리' }))
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith('/api/journal/s1/retry', expect.objectContaining({ method: 'POST' })),
+    )
   })
 })

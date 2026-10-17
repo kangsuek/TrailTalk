@@ -30,7 +30,21 @@ test('일지: 목록 → 상세, 별표·완료(할 일·아이디어) 표시가
   await detail
   await expect(page.getByRole('heading', { level: 3, name: 'Claude Code 최신 버전과 uv 알아보기' })).toBeVisible()
   await expect(page.getByRole('tab', { name: '일지 상세' })).toHaveAttribute('aria-selected', 'true')
-  await expect(page.getByText('Claude Code 최신 버전을 웹에서 찾아봤다.')).toBeVisible()
+  // 새 형식 일지(S3-22): 결론(굵게) → 핵심 내용 → 세부 내용 → 인용(대화 중 검색한 기사) → 검색어
+  const conclusion = page.locator('.journal-conclusion')
+  await expect(conclusion).toContainText('최신 버전과 uv 공식 문서를 확인하고 핵심을 메모로 남겼다.')
+  await expect(conclusion.locator('strong').first()).toHaveText('Claude Code')
+  await expect(conclusion).toContainText('[1][2]')
+  await expect(page.getByRole('heading', { level: 4, name: '핵심 내용' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 4, name: '세부 내용' })).toBeVisible()
+  const cited = page.getByRole('region', { name: '인용' })
+  await expect(cited.getByRole('link')).toHaveCount(3) // 녹화가 인용한 출처 1·9·2번(목록 밖 30번은 버림)
+  await expect(cited.getByRole('link').first()).toHaveAttribute('href', /^https:\/\//)
+  await expect(page.getByLabel('검색어').getByRole('link', { name: '#uv' })).toHaveAttribute(
+    'href',
+    'https://www.google.com/search?q=uv',
+  )
+  await page.screenshot({ path: 'test-results/journal-report.png', fullPage: true })
 
   const star = page.getByRole('button', { name: '별표: 산책하면서 개발 도구 소식을 음성으로 듣는 습관 만들기' })
   const todo = page.getByRole('checkbox', { name: 'Claude Code를 최신 버전으로 업데이트하기' })

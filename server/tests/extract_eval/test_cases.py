@@ -25,7 +25,10 @@ def test_cases_are_well_formed():
 def test_report_counts_recall_and_unsupported():
     extraction = Extraction(
         title="제목",
-        summary=["요약"],
+        conclusion="결론",
+        conclusion_sources=[],
+        key_points=[{"text": "핵심", "sources": []}],
+        details=[],
         ideas=["아이디어 A", "지어낸 것"],
         todos=["할 일 A"],
         memos=[],

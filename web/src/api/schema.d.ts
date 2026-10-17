@@ -311,7 +311,8 @@ export interface paths {
         put?: never;
         /**
          * Retry Journal
-         * @description 정리에 실패한(또는 정리 기록이 없는) 끝난 대화를 다시 정리한다. 정리 중·완료면 그대로 둔다.
+         * @description 정리에 실패한(또는 정리 기록이 없는) 끝난 대화를 다시 정리한다. 새 형식 보고서가 없는 옛 형식
+         *     일지(정리 완료)도 다시 정리한다. 정리 중이거나 새 형식으로 정리를 마쳤으면 그대로 둔다.
          *
          *     정리는 백그라운드로 돈다. 응답의 journal_status가 pending이면 상세를 다시 불러와 끝을 본다.
          */
@@ -351,6 +352,15 @@ export interface components {
             upload: components["schemas"]["UploadAudioConfig"];
             response: components["schemas"]["ResponseAudioConfig"];
         };
+        /** CitationOut */
+        CitationOut: {
+            /** N */
+            n: number;
+            /** Title */
+            title: string;
+            /** Url */
+            url: string;
+        };
         /** ClientConfig */
         ClientConfig: {
             vad: components["schemas"]["VadConfig"];
@@ -381,6 +391,7 @@ export interface components {
         /** JournalDetail */
         JournalDetail: {
             session: components["schemas"]["JournalItem"];
+            report: components["schemas"]["ReportOut"] | null;
             /** Persona Name */
             persona_name: string;
             /** Notes */
@@ -587,6 +598,29 @@ export interface components {
         RecordedTurn: {
             /** Text */
             text: string;
+        };
+        /** ReportLineOut */
+        ReportLineOut: {
+            /** Text */
+            text: string;
+            /** Cites */
+            cites: number[];
+        };
+        /**
+         * ReportOut
+         * @description 일지 보고서(S3-22): 결론 → 핵심 내용 → 세부 내용 → 인용. 검색어는 일지 항목의 tags다.
+         */
+        ReportOut: {
+            /** Conclusion */
+            conclusion: string;
+            /** Conclusion Cites */
+            conclusion_cites: number[];
+            /** Key Points */
+            key_points: components["schemas"]["ReportLineOut"][];
+            /** Details */
+            details: components["schemas"]["ReportLineOut"][];
+            /** Citations */
+            citations: components["schemas"]["CitationOut"][];
         };
         /** ResponseAudioConfig */
         ResponseAudioConfig: {

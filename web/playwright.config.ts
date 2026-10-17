@@ -55,6 +55,7 @@ export default defineConfig({
         CLI_ENV_PASSTHROUGH: '["FAKE_CLAUDE_*"]',
         DATABASE_URL: `sqlite+aiosqlite:///${E2E_DIR}/e2e.db`,
         CLI_WORK_DIR: `${E2E_DIR}/cli`,
+        FETCH_SOURCE_TITLES: 'false', // 인용 제목을 읽으러 외부 페이지를 열지 않는다
         INTERNAL_BASE_URL: `http://127.0.0.1:${API_PORT}`,
         WEB_DIST_DIR: `${E2E_DIR}/no-dist`,
         // 음성 인식·합성은 가짜(app/voice/fake.py)

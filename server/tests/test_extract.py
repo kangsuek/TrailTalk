@@ -12,17 +12,25 @@ from sqlalchemy import select
 from app.db.models import (
     ConversationSession,
     ExtractStatus,
+    Note,
     NoteKind,
     SessionStatus,
     Turn,
     TurnRole,
 )
-from app.jobs.extract import Extraction, build_prompt, build_transcript, clean_topics
+from app.jobs.extract import (
+    Extraction,
+    build_prompt,
+    build_report,
+    build_transcript,
+    clean_topics,
+    collect_sources,
+)
 from app.llm.events import TurnStarted
 from app.main import create_app
 from app.services import conversation
 from app.services.conversation import SessionNotFound
-from tests.test_sessions import hook_llm, load, session_row, start, turn
+from tests.test_sessions import hook_llm, load, session_row, start, turn, turns_of
 
 FIXTURE = Path(__file__).parent / "fixtures" / "claude_cli" / "extract.jsonl"
 
@@ -93,10 +101,18 @@ def test_end_extracts_title_summary_tags(api):
     row = session_row(api, session_id)
     assert row.extract_status is ExtractStatus.DONE
     assert row.title == "Claude Code 최신 버전과 uv 알아보기"
+    # 요약 줄(목록·기억 블록용)은 결론과 핵심 내용 앞 두 개를 굵게 표시 없이 쓴다
     assert row.summary.splitlines() == [
-        "Claude Code 최신 버전을 웹에서 찾아봤다.",
-        "uv 공식 문서를 읽고 핵심을 정리해 메모로 남겼다.",
+        "Claude Code 최신 버전과 uv 공식 문서를 확인하고 핵심을 메모로 남겼다.",
+        "웹 검색으로 Claude Code 최신 버전 소식을 찾아봤다.",
+        "uv는 파이썬 패키지와 프로젝트를 관리하는 빠른 도구다.",
     ]
+    # 이 대화에는 검색 출처가 없어 모델이 붙인 번호는 모두 버린다(URL을 지어내지 않게)
+    assert row.report["citations"] == [] and row.report["conclusion_cites"] == []
+    assert row.report["key_points"][0] == {
+        "text": "웹 검색으로 **Claude Code** 최신 버전 소식을 찾아봤다.",
+        "cites": [],
+    }
     assert row.tags == ["Claude Code", "uv", "개발 도구"]
 
     [record] = oneshot_records(api.fake_cli)
@@ -115,12 +131,16 @@ def test_end_extracts_title_summary_tags(api):
 
 
 def test_extracted_title_summary_tags_are_cleaned(api, oneshot):
-    """요약은 줄 목록으로 저장하므로 항목 안의 줄바꿈이 빈 줄·추가 줄이 되지 않게 한 줄로 줄인다.
-    화면이 태그 앞에 #을 붙이므로 모델이 붙인 #은 떼고 같은 태그는 하나만 남긴다."""
+    """요약은 줄 목록으로 저장하므로 문장 안의 줄바꿈이 빈 줄·추가 줄이 되지 않게 한 줄로 줄인다.
+    문장에 직접 적은 출처 번호는 뗀다(번호는 sources로만 받는다). 화면이 검색어 앞에 #을 붙이므로
+    모델이 붙인 #은 떼고 같은 검색어는 하나만 남긴다."""
     oneshot(
         cli_output(
             title="산책\n아이디어",
-            summary=["첫 줄\n\n이어지는 말", "둘째 줄"],
+            conclusion="첫 줄\n\n이어지는 말 [1]",
+            conclusion_sources=[],
+            key_points=[{"text": "둘째 줄[2][3]", "sources": []}],
+            details=[],
             tags=["#산책", "산책", " ＃ 아이디어 ", "#"],
         )
     )
@@ -131,6 +151,7 @@ def test_extracted_title_summary_tags_are_cleaned(api, oneshot):
     row = session_row(api, session_id)
     assert row.title == "산책 아이디어"
     assert row.summary.splitlines() == ["첫 줄 이어지는 말", "둘째 줄"]
+    assert row.report["conclusion"] == "첫 줄 이어지는 말"
     assert row.tags == ["산책", "아이디어"]
 
 
@@ -638,3 +659,131 @@ def test_concurrent_deletes_give_404_to_the_second(api):
     codes = sorted(api.portal.call(both))
     assert codes == [204, 404]
     assert api.app.state.runtimes.get(session_id) is None
+
+
+def _extraction(**overrides) -> Extraction:
+    base = json.loads(FIXTURE.read_text(encoding="utf-8"))["structured_output"]
+    return Extraction.model_validate({**base, **overrides})
+
+
+SOURCES = [
+    {"title": "기사 A", "url": "https://news.example.com/a"},
+    {"title": None, "url": "https://www.blog.example.org/b"},
+    {"title": "기사 C", "url": "https://c.example.net/c"},
+]
+
+
+def test_build_report_renumbers_cited_sources_only():
+    """실제로 인용된 출처만 처음 인용된 순서대로 1부터 다시 번호를 매긴다(목록 밖 번호는 버림)."""
+    report, summary = build_report(
+        _extraction(
+            conclusion="**A**가 **3월**부터 바뀌었다 [7]",
+            conclusion_sources=[3],
+            key_points=[
+                {"text": "첫째 **핵심**", "sources": [2, 3, 3]},
+                {"text": "사용자가 직접 말한 것", "sources": []},
+                {"text": "셋째", "sources": []},
+            ],
+            details=[{"text": "세부", "sources": [30, 1]}],
+        ),
+        SOURCES,
+    )
+    assert report["conclusion"] == "**A**가 **3월**부터 바뀌었다"  # 문장에 적은 번호는 뗀다
+    assert report["conclusion_cites"] == [1]  # 출처 3 → 1
+    assert report["key_points"][0] == {"text": "첫째 **핵심**", "cites": [2, 1]}
+    assert report["details"] == [{"text": "세부", "cites": [3]}]  # 30은 없는 번호
+    assert report["citations"] == [
+        {"n": 1, "title": "기사 C", "url": "https://c.example.net/c"},
+        {"n": 2, "title": "blog.example.org", "url": "https://www.blog.example.org/b"},  # 제목 없음
+        {"n": 3, "title": "기사 A", "url": "https://news.example.com/a"},
+    ]
+    assert summary == ["A가 3월부터 바뀌었다", "첫째 핵심", "사용자가 직접 말한 것"]
+
+
+def test_collect_sources_and_prompt_lists_them():
+    turns = [
+        Turn(seq=1, role=TurnRole.USER, text="찾아 줘"),
+        Turn(seq=2, role=TurnRole.ASSISTANT, text="찾았어요", sources=SOURCES[:2]),
+        Turn(seq=3, role=TurnRole.ASSISTANT, text="더 봤어요", sources=[SOURCES[0], SOURCES[2]]),
+    ]
+    sources = collect_sources(turns)
+    assert sources == SOURCES  # 대화 순서, URL 중복 없이
+    prompt = build_prompt(turns, "제니", sources=sources)
+    assert (
+        "<출처>\n[1] 기사 A — https://news.example.com/a\n[2] (제목 없음) — https://www.blog"
+        in prompt
+    )
+    assert "<출처>\n" not in build_prompt(turns[:1], "제니")  # 출처가 없으면 목록도 없다
+
+
+def test_search_sources_become_citations(api, oneshot, monkeypatch):
+    """대화 중 검색한 링크가 일지 인용이 된다(녹화 web_search의 링크 수 안에서만)."""
+    monkeypatch.setenv("FAKE_CLAUDE_FIXTURE", "web_search")
+    session_id = start(api)["session"]["id"]
+    turn(api, session_id, "Claude Code 최신 버전 알려줘")
+    end(api, session_id)
+    detail = api.get(f"/api/journal/{session_id}").json()
+    report = detail["report"]
+    links = [t for t in turns_of(api, session_id) if t.sources][0].sources
+    assert report["citations"][0] == {"n": 1, "title": links[0]["title"], "url": links[0]["url"]}
+    # 녹화 결론의 출처 1·9 → 1·2. 세부 내용의 30번은 목록 밖이라 버린다
+    assert report["conclusion_cites"] == [1, 2]
+    assert report["citations"][1]["url"] == links[8]["url"]
+    assert [c["n"] for c in report["citations"]] == list(range(1, len(report["citations"]) + 1))
+
+
+def test_retry_reorganizes_old_format_journal(api):
+    """새 형식 보고서가 없는 옛 일지(정리 완료)도 다시 정리한다. 새 형식이면 그대로 둔다."""
+    session_id = start(api)["session"]["id"]
+    turn(api, session_id, "바나나는?")
+    end(api, session_id)
+
+    async def old(db):
+        convo = await db.get(ConversationSession, session_id)
+        convo.report = None
+        await db.commit()
+
+    load(api, old)
+    assert api.get(f"/api/journal/{session_id}").json()["report"] is None
+    assert api.post(f"/api/journal/{session_id}/retry").json()["journal_status"] == "pending"
+    wait_extraction(api, session_id)
+    assert api.get(f"/api/journal/{session_id}").json()["report"]["conclusion"]
+    calls = len(oneshot_records(api.fake_cli))
+    assert api.post(f"/api/journal/{session_id}/retry").json()["journal_status"] == "done"
+    wait_extraction(api, session_id)
+    assert len(oneshot_records(api.fake_cli)) == calls
+
+
+def test_sentence_keeps_numbers_in_brackets_inside_text():
+    report, _ = build_report(
+        _extraction(conclusion="규격 [2024]가 바뀌었다 [1].", conclusion_sources=[], details=[]),
+        [],
+    )
+    assert report["conclusion"] == "규격 [2024]가 바뀌었다."
+    only_mark, _ = build_report(_extraction(conclusion="[1]", conclusion_sources=[]), [])
+    assert only_mark["conclusion"] == "[1]"  # 다 지워 빈 결론이 되지 않게 그대로 둔다
+
+
+def test_reformat_old_journal_does_not_add_notes_again(api):
+    session_id = start(api)["session"]["id"]
+    turn(api, session_id, "바나나는?")
+    end(api, session_id)
+
+    async def old_format_with_edited_note(db):
+        convo = await db.get(ConversationSession, session_id)
+        convo.report = None
+        for note in (await db.execute(select(Note).where(Note.session_id == session_id))).scalars():
+            note.content = "사용자가 고친 " + note.content
+        await db.commit()
+
+    load(api, old_format_with_edited_note)
+
+    async def notes(db):
+        rows = await db.execute(select(Note.content).where(Note.session_id == session_id))
+        return sorted(rows.scalars())
+
+    before = load(api, notes)
+    api.post(f"/api/journal/{session_id}/retry")
+    wait_extraction(api, session_id)
+    assert api.get(f"/api/journal/{session_id}").json()["report"] is not None
+    assert load(api, notes) == before  # 원래 표현의 노트가 되살아나지 않는다
