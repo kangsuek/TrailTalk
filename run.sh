@@ -84,6 +84,7 @@ if [ "$FAKE" = 1 ]; then
   rm -rf "$FAKE_DIR" && mkdir -p "$FAKE_DIR"
   export CLAUDE_CLI_PATH="$ROOT/server/tests/fakes/fake-claude"
   export FAKE_CLAUDE_FIXTURE="${FAKE_CLAUDE_FIXTURE:-web_search}"
+  export FETCH_SOURCE_TITLES=false  # 녹화 재생: 인용 제목을 읽으러 외부 페이지를 열지 않는다
   export FAKE_CLAUDE_ONESHOT="$ROOT/server/tests/fixtures/claude_cli/extract.jsonl"  # 일지 정리 결과
   export CLI_ENV_PASSTHROUGH='["FAKE_CLAUDE_*"]'
   export VOICE_BACKEND=fake  # 음성 인식·합성도 가짜(과금 없음, app/voice/fake.py)

@@ -624,6 +624,7 @@ async def _run_turn(
         reply_saved = False
         tool_names: dict[str, str] = {}
         finished: TurnFinished | None = None
+        sources: dict[str, dict] = {}  # 이번 답변이 본 출처(URL → {title, url}), 일지 인용용(S3-23)
 
         def queue(items: list[str], with_audio: bool = True) -> None:
             for item in items:
@@ -654,7 +655,14 @@ async def _run_turn(
             sent.append(item)
             with anyio.CancelScope(shield=True):
                 await _save_reply(
-                    db, assistant_id, session_id, seq + 1, " ".join(sent), True, reply_saved
+                    db,
+                    assistant_id,
+                    session_id,
+                    seq + 1,
+                    " ".join(sent),
+                    True,
+                    reply_saved,
+                    list(sources.values()),
                 )
                 await db.commit()
             reply_saved = True
@@ -726,6 +734,7 @@ async def _run_turn(
                             )
                         )
                     elif isinstance(event, ToolFinished):
+                        _collect_sources(sources, event.summary)
                         while pending:
                             yield await next_sentence()
                         yield encode_sse(
@@ -761,7 +770,14 @@ async def _run_turn(
         reply = "".join(parts).strip() or finished.text
         with anyio.CancelScope(shield=True):
             await _save_reply(
-                db, assistant_id, session_id, seq + 1, reply, finished.interrupted, reply_saved
+                db,
+                assistant_id,
+                session_id,
+                seq + 1,
+                reply,
+                finished.interrupted,
+                reply_saved,
+                list(sources.values()),
             )
             requested = runtime.pop_requested_status()
             if requested is not None:
@@ -1106,6 +1122,32 @@ async def _keep_audio(
                 await asyncio.to_thread(path.unlink, missing_ok=True)
 
 
+_MAX_TURN_SOURCES = 20
+
+
+def _collect_sources(sources: dict[str, dict], summary: dict | None) -> None:
+    """도구 결과 요약(parser._tool_summary)에서 웹 검색 링크·읽은 페이지 URL을 모은다(중복 없이)."""
+    if not summary:
+        return
+    if summary.get("kind") == "web_search":
+        found = [(link.get("title"), link.get("url")) for link in summary.get("links") or []]
+    elif summary.get("kind") == "web_fetch":
+        found = [(None, summary.get("url"))]
+    else:
+        return
+    for title, url in found:
+        if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+            continue
+        if len(sources) >= _MAX_TURN_SOURCES and url not in sources:
+            return
+        known = sources.get(url)
+        if known is None or (not known["title"] and title):  # 읽기만 한 페이지에 검색 제목을 붙인다
+            sources[url] = {
+                "title": " ".join(title.split()) if isinstance(title, str) else None,
+                "url": url,
+            }
+
+
 async def _save_reply(
     db: AsyncSession,
     turn_id: str,
@@ -1114,13 +1156,15 @@ async def _save_reply(
     text: str,
     interrupted: bool,
     exists: bool,
+    sources: list[dict] | None = None,
 ) -> None:
-    """assistant 턴을 만들거나 고친다(커밋은 부르는 쪽). 문장마다 불리므로 한 줄 쿼리로 끝낸다."""
+    """assistant 턴을 만들거나 고친다(커밋은 부르는 쪽). 문장마다 불리므로 한 줄 쿼리로 끝낸다.
+    sources: 그때까지 본 출처(없으면 NULL로 둔다)."""
     if exists:
         statement = (
             update(Turn)
             .where(Turn.id == turn_id)
-            .values(text=text, interrupted=interrupted)
+            .values(text=text, interrupted=interrupted, sources=sources or None)
             .execution_options(synchronize_session=False)
         )
     else:
@@ -1131,6 +1175,7 @@ async def _save_reply(
             role=TurnRole.ASSISTANT,
             text=text,
             interrupted=interrupted,
+            sources=sources or None,
         )
     await db.execute(statement)
 

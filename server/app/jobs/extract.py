@@ -11,6 +11,7 @@
 
 import asyncio
 import logging
+import re
 from collections.abc import Sequence
 from typing import Annotated
 
@@ -20,9 +21,15 @@ from sqlalchemy import func, select
 
 from app.db.models import ConversationSession, ExtractStatus, Note, NoteKind, Turn, TurnRole
 from app.jobs.dedupe import matches_saved, new_items, normalize
+from app.jobs.page_title import improve_titles
 from app.llm.backend import LlmError
 from app.llm.claude_cli import run_oneshot
-from app.persona.rules import EXTRACT_INSTRUCTION, EXTRACT_SAVED_SECTION, EXTRACT_TOPICS_SECTION
+from app.persona.rules import (
+    EXTRACT_INSTRUCTION,
+    EXTRACT_SAVED_SECTION,
+    EXTRACT_SOURCES_SECTION,
+    EXTRACT_TOPICS_SECTION,
+)
 from app.services.profile import profile_with_persona
 
 logger = logging.getLogger("trailtalk.extract")
@@ -30,11 +37,22 @@ logger = logging.getLogger("trailtalk.extract")
 ATTEMPTS = 2  # 첫 시도 + 재시도 1회
 TRANSCRIPT_LIMIT = 100_000  # 이보다 긴 전문은 앞부분을 잘라 뒷부분을 남긴다
 MAX_KNOWN_TOPICS = 50  # 추출에 알려 주는 지난 주제 수(최근 대화 순)
+MAX_SOURCES = 30  # 추출에 알려 주는 출처 수(대화 순서, URL 중복 없이)
 
 Title = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60)]
 Line = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 Tag = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=20)]
 Topic = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=30)]
+SourceIds = Annotated[list[Annotated[int, Field(ge=1, le=MAX_SOURCES)]], Field(max_length=10)]
+
+
+class CitedLine(BaseModel):
+    """요약 줄·메모 한 항목과 근거 출처 번호(<출처> 목록의 번호, S3-23). 번호는 서버가 검증한다."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    text: Line
+    sources: SourceIds
 
 
 class Extraction(BaseModel):
@@ -43,16 +61,26 @@ class Extraction(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     title: Title
-    summary: Annotated[list[Line], Field(min_length=1, max_length=3)]
+    summary: Annotated[list[CitedLine], Field(min_length=1, max_length=3)]
     ideas: Annotated[list[Line], Field(max_length=10)]
     todos: Annotated[list[Line], Field(max_length=10)]
-    memos: Annotated[list[Line], Field(max_length=10)]
+    memos: Annotated[list[CitedLine], Field(max_length=10)]
     tags: Annotated[list[Tag], Field(max_length=5)]
     topics: Annotated[list[Topic], Field(max_length=3)]
 
 
 def _one_line(text: str) -> str:
     return " ".join(text.split())
+
+
+# 모델이 문장 끝에 직접 적은 출처 번호(번호는 sources로만 받는다). 문장 중간의 "[2024]"는 둔다
+_CITE_MARK = re.compile(r"(?:\s*\[\d{1,2}\])+(?=[.!?。]?\s*$)")
+
+
+def cited_text(text: str) -> str:
+    """한 줄로 정리하고 문장 끝 출처 번호를 뗀다(다 지워지면 원문)."""
+    one = _one_line(text)
+    return _CITE_MARK.sub("", one).strip() or one
 
 
 def _clean_tags(tags: Sequence[str]) -> list[str]:
@@ -76,7 +104,7 @@ def clean_topics(topics: Sequence[str], known: Sequence[str]) -> list[str]:
 
 def _escape_tags(text: str) -> str:
     """글 안에서 프롬프트의 구분 태그(<대화>, <저장한 노트>, <기존 주제>)를 닫지 못하게 한다."""
-    for tag in ("대화", "저장한 노트", "기존 주제"):
+    for tag in ("대화", "저장한 노트", "기존 주제", "출처"):
         text = text.replace(f"</{tag}>", f"</ {tag}>")
     return text
 
@@ -99,6 +127,86 @@ def build_transcript(turns: list[Turn], assistant: str) -> str:
     return "\n".join(reversed(kept))
 
 
+def collect_sources(turns: list[Turn]) -> list[dict]:
+    """대화에서 캐릭터가 본 출처를 대화 순서대로 모은다(URL 중복 없이, 최대 MAX_SOURCES개)."""
+    found: dict[str, dict] = {}
+    for turn in turns:
+        for source in turn.sources or []:
+            url = source.get("url") if isinstance(source, dict) else None
+            if not isinstance(url, str) or url in found:
+                continue
+            if len(found) >= MAX_SOURCES:
+                return list(found.values())
+            title = source.get("title")
+            found[url] = {"title": title if isinstance(title, str) else None, "url": url}
+    return list(found.values())
+
+
+def _host(url: str) -> str:
+    host = re.sub(r"^https?://", "", url).split("/")[0]
+    return host.removeprefix("www.") or url
+
+
+class Cited(BaseModel):
+    """검증한 인용: 요약 줄·메모(글과 근거 출처 URL)와 출처 제목(URL → 제목).
+
+    번호가 아니라 URL로 저장한다. 번호는 조회할 때 실제로 남은 요약·메모 기준으로 매긴다
+    (다시 정리·중복으로 걸러진 메모 때문에 번호가 어긋나거나 고아 인용이 생기지 않게).
+    """
+
+    summary: list[tuple[str, list[str]]]
+    memos: list[tuple[str, list[str]]]
+    titles: dict[str, str]
+
+
+def build_citations(result: "Extraction", sources: Sequence[dict]) -> Cited:
+    """출처 번호를 <출처> 목록에 있는 것만 남기고 URL로 바꾼다(모델이 URL을 지어내지 못하게)."""
+    titles: dict[str, str] = {}
+
+    def urls(ids: Sequence[int]) -> list[str]:
+        out: list[str] = []
+        for i in ids:
+            if not 1 <= i <= len(sources):
+                continue  # 목록에 없는 번호는 버린다
+            src = sources[i - 1]
+            titles.setdefault(src["url"], _one_line(src.get("title") or "") or _host(src["url"]))
+            if src["url"] not in out:
+                out.append(src["url"])
+        return out
+
+    def lines(items: Sequence[CitedLine]) -> list[tuple[str, list[str]]]:
+        return [(cited_text(item.text), urls(item.sources)) for item in items]
+
+    return Cited(summary=lines(result.summary), memos=lines(result.memos), titles=titles)
+
+
+def number_citations(
+    summary_urls: Sequence[Sequence[str]], memo_urls: Sequence[Sequence[str]], titles: dict
+) -> tuple[list[list[int]], list[list[int]], list[dict]]:
+    """남아 있는 요약 줄 → 메모 순서로 처음 인용된 차례대로 1부터 번호를 매긴다. 실제로 쓰인
+    출처만 인용 목록에 들어간다. (요약 줄 번호, 메모 번호, [{n, title, url}])"""
+    numbers: dict[str, int] = {}
+    citations: list[dict] = []
+
+    def ids(urls: Sequence[str]) -> list[int]:
+        out: list[int] = []
+        for url in urls:
+            if not isinstance(url, str):
+                continue
+            if url not in numbers:
+                numbers[url] = len(numbers) + 1
+                citations.append(
+                    {"n": numbers[url], "title": titles.get(url) or _host(url), "url": url}
+                )
+            if numbers[url] not in out:
+                out.append(numbers[url])
+        return out
+
+    summary = [ids(urls) for urls in summary_urls]
+    memos = [ids(urls) for urls in memo_urls]
+    return summary, memos, citations
+
+
 SAVED_LABELS = {NoteKind.IDEA: "아이디어", NoteKind.TODO: "할 일", NoteKind.MEMO: "메모"}
 
 
@@ -107,6 +215,7 @@ def build_prompt(
     assistant: str,
     saved: Sequence[tuple[NoteKind, str]] = (),
     topics: Sequence[str] = (),
+    sources: Sequence[dict] = (),
 ) -> str:
     """saved: 대화 중 save_note로 이미 저장한 노트(종류, 내용). 추출이 같은 항목을 다시 뽑지 않게
     알려 준다. 종류를 붙여 다른 종류의 항목까지 빼지 않게 한다. 노트는 모델이 만든 글이라
@@ -123,9 +232,17 @@ def build_prompt(
     topic_section = (
         EXTRACT_TOPICS_SECTION.format(items="\n".join(topic_lines)) if topic_lines else ""
     )
+    source_lines = []
+    for n, src in enumerate(sources, start=1):
+        title = _escape_tags(_one_line(src.get("title") or "(제목 없음)"))
+        source_lines.append(f"[{n}] {title} — {_escape_tags(src['url'])}")
+    source_section = (
+        EXTRACT_SOURCES_SECTION.format(items="\n".join(source_lines)) if source_lines else ""
+    )
     return EXTRACT_INSTRUCTION.format(
         assistant=assistant,
         topics=topic_section,
+        sources=source_section,
         saved=section,
         transcript=build_transcript(turns, assistant),
     )
@@ -206,7 +323,8 @@ async def run_extraction(app: FastAPI, session_id: str) -> Extraction | None:
         await _set_status(app, session_id, ExtractStatus.DONE)
         return None
 
-    prompt = build_prompt(turns, loaded.persona.name, saved, topics[:MAX_KNOWN_TOPICS])
+    sources = collect_sources(turns)
+    prompt = build_prompt(turns, loaded.persona.name, saved, topics[:MAX_KNOWN_TOPICS], sources)
     result: Extraction | None = None
     for attempt in range(1, ATTEMPTS + 1):
         try:
@@ -225,6 +343,11 @@ async def run_extraction(app: FastAPI, session_id: str) -> Extraction | None:
     if result is None:
         await _set_status(app, session_id, ExtractStatus.FAILED)
         return None
+    if settings.fetch_source_titles:
+        # 인용된 출처 가운데 제목이 도메인뿐인 것은 기사 제목을 읽어 온다(S3-23)
+        cited_ids = [i for line in [*result.summary, *result.memos] for i in line.sources]
+        sources = await improve_titles(sources, cited_ids)
+    cited = build_citations(result, sources)
 
     async def save() -> None:
         async with app.state.session_factory() as db:
@@ -235,7 +358,13 @@ async def run_extraction(app: FastAPI, session_id: str) -> Extraction | None:
             # (빈 줄·줄 수 초과 방지)
             if not convo.title_edited:  # 사용자가 고친 제목은 두고 간다
                 convo.title = _one_line(result.title)
-            convo.summary = "\n".join(line for line in map(_one_line, result.summary) if line)
+            convo.summary = "\n".join(text for text, _ in cited.summary if text)
+            summary_urls = [urls for text, urls in cited.summary if text]
+            convo.summary_cites = summary_urls if any(summary_urls) else None
+            # 출처 제목(URL → 제목). 다시 정리해도 앞 회차 메모가 가리키는 출처 제목은 남긴다
+            titles = {c["url"]: c["title"] for c in convo.citations or [] if isinstance(c, dict)}
+            titles.update(cited.titles)
+            convo.citations = [{"title": t, "url": u} for u, t in titles.items()] or None
             convo.tags = _clean_tags(result.tags)
             # 정리하는 사이 다른 대화가 붙인 주제까지 보고 표기를 맞춘다
             known = await known_topics(db, exclude_session_id=session_id)
@@ -246,16 +375,22 @@ async def run_extraction(app: FastAPI, session_id: str) -> Extraction | None:
                 select(Note.kind, Note.content).where(Note.session_id == session_id)
             )
             saved_notes = [(kind, content) for kind, content in rows]
+            memo_cites: dict[str, list[str]] = {}
+            for text, urls in cited.memos:
+                memo_cites.setdefault(text, urls)  # 같은 글이 또 오면 남는 쪽(앞)의 출처를 쓴다
             existing = [content for _, content in saved_notes]
             for kind, items in (
                 (NoteKind.IDEA, result.ideas),
                 (NoteKind.TODO, result.todos),
-                (NoteKind.MEMO, result.memos),
+                (NoteKind.MEMO, [text for text, _ in cited.memos]),
             ):
                 same_kind = [content for k, content in saved_notes if k is kind]
                 fresh = [i for i in items if not any(matches_saved(s, i) for s in same_kind)]
                 for content in new_items(existing, fresh):
-                    db.add(Note(session_id=session_id, kind=kind, content=content))
+                    urls = memo_cites.get(content) if kind is NoteKind.MEMO else None
+                    db.add(
+                        Note(session_id=session_id, kind=kind, content=content, cites=urls or None)
+                    )
                     existing.append(content)
             # 정리하는 사이 새 턴(오프라인 큐의 기록 등, S3-12)이 들어왔으면 끝내지 않고 한 번 더
             # 돈다(_guarded가 pending을 보고 다시 부른다)

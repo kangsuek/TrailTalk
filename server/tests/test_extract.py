@@ -12,17 +12,26 @@ from sqlalchemy import select
 from app.db.models import (
     ConversationSession,
     ExtractStatus,
+    Note,
     NoteKind,
     SessionStatus,
     Turn,
     TurnRole,
 )
-from app.jobs.extract import Extraction, build_prompt, build_transcript, clean_topics
+from app.jobs.extract import (
+    Extraction,
+    build_citations,
+    build_prompt,
+    build_transcript,
+    clean_topics,
+    collect_sources,
+    number_citations,
+)
 from app.llm.events import TurnStarted
 from app.main import create_app
 from app.services import conversation
 from app.services.conversation import SessionNotFound
-from tests.test_sessions import hook_llm, load, session_row, start, turn
+from tests.test_sessions import hook_llm, load, session_row, start, turn, turns_of
 
 FIXTURE = Path(__file__).parent / "fixtures" / "claude_cli" / "extract.jsonl"
 
@@ -120,7 +129,10 @@ def test_extracted_title_summary_tags_are_cleaned(api, oneshot):
     oneshot(
         cli_output(
             title="산책\n아이디어",
-            summary=["첫 줄\n\n이어지는 말", "둘째 줄"],
+            summary=[
+                {"text": "첫 줄\n\n이어지는 말 [1]", "sources": []},  # 문장 끝 번호는 뗀다
+                {"text": "둘째 줄", "sources": []},
+            ],
             tags=["#산책", "산책", " ＃ 아이디어 ", "#"],
         )
     )
@@ -638,3 +650,126 @@ def test_concurrent_deletes_give_404_to_the_second(api):
     codes = sorted(api.portal.call(both))
     assert codes == [204, 404]
     assert api.app.state.runtimes.get(session_id) is None
+
+
+def _extraction(**overrides) -> Extraction:
+    base = json.loads(FIXTURE.read_text(encoding="utf-8"))["structured_output"]
+    return Extraction.model_validate({**base, **overrides})
+
+
+SOURCES = [
+    {"title": "기사 A", "url": "https://news.example.com/a"},
+    {"title": None, "url": "https://www.blog.example.org/b"},
+    {"title": "기사 C", "url": "https://c.example.net/c"},
+]
+
+
+def test_build_citations_keeps_listed_sources_as_urls():
+    """<출처> 목록에 있는 번호만 URL로 바꾼다(목록 밖 번호는 버림). 문장 끝 번호는 뗀다."""
+    cited = build_citations(
+        _extraction(
+            summary=[
+                {"text": "A가 3월부터 바뀌었다 [7].", "sources": [3]},
+                {"text": "사용자가 말한 것", "sources": []},
+            ],
+            memos=[
+                {"text": "규격 [2024]를 따른다", "sources": [2, 3, 3]},
+                {"text": "목록 밖", "sources": [30, 1]},
+            ],
+        ),
+        SOURCES,
+    )
+    a, b, c = (src["url"] for src in SOURCES)
+    assert cited.summary == [("A가 3월부터 바뀌었다.", [c]), ("사용자가 말한 것", [])]
+    assert cited.memos == [("규격 [2024]를 따른다", [b, c]), ("목록 밖", [a])]
+    assert cited.titles == {c: "기사 C", b: "blog.example.org", a: "기사 A"}  # 제목 없으면 호스트
+
+
+def test_number_citations_counts_only_remaining_lines():
+    """남은 요약 → 메모 차례로 처음 인용된 출처부터 1번. 쓰이지 않은 출처는 목록에 없다."""
+    titles = {"u1": "가", "u2": "나", "u3": "다(쓰이지 않음)"}
+    summary, memos, citations = number_citations([["u2"], []], [["u1", "u2"], ["u9"]], titles)
+    assert summary == [[1], []]
+    assert memos == [[2, 1], [3]]
+    assert citations == [
+        {"n": 1, "title": "나", "url": "u2"},
+        {"n": 2, "title": "가", "url": "u1"},
+        {"n": 3, "title": "u9", "url": "u9"},  # 제목을 모르면 주소
+    ]
+
+
+def test_collect_sources_and_prompt_lists_them():
+    turns = [
+        Turn(seq=1, role=TurnRole.USER, text="찾아 줘"),
+        Turn(seq=2, role=TurnRole.ASSISTANT, text="찾았어요", sources=SOURCES[:2]),
+        Turn(seq=3, role=TurnRole.ASSISTANT, text="더 봤어요", sources=[SOURCES[0], SOURCES[2]]),
+    ]
+    sources = collect_sources(turns)
+    assert sources == SOURCES  # 대화 순서, URL 중복 없이
+    prompt = build_prompt(turns, "제니", sources=sources)
+    assert (
+        "<출처>\n[1] 기사 A — https://news.example.com/a\n[2] (제목 없음) — https://www.blog"
+        in prompt
+    )
+    assert "<출처>\n" not in build_prompt(turns[:1], "제니")  # 출처가 없으면 목록도 없다
+
+
+def test_search_sources_become_citations(api, monkeypatch):
+    """대화 중 검색한 링크가 일지 인용이 된다(요약 줄·메모에 번호, 맨 아래 인용 목록)."""
+    monkeypatch.setenv("FAKE_CLAUDE_FIXTURE", "web_search")
+    session_id = start(api)["session"]["id"]
+    turn(api, session_id, "Claude Code 최신 버전 알려줘")
+    end(api, session_id)
+    detail = api.get(f"/api/journal/{session_id}").json()
+    links = [t for t in turns_of(api, session_id) if t.sources][0].sources
+    # 녹화: 요약 1줄의 출처 1·2 → 1·2, 요약 2줄 없음, 메모의 9 → 3(30은 목록 밖)
+    assert detail["summary_cites"] == [[1, 2], []]
+    assert [c["url"] for c in detail["citations"]] == [
+        links[0]["url"],
+        links[1]["url"],
+        links[8]["url"],
+    ]
+    assert detail["citations"][0] == {"n": 1, "title": links[0]["title"], "url": links[0]["url"]}
+    [memo] = [n for n in detail["notes"] if n["kind"] == "memo"]
+    assert memo["cites"] == [3]
+    assert [n["cites"] for n in detail["notes"] if n["kind"] != "memo"] == [[], []]
+
+
+def test_journal_without_search_has_no_citations(api):
+    session_id = start(api)["session"]["id"]
+    turn(api, session_id, "바나나는?")
+    end(api, session_id)
+    detail = api.get(f"/api/journal/{session_id}").json()
+    assert detail["summary_cites"] == [[], []] and detail["citations"] == []
+    row = session_row(api, session_id)
+    assert row.citations is None and row.summary_cites is None
+
+
+def test_filtered_memo_leaves_no_orphan_citation(api, oneshot, monkeypatch):
+    """대화 중 저장한 메모와 겹쳐 걸러진 추출 메모의 출처는 인용 목록에 남지 않는다."""
+    monkeypatch.setenv("FAKE_CLAUDE_FIXTURE", "web_search")
+    base = json.loads(FIXTURE.read_text(encoding="utf-8"))["structured_output"]
+    oneshot(
+        cli_output(
+            summary=[{"text": base["summary"][0]["text"], "sources": []}],
+            memos=[
+                {"text": "이미 저장한 메모", "sources": [1]},  # 걸러진다
+                {"text": "새 메모", "sources": [2]},
+                {"text": "새 메모", "sources": [3]},  # 같은 글: 앞의 출처를 쓴다
+            ],
+        )
+    )
+    session_id = start(api)["session"]["id"]
+    turn(api, session_id, "Claude Code 최신 버전 알려줘")
+
+    async def saved(db):
+        db.add(Note(session_id=session_id, kind=NoteKind.MEMO, content="이미 저장한 메모"))
+        await db.commit()
+
+    load(api, saved)
+    end(api, session_id)
+    detail = api.get(f"/api/journal/{session_id}").json()
+    links = [t for t in turns_of(api, session_id) if t.sources][0].sources
+    assert [c["url"] for c in detail["citations"]] == [links[1]["url"]]  # 고아 인용 없음
+    cites = {n["content"]: n["cites"] for n in detail["notes"] if n["kind"] == "memo"}
+    assert cites == {"이미 저장한 메모": [], "새 메모": [1]}

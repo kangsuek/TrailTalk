@@ -73,9 +73,10 @@ class NoteOut(BaseModel):
     starred: bool
     done: bool
     created_at: datetime
+    cites: list[int]  # 메모의 근거 출처 번호(citations의 n, S3-23). 없으면 빈 목록
 
     @classmethod
-    def of(cls, note: Note) -> "NoteOut":
+    def of(cls, note: Note, cites: list[int] | None = None) -> "NoteOut":
         return cls(
             id=note.id,
             kind=note.kind.value,
@@ -83,6 +84,7 @@ class NoteOut(BaseModel):
             starred=note.starred,
             done=note.done,
             created_at=note.created_at,
+            cites=cites or [],
         )
 
 
@@ -95,8 +97,18 @@ class TurnOut(BaseModel):
     created_at: datetime
 
 
+class CitationOut(BaseModel):
+    n: int
+    title: str  # 기사·문서 제목(없으면 호스트 이름)
+    url: str
+
+
 class JournalDetail(BaseModel):
     session: JournalItem
+    # 일지 인용(S3-23): session.summary 줄마다 근거 출처 번호(같은 길이, 없으면 빈 목록)와
+    # 인용 목록. 검색하지 않은 대화·인용이 생기기 전 일지는 빈 목록이다
+    summary_cites: list[list[int]]
+    citations: list[CitationOut]
     # 전문의 assistant 화자 이름(현재 페르소나 YAML). 클라이언트는 캐릭터 이름을 코드에 두지 않는다
     persona_name: str
     notes: list[NoteOut]
@@ -131,6 +143,25 @@ class NotePatch(BaseModel):
     starred: StrictBool | None = None
     done: StrictBool | None = None
     content: Annotated[str, AfterValidator(_content)] | None = None
+
+
+def _number(
+    convo: ConversationSession, notes: list[Note]
+) -> tuple[list[list[int]], dict[str, list[int]], list[dict]]:
+    """일지 인용 번호(S3-23): 남아 있는 요약 줄 → 메모(만든 순) 차례로 처음 인용된 출처부터 1번.
+    (요약 줄마다 번호, 노트 ID → 번호, 인용 목록)"""
+    lines = (convo.summary or "").splitlines()
+    stored = list(convo.summary_cites or [])
+    summary_urls = [
+        stored[i] if i < len(stored) and isinstance(stored[i], list) else []
+        for i in range(len(lines))
+    ]
+    memos = [n for n in notes if n.kind is NoteKind.MEMO and n.cites]
+    titles = {c["url"]: c["title"] for c in convo.citations or [] if isinstance(c, dict)}
+    summary_ids, memo_ids, citations = extract.number_citations(
+        summary_urls, [n.cites for n in memos], titles
+    )
+    return summary_ids, {n.id: ids for n, ids in zip(memos, memo_ids, strict=True)}, citations
 
 
 def _item(convo: ConversationSession, counts: dict[NoteKind, int], tz: ZoneInfo) -> JournalItem:
@@ -216,10 +247,13 @@ async def get_journal(session_id: str, request: Request, db: DbSession) -> Journ
     _, loaded = await profile_with_persona(db, request.app.state.settings)
     await db.commit()
     counts = {kind: sum(n.kind is kind for n in note_rows) for kind in NoteKind}
+    summary_ids, note_ids, citations = _number(convo, note_rows)
     return JournalDetail(
         session=_item(convo, counts, tz),
+        summary_cites=summary_ids,
+        citations=[CitationOut(**c) for c in citations],
         persona_name=loaded.persona.name,
-        notes=[NoteOut.of(n) for n in note_rows],
+        notes=[NoteOut.of(n, note_ids.get(n.id)) for n in note_rows],
         turns=[
             TurnOut(
                 id=t.id,
@@ -269,7 +303,18 @@ async def update_note(note_id: str, body: NotePatch, db: DbSession) -> NoteOut:
             raise AppError("validation_error", f"{field}에는 null을 쓸 수 없습니다.", 422)
         setattr(note, field, value)
     await db.commit()
-    return NoteOut.of(note)
+    cites: list[int] = []
+    if note.kind is NoteKind.MEMO and note.cites:
+        # 상세와 같은 번호를 돌려준다(그 일지의 요약·메모 전체로 매긴다)
+        convo = await db.get(ConversationSession, note.session_id)
+        rows = await db.execute(
+            select(Note)
+            .where(Note.session_id == note.session_id)
+            .order_by(Note.created_at, Note.id)
+        )
+        _, note_ids, _ = _number(convo, list(rows.scalars()))
+        cites = note_ids.get(note.id, [])
+    return NoteOut.of(note, cites)
 
 
 class SessionNotEnded(AppError):

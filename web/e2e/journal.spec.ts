@@ -31,6 +31,13 @@ test('일지: 목록 → 상세, 별표·완료(할 일·아이디어) 표시가
   await expect(page.getByRole('heading', { level: 3, name: 'Claude Code 최신 버전과 uv 알아보기' })).toBeVisible()
   await expect(page.getByRole('tab', { name: '일지 상세' })).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByText('Claude Code 최신 버전을 웹에서 찾아봤다.')).toBeVisible()
+  // 검색으로 알게 된 요약·메모 끝에 출처 번호, 맨 아래 인용 목록(S3-23, 녹화가 인용한 출처 1·2·9번)
+  const summary = page.getByRole('list', { name: '요약' })
+  await expect(summary.getByRole('listitem').first()).toContainText('[1][2]')
+  await expect(page.getByRole('region', { name: '메모' })).toContainText('[3]')
+  const cited = page.getByRole('region', { name: '인용' })
+  await expect(cited.getByRole('link')).toHaveCount(3)
+  await expect(cited.getByRole('link').first()).toHaveAttribute('href', /^https:\/\//)
 
   const star = page.getByRole('button', { name: '별표: 산책하면서 개발 도구 소식을 음성으로 듣는 습관 만들기' })
   const todo = page.getByRole('checkbox', { name: 'Claude Code를 최신 버전으로 업데이트하기' })

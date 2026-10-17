@@ -8,6 +8,7 @@ import {
   type NoteOut,
   type NotePatch,
 } from '../api/journal'
+import { citeLabel, isWebUrl } from '../core/citations'
 import { dateLabel, MAX_POLLS, POLL_MS } from '../core/journal'
 
 type DetailState =
@@ -170,6 +171,37 @@ export function JournalDetailScreen({
   )
 }
 
+/** 문장 끝 출처 번호(없으면 아무것도 그리지 않는다) */
+function Cites({ cites }: { cites: readonly number[] | undefined }) {
+  if (!cites || cites.length === 0) return null
+  return <sup className="journal-cite">{citeLabel(cites)}</sup>
+}
+
+/** 인용: [n] 기사 제목(링크) + URL */
+function Citations({ citations }: { citations: JournalDetail['citations'] }) {
+  if (citations.length === 0) return null
+  return (
+    <section aria-label="인용" className="journal-citations">
+      <h4>인용:</h4>
+      <ol>
+        {citations.map((c) => (
+          <li key={c.n}>
+            [{c.n}]{' '}
+            {isWebUrl(c.url) ? (
+              <a href={c.url} target="_blank" rel="noopener noreferrer">
+                {c.title}
+              </a>
+            ) : (
+              c.title
+            )}{' '}
+            <span className="journal-url">{c.url}</span>
+          </li>
+        ))}
+      </ol>
+    </section>
+  )
+}
+
 function Detail({
   detail,
   onChange,
@@ -218,7 +250,10 @@ function Detail({
       {session.summary.length > 0 && (
         <ul className="journal-summary-lines" aria-label="요약">
           {session.summary.map((line, i) => (
-            <li key={i}>{line}</li>
+            <li key={i}>
+              {line}
+              <Cites cites={detail.summary_cites?.[i]} />
+            </li>
           ))}
         </ul>
       )}
@@ -281,7 +316,12 @@ function Detail({
           <h4>메모</h4>
           <ul className="journal-notes">
             {memos.map((note) => (
-              <li key={note.id}>{note.content}</li>
+              <li key={note.id}>
+                <span>
+                  {note.content}
+                  <Cites cites={note.cites} />
+                </span>
+              </li>
             ))}
           </ul>
         </section>
@@ -290,6 +330,7 @@ function Detail({
         <p className="journal-note">저장한 아이디어·할 일·메모가 없어요.</p>
       )}
 
+      <Citations citations={detail.citations ?? []} />
       <details className="journal-transcript">
         <summary>대화 전문 보기 ({turns.length})</summary>
         <ol>

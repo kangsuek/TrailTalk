@@ -13,6 +13,7 @@ def make_settings(tmp_path):
         values = {
             "database_url": f"sqlite+aiosqlite:///{tmp_path / 'test.db'}",
             "web_dist_dir": tmp_path / "no-dist",
+            "fetch_source_titles": False,  # 테스트는 외부 페이지를 열지 않는다
         }
         values.update(overrides)
         return Settings(_env_file=None, **values)

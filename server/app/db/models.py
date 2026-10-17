@@ -96,6 +96,10 @@ class ConversationSession(Base):
     topics: Mapped[list[str] | None] = mapped_column(
         MutableList.as_mutable(JSON(none_as_null=True)), default=list
     )
+    # 일지 인용(S3-23): 요약 줄마다 근거 출처 URL 목록과 출처 제목 [{title, url}]. 번호는 조회할
+    # 때 남은 요약·메모 기준으로 매긴다(app/jobs/extract.number_citations). 출처가 없으면 NULL
+    summary_cites: Mapped[list | None] = mapped_column(JSON(none_as_null=True))
+    citations: Mapped[list | None] = mapped_column(JSON(none_as_null=True))
     extract_status: Mapped[ExtractStatus | None] = mapped_column(
         _enum(ExtractStatus, "extract_status")
     )
@@ -132,6 +136,8 @@ class Turn(Base):
     role: Mapped[TurnRole] = mapped_column(_enum(TurnRole, "turn_role"))
     text: Mapped[str] = mapped_column(Text)
     audio_path: Mapped[str | None] = mapped_column(String(500))
+    # 캐릭터 답변이 웹 검색·페이지 읽기로 본 출처 [{title, url}](S3-23, 일지 인용용). 없으면 NULL
+    sources: Mapped[list | None] = mapped_column(JSON(none_as_null=True))
     interrupted: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
@@ -177,6 +183,8 @@ class Note(Base):
     turn_id: Mapped[str | None] = mapped_column(ForeignKey("turn.id", ondelete="SET NULL"))
     kind: Mapped[NoteKind] = mapped_column(_enum(NoteKind, "note_kind"))
     content: Mapped[str] = mapped_column(Text)
+    # 메모의 근거 출처 URL 목록(S3-23, 번호는 조회할 때 매긴다). 없으면 NULL
+    cites: Mapped[list | None] = mapped_column(JSON(none_as_null=True))
     starred: Mapped[bool] = mapped_column(Boolean, default=False)
     done: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)

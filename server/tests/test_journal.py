@@ -250,3 +250,33 @@ def test_delete_active_journal_is_refused(client):
     response = client.delete(f"/api/journal/{session_id}")
     assert response.status_code == 409 and response.json()["error"]["code"] == "session_active"
     assert client.get(f"/api/journal/{session_id}").status_code == 200
+
+
+def test_detail_has_citations(client):
+    session_id = add_session(client, kst(2026, 10, 15, 9))
+    note_id = add_note(client, session_id, NoteKind.MEMO, "검색으로 안 사실")
+    plain = client.get(f"/api/journal/{session_id}").json()
+    assert plain["summary_cites"] == [[], []] and plain["citations"] == []  # 인용 전 일지
+
+    async def fn(db):
+        convo = await db.get(ConversationSession, session_id)
+        convo.summary_cites = [[], ["https://example.com/b"]]
+        convo.citations = [
+            {"title": "기사 A", "url": "https://example.com/a"},
+            {"title": "기사 B", "url": "https://example.com/b"},
+            {"title": "안 쓰인 출처", "url": "https://example.com/c"},
+        ]
+        (await db.get(Note, note_id)).cites = ["https://example.com/a", "https://example.com/b"]
+
+    run(client, fn)
+    body = client.get(f"/api/journal/{session_id}").json()
+    # 번호는 요약 → 메모 차례로 처음 인용된 출처부터. 쓰이지 않은 출처는 목록에 없다
+    assert body["summary_cites"] == [[], [1]]
+    assert body["notes"][0]["cites"] == [2, 1]
+    assert body["citations"] == [
+        {"n": 1, "title": "기사 B", "url": "https://example.com/b"},
+        {"n": 2, "title": "기사 A", "url": "https://example.com/a"},
+    ]
+    # 메모 내용을 고쳐도 근거 번호는 그대로 돌려준다
+    edited = client.patch(f"/api/notes/{note_id}", json={"content": "고친 메모"}).json()
+    assert edited["cites"] == [2, 1]

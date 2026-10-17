@@ -351,6 +351,15 @@ export interface components {
             upload: components["schemas"]["UploadAudioConfig"];
             response: components["schemas"]["ResponseAudioConfig"];
         };
+        /** CitationOut */
+        CitationOut: {
+            /** N */
+            n: number;
+            /** Title */
+            title: string;
+            /** Url */
+            url: string;
+        };
         /** ClientConfig */
         ClientConfig: {
             vad: components["schemas"]["VadConfig"];
@@ -381,6 +390,10 @@ export interface components {
         /** JournalDetail */
         JournalDetail: {
             session: components["schemas"]["JournalItem"];
+            /** Summary Cites */
+            summary_cites: number[][];
+            /** Citations */
+            citations: components["schemas"]["CitationOut"][];
             /** Persona Name */
             persona_name: string;
             /** Notes */
@@ -520,6 +533,8 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Cites */
+            cites: number[];
         };
         /**
          * NotePatch

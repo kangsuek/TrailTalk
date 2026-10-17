@@ -1,7 +1,7 @@
 """추출 평가 세트(S2-09) 형식 검사와 리포트 계산. 실제 CLI 없이 돈다."""
 
 from app.config import Settings
-from app.jobs.extract import Extraction
+from app.jobs.extract import CitedLine, Extraction
 from tests.extract_eval.run_eval import Result, case_turns, judge_schema, load_cases, report
 
 
@@ -25,7 +25,7 @@ def test_cases_are_well_formed():
 def test_report_counts_recall_and_unsupported():
     extraction = Extraction(
         title="제목",
-        summary=["요약"],
+        summary=[{"text": "요약", "sources": []}],
         ideas=["아이디어 A", "지어낸 것"],
         todos=["할 일 A"],
         memos=[],
@@ -36,7 +36,7 @@ def test_report_counts_recall_and_unsupported():
     r.gold_found = [True, False, True]
     r.supported = [True, False, True]
     r.duplicate = [False, False, True]
-    r.extraction.memos.append("아직 정하지 않았다")
+    r.extraction.memos.append(CitedLine(text="아직 정하지 않았다", sources=[]))
     r.memo_process = [True]
     r.saved = [("todo", "할 일 A (맥락)")]
     failed = Result("c2", "설명", ["x"], [], error="RuntimeError: 시간 초과")

@@ -199,4 +199,36 @@ describe('JournalDetailScreen', () => {
     fireEvent.click(screen.getByRole('button', { name: '다시 불러오기' }))
     expect(await screen.findByText('쓰레기통 지도 앱')).toBeInTheDocument()
   })
+
+  it('검색으로 알게 된 요약·메모 끝에 출처 번호를, 맨 아래에 인용 목록을 보인다', async () => {
+    const cited = {
+      ...DETAIL,
+      summary_cites: [[1, 2], []],
+      citations: [
+        { n: 1, title: '쓰레기통 위치 공개', url: 'https://news.example.com/a' },
+        { n: 2, title: '공공데이터 안내', url: 'https://data.example.org/b' },
+      ],
+      notes: DETAIL.notes.map((n) => ({ ...n, cites: n.kind === 'memo' ? [2] : [] })),
+    }
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(cited))))
+    render(<JournalDetailScreen sessionId="s1" />)
+    const summary = await screen.findByRole('list', { name: '요약' })
+    expect(within(summary).getAllByRole('listitem')[0]).toHaveTextContent('등산로 쓰레기통 지도를 이야기했다.[1][2]')
+    expect(within(summary).getAllByRole('listitem')[1]).toHaveTextContent(/^데이터를 찾아보기로 했다\.$/)
+    expect(screen.getByRole('region', { name: '메모' })).toHaveTextContent('구청에 문의 가능[2]')
+    const list = screen.getByRole('region', { name: '인용' })
+    expect(within(list).getByRole('heading', { level: 4, name: '인용:' })).toBeInTheDocument()
+    expect(list).toHaveTextContent('[1] 쓰레기통 위치 공개 https://news.example.com/a')
+    const link = within(list).getByRole('link', { name: '쓰레기통 위치 공개' })
+    expect(link).toHaveAttribute('href', 'https://news.example.com/a')
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+  })
+
+  it('인용이 없으면 인용 목록을 보이지 않는다', async () => {
+    stub()
+    render(<JournalDetailScreen sessionId="s1" />)
+    await screen.findByRole('heading', { level: 3, name: '쓰레기통 지도' })
+    expect(screen.queryByRole('region', { name: '인용' })).toBeNull()
+  })
 })

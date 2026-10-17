@@ -164,7 +164,7 @@ async def evaluate_case(settings: Settings, assistant: str, case: dict, r: Resul
             r.gold_todos,
             r.extraction.ideas,
             r.extraction.todos,
-            r.extraction.memos,
+            [m.text for m in r.extraction.memos],
             r.saved,
         ),
         model=settings.llm_chat_model,  # 추출 모델보다 강한 모델이 채점한다(자기 채점 관대함 방지)
@@ -246,7 +246,7 @@ def report(results: list[Result], settings: Settings, minutes: float, full: bool
             lines += [f"- 오류: {r.error}", ""]
             continue
         ex = r.extraction
-        lines.append(f"- 제목: {ex.title} / 요약: {cell(' '.join(ex.summary))}")
+        lines.append(f"- 제목: {ex.title} / 요약: {cell(' '.join(s.text for s in ex.summary))}")
         if r.saved:
             notes = " / ".join(f"[{SAVED_LABELS[NoteKind(k)]}] {c}" for k, c in r.saved)
             lines.append(f"- 대화 중 저장한 노트: {cell(notes)}")
@@ -261,7 +261,8 @@ def report(results: list[Result], settings: Settings, minutes: float, full: bool
         if ex.memos:
             lines.append("- 메모")
             for item, noise in zip(ex.memos, r.memo_process, strict=True):
-                lines.append(f"  - {'**진행 기록**' if noise else 'O'} {item}")
+                cites = "".join(f"[{n}]" for n in item.sources)
+                lines.append(f"  - {'**진행 기록**' if noise else 'O'} {item.text}{cites}")
         lines += [f"- 채점: {cell(r.reason) or '(없음)'}", ""]
     return "\n".join(lines)
 
