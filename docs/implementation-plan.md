@@ -360,7 +360,7 @@
 | S3-19 | 일지 목록에서 대화 제목 수정·삭제(사용자 요청 추가) | 완료 | `web/src/screens/JournalListScreen.tsx`, `server/app/api/journal.py`, `server/app/services/conversation.py` | `ffad91e` |
 | S3-20 | 대화 화면 모바일 최적화·자동 스크롤·음성 구슬 그래픽(사용자 요청 추가) | 완료 | `web/src/screens/ConversationScreen.tsx`, `web/src/screens/VoiceControls.tsx`, `web/src/index.css` | `4b617c6` |
 | S3-21 | 음성 대화 중 글 입력(사용자 요청 추가) | 완료 | `web/src/screens/voiceController.ts`, `web/src/screens/ConversationScreen.tsx` | `223bddc` |
-| S3-23 | 일지 인용: 요약·메모에 출처 번호, 인용 목록(사용자 요청 추가, S3-22 롤백 뒤 기존 형식 유지) | 완료 | `server/app/jobs/extract.py`, `server/app/jobs/page_title.py`, `web/src/screens/JournalDetailScreen.tsx` | (커밋 후 기입) |
+| S3-23 | 일지 인용: 요약·메모에 출처 번호, 인용 목록(사용자 요청 추가, S3-22 롤백 뒤 기존 형식 유지) | 완료 | `server/app/jobs/extract.py`, `server/app/jobs/page_title.py`, `web/src/screens/JournalDetailScreen.tsx` | `9716543` |
 
 #### S3-01 STT(Whisper)
 - [x] `SttProvider` 인터페이스
@@ -804,3 +804,4 @@
 | 2026-10-17 | S3-20 대화 화면 모바일 최적화(꽉 찬 폭 버튼, 메신저형 입력창), 마지막 말풍선이 하단 패널에 가리지 않게 자동 스크롤, 음성 버튼을 그라데이션 구슬 애니메이션으로 | `4b617c6` |
 | 2026-10-17 | S3-21 음성 대화 중 글 입력: 글을 말 한 번처럼 머신에 넣어 글 턴으로 전송(끼어들기 뒤 취소 완료 대기·바쁨 재시도), 실패 시 보관하지 않고 입력창에 돌려줌 | `223bddc` |
 | 2026-10-17 | S3-22 일지 정리 형식 개편(`5f30452`)을 사용자 요청으로 롤백: 기존 형식(요약 1~3줄 + 노트)으로 복귀. 0009는 남기고 0010으로 report·turn.sources 컬럼 제거 | `fc02d9a` |
+| 2026-10-17 | S3-23 일지 인용: 기존 형식에 검색 내용 출처 번호 [1][2]와 인용 목록(기사 제목 URL), 출처 URL 저장·조회 때 번호 매김, 인용 제목 보완, 추출 평가 100% | `9716543` |
