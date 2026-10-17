@@ -25,6 +25,7 @@ function titleOf(item: JournalItem): string {
 
 const DELETE_CONFIRM = '이 대화와 노트·전문을 모두 지울까요?'
 const ACTIVE_DELETE = '진행 중인 대화는 끝낸 뒤 지울 수 있어요.'
+const bulkConfirm = (n: number) => `선택한 ${n}개 대화와 노트·전문을 모두 지울까요?`
 
 function TrashIcon() {
   return (
@@ -48,6 +49,7 @@ function PencilIcon() {
 /**
  * 날짜별 일지 목록(최근 30일). 항목을 누르면 onOpen으로 상세 화면을 연다.
  * 제목을 누르면 그 자리에서 고치고 포커스가 떠나면 저장한다. 쓰레기통은 확인 뒤 지운다.
+ * "선택"을 누르면 여러 개를 골라 한 번에 지운다(항목별 DELETE를 차례로 부른다).
  */
 /** pollMs: 정리 중인 일지를 다시 불러오는 간격(테스트에서 줄인다). */
 export function JournalListScreen({
@@ -70,6 +72,12 @@ export function JournalListScreen({
     setBusyIds(new Set(busy.current))
   }
   const [errorFor, setErrorFor] = useState<{ id: string; message: string } | null>(null)
+  // 선택 모드. selected에는 사라진 항목이 남을 수 있으므로 쓸 때 지금 목록과 맞춰 본다
+  const [selecting, setSelecting] = useState(false)
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+  const [bulk, setBulk] = useState<{ done: number; total: number } | null>(null)
+  const [bulkError, setBulkError] = useState<string | null>(null)
+  const bulkRunning = useRef(false) // 다시 그리기 전에 삭제 버튼이 두 번 눌려도 한 번만 돈다
   const cancelEdit = useRef(false) // Esc로 닫을 때 blur 저장을 건너뛴다
   const editing = useRef<string | null>(null) // blur가 겹쳐 와도 한 번만 저장한다
   // 제목 수정·삭제 전에 떠난 불러오기 응답은 버린다(옛 제목이나 지운 항목을 되살리지 않게).
@@ -163,6 +171,81 @@ export function JournalListScreen({
     }
   }
 
+  const items = state.kind === 'ready' ? state.items : []
+  const selectableIds = items.filter((i) => i.status !== 'active').map((i) => i.id)
+  const chosen = selectableIds.filter((id) => selected.has(id))
+  const allChosen = selectableIds.length > 0 && chosen.length === selectableIds.length
+
+  const startSelecting = () => {
+    setErrorFor(null)
+    setBulkError(null)
+    setSelected(new Set())
+    setSelecting(true)
+  }
+
+  const stopSelecting = () => {
+    setSelecting(false)
+    setSelected(new Set())
+    setBulkError(null)
+    setErrorFor(null)
+  }
+
+  const toggle = (item: JournalItem) => {
+    if (bulk) return
+    // 터치 화면에는 툴팁이 없으므로 고를 수 없는 이유를 글로 보인다
+    if (item.status === 'active') return setErrorFor({ id: item.id, message: ACTIVE_DELETE })
+    setErrorFor(null)
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(item.id)) next.delete(item.id)
+      else next.add(item.id)
+      return next
+    })
+  }
+
+  // 차례로 지우고(동시에 보내지 않는다) 지운 항목은 바로 뺀다. 실패한 항목은 선택된 채 남긴다.
+  // 화면을 떠나도 사용자가 확인한 삭제는 끝까지 보낸다
+  const removeSelected = async () => {
+    const ids = chosen
+    if (bulkRunning.current || ids.length === 0 || !window.confirm(bulkConfirm(ids.length))) return
+    bulkRunning.current = true
+    setErrorFor(null)
+    setBulkError(null)
+    const failed: string[] = []
+    let reason = ''
+    for (const [index, id] of ids.entries()) {
+      setBulk({ done: index + 1, total: ids.length })
+      // 제목 저장처럼 처리 중인 항목은 건너뛰고 실패로 남긴다(말없이 빠지지 않게)
+      if (busy.current.has(id)) {
+        failed.push(id)
+        reason ||= '처리 중인 대화가 있어요. 잠시 뒤 다시 지워 주세요.'
+        continue
+      }
+      setBusy(id, true)
+      try {
+        await deleteJournal(id)
+      } catch (error) {
+        // 404는 이미 지워진 것이다(다른 기기에서 지웠거나 같은 요청이 겹침)
+        if (!(error instanceof ApiError && error.status === 404)) {
+          failed.push(id)
+          reason ||= errorMessage(error, '대화를 지우지 못했어요.')
+          continue
+        }
+      } finally {
+        setBusy(id, false)
+      }
+      edits.current += 1
+      setState((prev) =>
+        prev.kind === 'ready' ? { kind: 'ready', items: prev.items.filter((i) => i.id !== id) } : prev,
+      )
+    }
+    bulkRunning.current = false
+    setBulk(null)
+    setSelected(new Set(failed))
+    if (failed.length > 0) setBulkError(`${failed.length}개는 지우지 못했어요. ${reason}`)
+    else setSelecting(false)
+  }
+
   const retry = () => {
     polls.current = 0
     setState({ kind: 'loading' })
@@ -171,7 +254,14 @@ export function JournalListScreen({
 
   return (
     <section className="journal">
-      <h2>일지 목록</h2>
+      <div className="journal-head">
+        <h2>일지 목록</h2>
+        {items.length > 0 && !selecting && (
+          <button type="button" className="secondary" onClick={startSelecting}>
+            선택
+          </button>
+        )}
+      </div>
       {state.kind === 'loading' && <p className="journal-note">불러오는 중…</p>}
       {state.kind === 'error' && (
         <div className="journal-note">
@@ -194,6 +284,43 @@ export function JournalListScreen({
                 const counts = countsLabel(item.counts)
                 const title = titleOf(item)
                 const meta = [counts, status].filter(Boolean).join(' · ')
+                const error = errorFor?.id === item.id && (
+                  <p className="journal-error" role="alert">
+                    {errorFor.message}
+                  </p>
+                )
+                if (selecting) {
+                  const active = item.status === 'active'
+                  return (
+                    <li key={item.id} className="journal-entry selecting">
+                      {/* 카드 전체가 체크박스의 label이라 어디를 눌러도 고른다 */}
+                      <label
+                        className="journal-card journal-select"
+                        data-disabled={active || undefined}
+                        onClick={active ? () => toggle(item) : undefined}
+                      >
+                        <input
+                          type="checkbox"
+                          aria-label={`선택: ${title}`}
+                          aria-describedby={meta ? `journal-meta-${item.id}` : undefined}
+                          checked={!active && selected.has(item.id)}
+                          disabled={active || bulk !== null}
+                          onChange={() => toggle(item)}
+                        />
+                        <span className="journal-select-body">
+                          <span className="journal-select-title">{title}</span>
+                          {item.summary[0] && <span className="journal-summary">{item.summary[0]}</span>}
+                          {meta && (
+                            <span className="journal-meta" id={`journal-meta-${item.id}`}>
+                              {meta}
+                            </span>
+                          )}
+                        </span>
+                      </label>
+                      {error}
+                    </li>
+                  )
+                }
                 return (
                   <li key={item.id} className="journal-entry">
                     <div className="journal-card">
@@ -247,17 +374,46 @@ export function JournalListScreen({
                     >
                       <TrashIcon />
                     </button>
-                    {errorFor?.id === item.id && (
-                      <p className="journal-error" role="alert">
-                        {errorFor.message}
-                      </p>
-                    )}
+                    {error}
                   </li>
                 )
               })}
             </ul>
           </section>
         ))}
+      {selecting && state.kind === 'ready' && (
+        <div className="journal-bulk" role="group" aria-label="선택한 일지">
+          {bulkError && (
+            <p className="journal-error" role="alert">
+              {bulkError}
+            </p>
+          )}
+          <div className="journal-bulk-row">
+            <span className="journal-bulk-count" aria-live="polite">
+              {bulk ? `지우는 중… ${bulk.done}/${bulk.total}` : `${chosen.length}개 선택`}
+            </span>
+            <button
+              type="button"
+              className="secondary"
+              disabled={bulk !== null || selectableIds.length === 0}
+              onClick={() => setSelected(allChosen ? new Set() : new Set(selectableIds))}
+            >
+              {allChosen ? '전체 해제' : '전체 선택'}
+            </button>
+            <button
+              type="button"
+              className="danger"
+              disabled={bulk !== null || chosen.length === 0}
+              onClick={() => void removeSelected()}
+            >
+              삭제{chosen.length > 0 ? ` (${chosen.length})` : ''}
+            </button>
+            <button type="button" className="secondary" disabled={bulk !== null} onClick={stopSelecting}>
+              취소
+            </button>
+          </div>
+        </div>
+      )}
     </section>
   )
 }

@@ -126,3 +126,43 @@ test('일지 목록: 제목을 눌러 고치고(포커스가 떠나면 저장, �
   await expect(page.getByText(/불러오는 중/)).toHaveCount(0)
   await expect(page.getByRole('button', { name: `제목 수정: ${title}` })).toHaveCount(0)
 })
+
+test('일지 목록: 여러 개를 골라 한 번에 지운다', async ({ page }) => {
+  // 대화 2개를 끝내고 서로 다른 제목을 붙인다(다른 spec의 같은 제목 일지와 섞이지 않게)
+  const stamp = Date.now()
+  const titles = [`골라 지울 대화 A ${stamp}`, `골라 지울 대화 B ${stamp}`]
+  await page.goto('/')
+  for (const title of titles) {
+    await page.getByRole('tab', { name: '대화', exact: true }).click()
+    await page.getByRole('button', { name: /^글로 (새 )?대화$/ }).click() // 끝낸 뒤에는 "글로 새 대화"
+    const log = page.getByRole('log', { name: '대화 내용' })
+    await expect(log.locator('.message.assistant').first()).toBeVisible()
+    await page.getByRole('textbox', { name: '메시지' }).fill('Claude Code 최신 버전 알려줘')
+    await page.getByRole('button', { name: '보내기' }).click()
+    await expect(log.locator('.message.assistant')).toHaveCount(2)
+    const ended = page.waitForResponse((r) => r.url().endsWith('/end'))
+    await page.getByRole('button', { name: '대화 끝내기' }).click()
+    const closed = await (await ended).json()
+    expect((await page.request.patch(`/api/journal/${closed.session.id}`, { data: { title } })).status()).toBe(200)
+  }
+
+  await page.getByRole('tab', { name: '일지 목록' }).click()
+  await page.getByRole('button', { name: '선택', exact: true }).click()
+  for (const title of titles) await page.getByText(title).click() // 카드를 눌러 고른다
+  await expect(page.getByText('2개 선택')).toBeVisible()
+  await page.screenshot({ path: 'test-results/journal-list-selecting.png', fullPage: true })
+
+  let message = ''
+  page.once('dialog', (dialog) => {
+    message = dialog.message()
+    void dialog.accept()
+  })
+  await page.getByRole('button', { name: '삭제 (2)' }).click()
+  await expect(page.getByRole('checkbox')).toHaveCount(0) // 다 지우면 선택 모드가 닫힌다
+  expect(message).toBe('선택한 2개 대화와 노트·전문을 모두 지울까요?')
+  for (const title of titles) await expect(page.getByText(title)).toHaveCount(0)
+  await page.reload()
+  await page.getByRole('tab', { name: '일지 목록' }).click()
+  await expect(page.getByText(/불러오는 중/)).toHaveCount(0)
+  for (const title of titles) await expect(page.getByText(title)).toHaveCount(0)
+})

@@ -235,4 +235,113 @@ describe('JournalListScreen', () => {
     await new Promise((r) => setTimeout(r, 50))
     expect(screen.getByRole('button', { name: '제목 수정: 새 제목' })).toBeInTheDocument()
   })
+
+  it('선택 모드: 카드를 눌러 고르고(상세는 열지 않음), 전체 선택은 진행 중인 대화를 뺀다', async () => {
+    stub(() =>
+      new Response(
+        JSON.stringify([
+          item('a', '2026-10-15'),
+          item('b', '2026-10-15'),
+          item('c', '2026-10-14', { status: 'active' }),
+        ]),
+      ),
+    )
+    const onOpen = vi.fn()
+    render(<JournalListScreen onOpen={onOpen} />)
+    fireEvent.click(await screen.findByRole('button', { name: '선택' }))
+    expect(screen.queryByRole('button', { name: /^삭제:/ })).not.toBeInTheDocument() // 쓰레기통은 숨긴다
+    expect(screen.queryByRole('button', { name: /^제목 수정:/ })).not.toBeInTheDocument()
+    expect(screen.getByText('0개 선택')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '삭제' })).toBeDisabled()
+
+    fireEvent.click(screen.getByText('a 요약 첫 줄')) // 카드 아무 데나 눌러도 고른다
+    expect(screen.getByRole('checkbox', { name: '선택: a 제목' })).toBeChecked()
+    expect(onOpen).not.toHaveBeenCalled()
+    expect(screen.getByText('1개 선택')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '삭제 (1)' })).toBeEnabled()
+
+    const active = screen.getByRole('checkbox', { name: '선택: c 제목' })
+    expect(active).toBeDisabled()
+    fireEvent.click(screen.getByText('c 제목'))
+    expect(screen.getByRole('alert')).toHaveTextContent('진행 중인 대화는 끝낸 뒤 지울 수 있어요.')
+
+    fireEvent.click(screen.getByRole('button', { name: '전체 선택' }))
+    expect(screen.getByText('2개 선택')).toBeInTheDocument()
+    expect(active).not.toBeChecked()
+    fireEvent.click(screen.getByRole('button', { name: '전체 해제' }))
+    expect(screen.getByText('0개 선택')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '취소' }))
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /^a 제목/ }))
+    expect(onOpen).toHaveBeenCalledWith('a')
+  })
+
+  it('선택한 일지를 확인한 뒤 차례로 지우고, 다 지우면 선택 모드를 닫는다(404는 지운 것으로 본다)', async () => {
+    const confirm = vi.fn(() => false)
+    vi.stubGlobal('confirm', confirm)
+    const order: string[] = []
+    let inFlight = 0
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method !== 'DELETE') {
+        return new Response(
+          JSON.stringify([item('a', '2026-10-15'), item('b', '2026-10-15'), item('c', '2026-10-14')]),
+        )
+      }
+      inFlight += 1
+      expect(inFlight).toBe(1) // 동시에 보내지 않는다
+      order.push(url)
+      await new Promise((r) => setTimeout(r, 5))
+      inFlight -= 1
+      if (url.endsWith('/c')) {
+        return new Response(JSON.stringify({ error: { code: 'session_not_found', message: '없음' } }), { status: 404 })
+      }
+      return new Response(null, { status: 204 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<JournalListScreen />)
+    fireEvent.click(await screen.findByRole('button', { name: '선택' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '선택: a 제목' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '선택: c 제목' }))
+
+    fireEvent.click(screen.getByRole('button', { name: '삭제 (2)' }))
+    expect(confirm).toHaveBeenCalledWith('선택한 2개 대화와 노트·전문을 모두 지울까요?')
+    expect(order).toEqual([])
+
+    confirm.mockReturnValue(true)
+    fireEvent.click(screen.getByRole('button', { name: '삭제 (2)' }))
+    expect(await screen.findByText(/지우는 중… 1\/2/)).toBeInTheDocument()
+    expect(await screen.findByText(/지우는 중… 2\/2/)).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole('checkbox')).not.toBeInTheDocument())
+    expect(order).toEqual(['/api/journal/a', '/api/journal/c'])
+    expect(screen.queryByText('a 제목')).not.toBeInTheDocument()
+    expect(screen.queryByText('c 제목')).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '10월 14일 (수)' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '제목 수정: b 제목' })).toBeInTheDocument()
+  })
+
+  it('일부만 지우지 못하면 그 항목을 선택한 채 남기고 알린다', async () => {
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method !== 'DELETE') {
+        return new Response(JSON.stringify([item('a', '2026-10-15'), item('b', '2026-10-15', { status: 'paused' })]))
+      }
+      if (url.endsWith('/b')) {
+        return new Response(
+          JSON.stringify({ error: { code: 'turn_in_progress', message: '답변을 만드는 중이에요.' } }),
+          { status: 409 },
+        )
+      }
+      return new Response(null, { status: 204 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<JournalListScreen />)
+    fireEvent.click(await screen.findByRole('button', { name: '선택' }))
+    fireEvent.click(screen.getByRole('button', { name: '전체 선택' }))
+    fireEvent.click(screen.getByRole('button', { name: '삭제 (2)' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('1개는 지우지 못했어요.')
+    expect(screen.queryByText('a 제목')).not.toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: '선택: b 제목' })).toBeChecked()
+    expect(screen.getByRole('button', { name: '삭제 (1)' })).toBeEnabled()
+  })
 })

@@ -338,6 +338,24 @@ body {
   color: var(--error);
 }
 
+/* 선택 버튼은 제목 줄 오른쪽에 둔다 */
+.journal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px; /* 선택 모드로 바뀌어 버튼이 사라져도 목록이 튀지 않게 */
+  margin-bottom: 12px;
+}
+
+.journal .journal-head h2 {
+  margin: 0;
+}
+
+.journal .journal-head button {
+  min-height: 44px;
+}
+
 .journal-day h3 {
   margin: 20px 0 8px;
   font-size: 0.95rem;
@@ -476,6 +494,91 @@ body {
 .journal button.journal-trash:hover:not(:disabled, [aria-disabled='true']),
 .journal button.journal-trash:focus-visible {
   color: var(--error);
+}
+
+/* 선택 모드: 카드 전체가 체크박스 label이다 */
+.journal-entry.selecting {
+  grid-template-columns: 1fr;
+}
+
+.journal-select {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.journal-select:has(input:checked) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.journal-select[data-disabled='true'] {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* 비활성 체크박스는 클릭을 label로 넘기지 않으므로, 눌러도 카드의 안내가 뜨도록 클릭을 통과시킨다 */
+.journal-select input:disabled {
+  pointer-events: none;
+}
+
+.journal-select input {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.journal-select-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.journal-select-title {
+  min-height: 28px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* 화면 아래에 붙는 선택 막대. 목록이 짧으면 목록 바로 아래에 놓인다 */
+.journal-bulk {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin: 16px -16px 0;
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.journal-bulk .journal-error {
+  margin: 0 0 8px;
+}
+
+.journal-bulk-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.journal-bulk-count {
+  flex: 1;
+  min-width: 6em;
+  font-weight: 600;
+}
+
+.journal .journal-bulk button {
+  min-height: 44px;
+}
+
+.journal button.danger {
+  background: var(--error);
 }
 
 .journal-entry .journal-error {
