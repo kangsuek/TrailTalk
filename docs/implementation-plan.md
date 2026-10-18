@@ -364,7 +364,7 @@
 | S3-24 | 일지 표시 개선: 결론·알게 된 것·확인할 것(사용자 요청 추가) | 완료 | `server/app/persona/rules.py`, `server/app/jobs/extract.py`, `web/src/screens/JournalDetailScreen.tsx` | `6a72b59` |
 | S3-25 | 일지 목록 여러 개 선택·한 번에 삭제(사용자 요청 추가) | 완료 | `web/src/screens/JournalListScreen.tsx`, `web/src/index.css` | `07ccb8d` |
 | S3-26 | 끝난 대화 이어서 하기(사용자 요청 추가) | 완료 | `server/app/services/conversation.py`, `server/app/api/sessions.py`, `server/app/persona/prompt.py`, `web/src/screens/JournalDetailScreen.tsx`, `web/src/screens/ConversationScreen.tsx` | `d91f13b`, `4c87241` |
-| S3-27 | 이어서 하기 프롬프트 줄이기: 일지 정리 재사용(사용자 요청 추가) | 완료 | `server/app/persona/prompt.py`, `server/app/services/conversation.py` | |
+| S3-27 | 이어서 하기 프롬프트 줄이기: 일지 정리 재사용(사용자 요청 추가) | 완료 | `server/app/persona/prompt.py`, `server/app/services/conversation.py` |  `18a9145` |
 
 #### S3-01 STT(Whisper)
 - [x] `SttProvider` 인터페이스
@@ -841,3 +841,4 @@
 | 2026-10-17 | S3-24 일지 표시 개선: 결론·알게 된 것·확인할 것, 사실은 한 곳에만, 예전 형식 다시 정리, 추출 평가 채점 확대(6회차 재현율 100%) | `6a72b59` |
 | 2026-10-18 | S3-25 일지 목록 여러 개 선택·한 번에 삭제(서버 변경 없음, 항목별 DELETE 차례 호출) | `07ccb8d` |
 | 2026-10-18 | S3-26 끝난 대화 이어서 하기: 다시 열기 API(전문을 프롬프트에 넣어 새 CLI, 재개 인사말, 다시 끝내면 같은 일지 재정리), 일지 상세 글·음성으로 이어서 | `d91f13b`, `4c87241` |
+| 2026-10-18 | S3-27 이어서 하기 프롬프트 줄이기: 정리를 마친 긴 대화는 일지 정리 + 최근 원문 4천 자(이어서 블록 약 1/3) | `18a9145` |
