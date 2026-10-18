@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ApiError } from '../api/http'
 import {
+  deleteJournal,
   getJournal,
   retryJournal,
   updateNote,
@@ -24,6 +25,10 @@ type ContinueMode = 'text' | 'voice'
 /** 이어서 하기 결과(App이 대화 화면에 맡긴다): 시작함, 다른 대화가 진행 중, 음성 기능을 못 씀 */
 type ContinueResult = 'ok' | 'busy' | 'voice_loading' | 'voice_unavailable'
 
+// 목록(JournalListScreen)의 삭제와 같은 문구
+const DELETE_CONFIRM = '이 대화와 노트·전문을 모두 지울까요?'
+const ACTIVE_DELETE = '진행 중인 대화는 끝낸 뒤 지울 수 있어요.'
+
 const CONTINUE_MESSAGES: Record<Exclude<ContinueResult, 'ok'>, string> = {
   busy: '진행 중인 대화를 끝낸 뒤 이어서 할 수 있어요.',
   voice_loading: '음성 기능을 준비하는 중이에요. 잠시 뒤 다시 눌러 주세요.',
@@ -31,16 +36,18 @@ const CONTINUE_MESSAGES: Record<Exclude<ContinueResult, 'ok'>, string> = {
 }
 
 /** 일지 상세: 요약, 아이디어 별표, 할 일 체크, 메모, 대화 전문. 다른 세션을 열 때는 key로 새로 그린다(App).
- * onContinue: 끝난 대화를 대화 화면에서 이어서 한다(S3-26). */
+ * onContinue: 끝난 대화를 대화 화면에서 이어서 한다(S3-26). onDeleted: 대화를 지운 뒤(S3-29, App이 목록으로 옮긴다). */
 export function JournalDetailScreen({
   sessionId = null,
   onBack = () => {},
   onContinue,
+  onDeleted = () => {},
   pollMs = POLL_MS,
 }: {
   sessionId?: string | null
   onBack?: () => void
   onContinue?: (sessionId: string, mode: ContinueMode) => ContinueResult
+  onDeleted?: () => void
   pollMs?: number
 }) {
   const [state, setState] = useState<DetailState>({ kind: 'loading' })
@@ -146,6 +153,34 @@ export function JournalDetailScreen({
     if (result !== 'ok') setSaveError(CONTINUE_MESSAGES[result])
   }
 
+  // 확인 뒤 지우고 목록으로 돌아간다. 404는 이미 지워진 것이다(다른 기기에서 지웠거나 요청이 겹침)
+  const [deleting, setDeleting] = useState(false)
+  // 지우는 사이 사용자가 다른 화면으로 옮겼으면 응답이 와도 화면을 바꾸지 않는다
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
+  const remove = async () => {
+    if (sessionId === null || deleting || state.kind !== 'ready') return
+    // 터치 화면에는 툴팁이 없으므로 지울 수 없는 이유를 글로 보인다
+    if (state.detail.session.status !== 'ended') return setSaveError(ACTIVE_DELETE)
+    if (!window.confirm(DELETE_CONFIRM)) return
+    setSaveError(null)
+    setDeleting(true)
+    try {
+      await deleteJournal(sessionId)
+    } catch (error) {
+      if (!(error instanceof ApiError && error.status === 404)) {
+        setDeleting(false)
+        return setSaveError(errorMessage(error, '대화를 지우지 못했어요.'))
+      }
+    }
+    if (mounted.current) onDeleted()
+  }
+
   if (sessionId === null) {
     return (
       <section className="journal">
@@ -180,8 +215,20 @@ export function JournalDetailScreen({
           onReload={reload}
           onRetry={retry}
           retrying={retrying}
+          deleting={deleting}
           onContinue={onContinue ? continueIn : undefined}
         />
+      )}
+      {state.kind === 'ready' && (
+        <button
+          type="button"
+          className="journal-delete"
+          aria-disabled={state.detail.session.status !== 'ended'}
+          disabled={deleting}
+          onClick={() => void remove()}
+        >
+          {deleting ? '지우는 중…' : '이 대화 삭제'}
+        </button>
       )}
       {saveError && (
         <p className="journal-error" role="alert">
@@ -229,6 +276,7 @@ function Detail({
   onReload,
   onRetry,
   retrying,
+  deleting,
   onContinue,
 }: {
   detail: JournalDetail
@@ -236,6 +284,7 @@ function Detail({
   onReload: () => void
   onRetry: () => void
   retrying: boolean
+  deleting: boolean // 지우는 동안 이어서·다시 정리를 막는다(지운 대화를 다시 열거나 정리하지 않게)
   onContinue?: (mode: ContinueMode) => void
 }) {
   const { session, notes, turns } = detail
@@ -275,7 +324,7 @@ function Detail({
                 ? '일지 정리에 실패했어요. 대화 전문은 아래에서 볼 수 있어요.'
                 : '아직 정리하지 않은 대화예요.'}
             </p>
-            <button type="button" className="secondary" onClick={onRetry} disabled={retrying}>
+            <button type="button" className="secondary" onClick={onRetry} disabled={retrying || deleting}>
               다시 정리
             </button>
           </div>
@@ -283,7 +332,7 @@ function Detail({
       {oldFormat && (
         <div className="journal-note">
           <p>예전 형식으로 정리된 일지예요. 결론·알게 된 것·확인할 것으로 다시 정리할 수 있어요.</p>
-          <button type="button" className="secondary" onClick={onRetry} disabled={retrying}>
+          <button type="button" className="secondary" onClick={onRetry} disabled={retrying || deleting}>
             다시 정리
           </button>
         </div>
@@ -423,10 +472,10 @@ function Detail({
       </details>
       {onContinue && session.status === 'ended' && (
         <div className="journal-continue" role="group" aria-label="이어서 대화하기">
-          <button type="button" onClick={() => onContinue('text')}>
+          <button type="button" disabled={deleting} onClick={() => onContinue('text')}>
             글로 이어서
           </button>
-          <button type="button" onClick={() => onContinue('voice')}>
+          <button type="button" disabled={deleting} onClick={() => onContinue('voice')}>
             음성으로 이어서
           </button>
         </div>

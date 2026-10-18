@@ -207,3 +207,38 @@ test('일지 상세: 끝난 대화를 글로 이어서 하고, 다시 끝내면 
   await expect(transcript.getByText('이어서 더 알려줘')).toBeVisible()
   await expect(transcript.getByText('Claude Code 최신 버전 알려줘')).toBeVisible()
 })
+
+// 일지 상세에서 삭제(S3-29): 확인 뒤 지우고 목록으로 돌아간다
+test('일지 상세: 맨 아래 삭제 버튼으로 지우면 목록으로 돌아가고 다시 보이지 않는다', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: /^글로 (새 )?대화$/ }).click()
+  const log = page.getByRole('log', { name: '대화 내용' })
+  await expect(log.locator('.message.assistant').first()).toBeVisible()
+  await page.getByRole('textbox', { name: '메시지' }).fill('Claude Code 최신 버전 알려줘')
+  await page.getByRole('button', { name: '보내기' }).click()
+  await expect(log.locator('.message.assistant')).toHaveCount(2)
+  const ended = page.waitForResponse((r) => r.url().endsWith('/end'))
+  await page.getByRole('button', { name: '대화 끝내기' }).click()
+  const id = (await (await ended).json()).session.id
+  const title = `상세에서 지울 대화 ${Date.now()}`
+  expect((await page.request.patch(`/api/journal/${id}`, { data: { title } })).status()).toBe(200)
+
+  await page.getByRole('button', { name: '일지 보기' }).click()
+  await expect(page.getByRole('heading', { level: 3, name: title })).toBeVisible()
+  let message = ''
+  page.once('dialog', (dialog) => {
+    message = dialog.message()
+    void dialog.accept()
+  })
+  const removed = page.waitForResponse((r) => r.url().endsWith(`/api/journal/${id}`) && r.request().method() === 'DELETE')
+  await page.getByRole('button', { name: '이 대화 삭제' }).click()
+  expect((await removed).status()).toBe(204)
+  expect(message).toBe('이 대화와 노트·전문을 모두 지울까요?')
+  await expect(page.getByRole('tab', { name: '일지 목록' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByText(/불러오는 중/)).toHaveCount(0)
+  await expect(page.getByText(title)).toHaveCount(0)
+  await page.reload()
+  await page.getByRole('tab', { name: '일지 목록' }).click()
+  await expect(page.getByText(/불러오는 중/)).toHaveCount(0)
+  await expect(page.getByText(title)).toHaveCount(0)
+})

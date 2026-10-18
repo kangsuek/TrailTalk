@@ -94,6 +94,10 @@ function App() {
             sessionId={journalId}
             onBack={() => setScreen('journal-list')}
             onContinue={continueSession}
+            onDeleted={() => {
+              setJournalId(null)
+              setScreen('journal-list')
+            }}
           />
         )
       case 'settings':

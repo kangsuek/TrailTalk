@@ -732,6 +732,21 @@ body {
   color: var(--muted);
 }
 
+/* 일지 상세 삭제(S3-29): 맨 아래 꽉 찬 보조 버튼(주 동작과 구분되게 빨간 테두리·글자) */
+.journal button.journal-delete {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  margin-top: 24px;
+  border: 1px solid var(--error);
+  background: none;
+  color: var(--error);
+}
+
+.journal button.journal-delete[aria-disabled='true'] {
+  opacity: 0.5;
+}
+
 /* 이어서 대화하기(S3-26): 전문 아래 꽉 찬 두 버튼 */
 .journal-continue {
   display: grid;

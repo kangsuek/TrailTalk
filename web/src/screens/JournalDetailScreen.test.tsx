@@ -324,4 +324,97 @@ describe('JournalDetailScreen', () => {
     await screen.findByText(/아직 진행 중인 대화예요/)
     expect(screen.queryByRole('button', { name: '글로 이어서' })).not.toBeInTheDocument()
   })
+
+  it('맨 아래 삭제는 확인한 뒤 지우고 목록으로 돌아간다(404도 지운 것으로 본다)', async () => {
+    const confirm = vi.fn(() => false)
+    vi.stubGlobal('confirm', confirm)
+    let status = 204
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'DELETE') {
+        return status === 204
+          ? new Response(null, { status: 204 })
+          : new Response(JSON.stringify({ error: { code: 'session_not_found', message: '없음' } }), { status })
+      }
+      if (url === '/api/journal/s1') return new Response(JSON.stringify(DETAIL))
+      throw new Error(`unexpected ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const onDeleted = vi.fn()
+    const { unmount } = render(<JournalDetailScreen sessionId="s1" onDeleted={onDeleted} />)
+    const button = await screen.findByRole('button', { name: '이 대화 삭제' })
+    fireEvent.click(button)
+    expect(confirm).toHaveBeenCalledWith('이 대화와 노트·전문을 모두 지울까요?')
+    expect(fetchMock).toHaveBeenCalledTimes(1) // 취소하면 지우지 않는다
+
+    confirm.mockReturnValue(true)
+    fireEvent.click(button)
+    await waitFor(() => expect(onDeleted).toHaveBeenCalledTimes(1))
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/journal/s1', expect.objectContaining({ method: 'DELETE' }))
+    unmount()
+
+    status = 404
+    render(<JournalDetailScreen sessionId="s1" onDeleted={onDeleted} />)
+    fireEvent.click(await screen.findByRole('button', { name: '이 대화 삭제' }))
+    await waitFor(() => expect(onDeleted).toHaveBeenCalledTimes(2))
+  })
+
+  it('지우지 못하면 알리고 머무르며, 진행 중인 대화는 이유만 보인다', async () => {
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    let active = false
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'DELETE') {
+        return new Response(
+          JSON.stringify({ error: { code: 'turn_in_progress', message: '이전 답변이 아직 끝나지 않았습니다.' } }),
+          { status: 409 },
+        )
+      }
+      const session = { ...DETAIL.session, status: active ? 'active' : 'ended' }
+      if (url === '/api/journal/s1') return new Response(JSON.stringify({ ...DETAIL, session }))
+      throw new Error(`unexpected ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const onDeleted = vi.fn()
+    const { unmount } = render(<JournalDetailScreen sessionId="s1" onDeleted={onDeleted} />)
+    fireEvent.click(await screen.findByRole('button', { name: '이 대화 삭제' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('이전 답변이 아직 끝나지 않았습니다.')
+    expect(screen.getByRole('button', { name: '이 대화 삭제' })).toBeEnabled()
+    expect(onDeleted).not.toHaveBeenCalled()
+    unmount()
+
+    active = true
+    const calls = fetchMock.mock.calls.length
+    render(<JournalDetailScreen sessionId="s1" onDeleted={onDeleted} />)
+    const button = await screen.findByRole('button', { name: '이 대화 삭제' })
+    expect(button).toHaveAttribute('aria-disabled', 'true')
+    fireEvent.click(button)
+    expect(screen.getByRole('alert')).toHaveTextContent('진행 중인 대화는 끝낸 뒤 지울 수 있어요.')
+    expect(fetchMock.mock.calls.length).toBe(calls + 1) // 상세 불러오기만, DELETE는 없다
+  })
+
+  it('지우는 동안 이어서 버튼을 막고, 그사이 화면을 떠났으면 응답이 와도 목록으로 옮기지 않는다', async () => {
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    let release: () => void = () => {}
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (init?.method === 'DELETE') {
+          await new Promise<void>((resolve) => (release = resolve))
+          return new Response(null, { status: 204 })
+        }
+        if (url === '/api/journal/s1') return new Response(JSON.stringify(DETAIL))
+        throw new Error(`unexpected ${url}`)
+      }),
+    )
+    const onDeleted = vi.fn()
+    const { unmount } = render(<JournalDetailScreen sessionId="s1" onDeleted={onDeleted} onContinue={() => 'ok'} />)
+    fireEvent.click(await screen.findByRole('button', { name: '이 대화 삭제' }))
+    expect(await screen.findByRole('button', { name: '지우는 중…' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '글로 이어서' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '음성으로 이어서' })).toBeDisabled()
+    unmount() // 응답 전에 다른 탭으로 옮겼다
+    release()
+    await new Promise((r) => setTimeout(r, 20))
+    expect(onDeleted).not.toHaveBeenCalled()
+  })
 })
+
