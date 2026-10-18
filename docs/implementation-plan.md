@@ -368,7 +368,7 @@
 | S3-28 | 지난 대화 전문 검색 도구 search_conversations(사용자 요청 추가) | 완료 | `server/app/mcp/server.py`, `server/app/persona/rules.py`, `web/src/core/conversation.ts` | `39a8f33` |
 | S3-29 | 일지 상세에서 삭제(사용자 요청 추가) | 완료 | `web/src/screens/JournalDetailScreen.tsx`, `web/src/App.tsx` | `c02b920` |
 | S3-30 | 지워진 대화 안내(사용자 요청 추가) | 완료 | `web/src/screens/JournalDetailScreen.tsx` | `d177d00` |
-| S3-31 | 대화 모델 선택: 설정 화면·말로 바꾸기(사용자 요청 추가) | 완료 | `server/app/llm/manager.py`, `server/app/mcp/server.py`, `server/app/api/profile.py`, `web/src/screens/SettingsScreen.tsx` | |
+| S3-31 | 대화 모델 선택: 설정 화면·말로 바꾸기(사용자 요청 추가) | 완료 | `server/app/llm/manager.py`, `server/app/mcp/server.py`, `server/app/api/profile.py`, `web/src/screens/SettingsScreen.tsx` | `fd62f5d` |
 
 #### S3-01 STT(Whisper)
 - [x] `SttProvider` 인터페이스
@@ -875,3 +875,4 @@
 | 2026-10-18 | S3-28 지난 대화 전문 검색 도구 search_conversations(모든 대화, 필요할 때만 원문 검색) | `39a8f33` |
 | 2026-10-18 | S3-29 일지 상세에서 삭제(맨 아래 버튼, 확인 뒤 목록으로) | `c02b920` |
 | 2026-10-18 | S3-30 지워진 대화 안내(일지 상세 404 → '지워진 대화예요' + 목록으로) | `d177d00` |
+| 2026-10-18 | S3-31 대화 모델 선택(설정 화면 라디오, 말로 set_model, 다음 답변부터 같은 맥락으로 새 모델) | `fd62f5d` |
