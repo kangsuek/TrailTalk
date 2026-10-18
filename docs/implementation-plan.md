@@ -374,7 +374,7 @@
 | S3-34 | 턴마다 지금 시각을 LLM에 알리기(사용자 요청 추가) | 완료 | `server/app/services/conversation.py`, `server/app/persona/rules.py`, `server/app/persona/prompt.py` | |
 | S3-36 | Claude 남은 토큰 표시·헤더 고정(사용자 요청 추가) | 완료 | `server/app/llm/usage.py`, `server/app/api/usage.py`, `server/app/llm/claude_cli.py`, `web/src/core/usage.ts`, `web/src/screens/UsageMeter.tsx`, `web/src/App.tsx`, `web/src/index.css` | `2bf8780`, `42119ec` |
 | S3-37 | 대화 화면에 열려 있지 않은 진행 중 대화를 일지 상세에서 이어서 하기·끝내기(사용자 오류 신고) | 완료 | `server/app/services/conversation.py`, `web/src/screens/JournalDetailScreen.tsx`, `web/src/screens/ConversationScreen.tsx`, `web/src/App.tsx`, `web/src/index.css` | `a852f8c`, `d4dbea7` |
-| S3-38 | 대화 탭에서는 헤더가 함께 스크롤(사용자 요청 추가) | 완료 | `web/src/App.tsx`, `web/src/index.css` | |
+| S3-38 | 대화 탭에서는 헤더가 함께 스크롤(사용자 요청 추가) | 완료 | `web/src/App.tsx`, `web/src/index.css` | `9d67fd1` |
 
 #### S3-01 STT(Whisper)
 - [x] `SttProvider` 인터페이스
@@ -939,4 +939,4 @@
 | 2026-10-18 | S3-36 바뀐 시안대로 음성 구슬 크기 절반(시작 66px, 대화 중 52px) | `42119ec` |
 | 2026-10-18 | S3-37 진행 중인데 대화 화면에 열려 있지 않은 대화를 일지 상세에서 끝내기(대화 중이면 대화로 돌아가기) | `a852f8c` |
 | 2026-10-18 | S3-37 열려 있지 않은 진행 중 대화도 글·음성으로 이어서(다시 열기 API가 진행 중 대화를 이어받음) | `d4dbea7` |
-| 2026-10-18 | S3-38 대화 탭에서는 헤더가 함께 스크롤(일지·설정은 고정 유지) | |
+| 2026-10-18 | S3-38 대화 탭에서는 헤더가 함께 스크롤(일지·설정은 고정 유지) | `9d67fd1` |
