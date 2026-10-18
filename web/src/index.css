@@ -314,7 +314,7 @@ body {
   padding: 0 20px;
 }
 
-/* 음성 버튼: 132px 원(음성 대화의 voice-orb와 같은 색) 아래 굵은 글자 */
+/* 음성 버튼: 66px 원(음성 대화의 voice-orb와 같은 색) 아래 굵은 글자 */
 .conversation .start-actions button.start-voice {
   flex-direction: column;
   gap: 14px;
@@ -328,22 +328,22 @@ body {
 .start-orb {
   display: grid;
   place-items: center;
-  width: 132px;
-  height: 132px;
+  width: 66px;
+  height: 66px;
   border-radius: 50%;
   background:
     radial-gradient(circle at 30% 28%, #8ee3c0 0%, transparent 50%),
     radial-gradient(circle at 74% 74%, #6fa8f5 0%, transparent 55%),
     radial-gradient(circle at 50% 50%, #2f7d4f 0%, #0f3d26 100%);
   box-shadow:
-    0 12px 32px rgb(47 125 79 / 35%),
-    inset 0 0 24px rgb(0 0 0 / 25%);
+    0 6px 16px rgb(47 125 79 / 35%),
+    inset 0 0 12px rgb(0 0 0 / 25%);
   color: #fff;
 }
 
 .start-orb svg {
-  width: 40px;
-  height: 40px;
+  width: 24px;
+  height: 24px;
 }
 
 .conversation .start-actions .start-voice:focus-visible {
@@ -1125,7 +1125,7 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  padding: 30px 0 10px; /* 광채가 위 경계선을 넘지 않게 */
+  padding: 16px 0 10px; /* 광채가 위 경계선을 넘지 않게 */
   background: var(--bg);
   border-top: 1px solid var(--border);
 }
@@ -1141,9 +1141,9 @@ body {
   position: relative;
   display: grid;
   place-items: center;
-  width: 104px;
-  height: 104px;
-  margin-bottom: 16px; /* 퍼지는 물결 고리가 아래 상태 문구에 겹치지 않게 */
+  width: 52px;
+  height: 52px;
+  margin-bottom: 8px; /* 퍼지는 물결 고리가 아래 상태 문구에 겹치지 않게 */
   padding: 0;
   border-radius: 50%;
   background: transparent;
@@ -1184,11 +1184,11 @@ body {
 
 .orb-glow {
   position: absolute;
-  inset: -16px;
+  inset: -8px;
   border-radius: 50%;
   background: radial-gradient(circle, color-mix(in srgb, var(--orb-a) 70%, transparent) 0%,
       color-mix(in srgb, var(--orb-c) 35%, transparent) 45%, transparent 70%);
-  filter: blur(12px);
+  filter: blur(6px);
   opacity: 0.7;
 }
 
@@ -1202,7 +1202,7 @@ body {
     radial-gradient(circle at 75% 72%, var(--orb-c) 0%, transparent 55%),
     radial-gradient(circle at 70% 25%, color-mix(in srgb, var(--orb-a) 60%, #fff) 0%, transparent 40%),
     radial-gradient(circle at 50% 50%, var(--orb-a) 0%, var(--orb-d) 100%);
-  box-shadow: inset 0 0 22px rgb(0 0 0 / 0.28); /* 회전해도 그대로 보이게 대칭 그림자 */
+  box-shadow: inset 0 0 11px rgb(0 0 0 / 0.28); /* 회전해도 그대로 보이게 대칭 그림자 */
 }
 
 .orb-sheen {
