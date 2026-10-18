@@ -315,17 +315,22 @@ describe('JournalDetailScreen', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('음성 기능을 준비하는 중이에요.')
   })
 
-  it('진행 중인 대화에는 이어서 버튼이 없다', async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ ...DETAIL, session: { ...DETAIL.session, status: 'active', journal_status: null } })),
+  it('대화 화면에 열려 있지 않은 진행 중 대화는 글·음성으로 이어서 할 수 있다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ ...DETAIL, session: { ...DETAIL.session, status: 'active', journal_status: null } }))),
     )
-    vi.stubGlobal('fetch', fetchMock)
-    render(<JournalDetailScreen sessionId="s1" onContinue={() => 'ok'} />)
+    const onContinue = vi.fn(() => 'ok' as const)
+    render(<JournalDetailScreen sessionId="s1" onContinue={onContinue} liveSessionId={() => null} />)
     await screen.findByText(/아직 진행 중인 대화예요/)
-    expect(screen.queryByRole('button', { name: '글로 이어서' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '음성으로 이어서' }))
+    expect(onContinue).toHaveBeenLastCalledWith('s1', 'voice')
+    fireEvent.click(screen.getByRole('button', { name: '글로 이어서' }))
+    expect(onContinue).toHaveBeenLastCalledWith('s1', 'text')
+    expect(screen.getByRole('button', { name: '대화 끝내기' })).toBeInTheDocument()
   })
 
-  it('대화 화면에 열려 있지 않은 진행 중 대화는 여기서 끝내고, 끝나면 이어서 할 수 있다', async () => {
+  it('대화 화면에 열려 있지 않은 진행 중 대화는 여기서 끝낼 수 있고, 끝나면 지울 수 있다', async () => {
     let status = 'active'
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === '/api/sessions/s1/end' && init?.method === 'POST') {
@@ -348,9 +353,12 @@ describe('JournalDetailScreen', () => {
     fireEvent.click(await screen.findByRole('button', { name: '대화 끝내기' }))
     expect(screen.getByRole('button', { name: '이 대화 삭제' })).toHaveAttribute('aria-disabled', 'true')
     expect(fetchMock).toHaveBeenCalledWith('/api/sessions/s1/end', expect.objectContaining({ method: 'POST' }))
-    expect(await screen.findByRole('button', { name: '글로 이어서' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '대화 끝내기' })).toBeNull()
-    expect(screen.getByRole('button', { name: '이 대화 삭제' })).toHaveAttribute('aria-disabled', 'false')
+    // 끝낸 뒤 다시 불러오면 끝난 대화가 된다(끝내기 버튼이 사라지고 삭제가 열린다)
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: '이 대화 삭제' })).toHaveAttribute('aria-disabled', 'false'),
+    )
+    expect(screen.queryByRole('button', { name: /대화 끝내기|끝내는 중/ })).toBeNull()
+    expect(screen.getByRole('button', { name: '글로 이어서' })).toBeEnabled()
   })
 
   it('대화를 끝내지 못하면 알리고 버튼을 남긴다', async () => {
@@ -378,6 +386,7 @@ describe('JournalDetailScreen', () => {
     fireEvent.click(await screen.findByRole('button', { name: '대화로 돌아가기' }))
     expect(onContinue).toHaveBeenCalledWith('s1', 'text')
     expect(screen.queryByRole('button', { name: '대화 끝내기' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '글로 이어서' })).toBeNull()
   })
 
   it('보는 사이 대화 화면의 대화가 끝났으면 돌아가기를 눌러도 다시 열지 않고 새로 불러온다', async () => {

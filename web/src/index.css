@@ -1109,6 +1109,13 @@ body {
   grid-template-columns: 1fr;
 }
 
+/* 열려 있지 않은 진행 중 대화: 이어서 아래 보조 동작 */
+.journal button.journal-end {
+  width: 100%;
+  min-height: 48px;
+  margin-top: 8px;
+}
+
 .journal button.idea-done {
   flex: none;
   min-height: 44px;

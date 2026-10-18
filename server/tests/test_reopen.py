@@ -130,11 +130,82 @@ def test_reend_extracts_again_and_keeps_user_edits(api):
     assert closed.json()["saved"] == {"idea": 0, "todo": 0, "memo": 0}
 
 
-def test_reopen_refuses_live_or_missing_sessions(api):
+def test_reopen_takes_over_a_live_session(api, monkeypatch):
+    """대화 화면에 열려 있지 않은 진행 중 대화(S3-37)는 지금 CLI를 닫고 새 CLI로 이어받는다."""
     session_id = start(api)["session"]["id"]
-    live = reopen(api, session_id)
-    assert live.status_code == 409 and live.json()["error"]["code"] == "session_not_ended"
-    assert api.app.state.runtimes.get(session_id) is not None  # 진행 중인 대화의 런타임은 그대로
+    turn(api, session_id, "바나나는?")
+    before = session_row(api, session_id)
+    old_turns = turns_of(api, session_id)
+    deleted: list[str | None] = []
+    monkeypatch.setattr(conversation, "delete_cli_session_file", lambda sid: deleted.append(sid))
+
+    response = reopen(api, session_id, "voice")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["session"]["status"] == "active" and body["session"]["mode"] == "voice"
+    assert [t["id"] for t in body["turns"]][:-1] == [t.id for t in old_turns]
+    row = session_row(api, session_id)
+    assert row.status is SessionStatus.ACTIVE and row.extract_status is None
+    assert row.reopened_at is not None and row.started_at == before.started_at
+    assert deleted == [before.cli_session_id]  # 예전 CLI 기록은 성공한 뒤 지운다
+    args = api.fake_cli.records()[-1]["args"]
+    assert "--resume" not in args
+    assert "사용자: 바나나는?" in args[args.index("--system-prompt") + 1]
+
+    turn(api, session_id, "이어서 얘기하자")
+    assert turns_of(api, session_id)[-2].text == "이어서 얘기하자"
+
+
+def test_failed_take_over_restores_the_live_session(api, monkeypatch):
+    session_id = start(api)["session"]["id"]
+    turn(api, session_id, "바나나는?")
+    before = session_row(api, session_id)
+    receive_greeting = conversation._receive_greeting
+
+    async def fail(*args, **kwargs):
+        raise LlmError("llm_error", "인사말을 받지 못했습니다.")
+
+    monkeypatch.setattr(conversation, "_receive_greeting", fail)
+    assert reopen(api, session_id).status_code >= 500
+    row = session_row(api, session_id)
+    assert row.status is SessionStatus.ACTIVE and row.ended_at is None
+    assert row.cli_session_id == before.cli_session_id  # 다음 턴이 예전 기록으로 이어 간다
+    assert row.system_prompt == before.system_prompt and row.reopened_at is None
+    assert row.extract_status is None
+    monkeypatch.setattr(conversation, "_receive_greeting", receive_greeting)
+    turn(api, session_id, "다시 해 볼게")
+    assert "--resume" in api.fake_cli.records()[-1]["args"]
+
+
+def test_take_over_clears_old_interrupt_note(api):
+    session_id = start(api)["session"]["id"]
+    turn(api, session_id, "바나나는?")
+    api.app.state.runtimes.get(session_id).heard_note = "예전 끼어들기 안내"
+    assert reopen(api, session_id).status_code == 200
+    assert api.app.state.runtimes.get(session_id).heard_note is None
+
+
+def test_failed_take_over_keeps_an_end_that_came_in_between(api, monkeypatch):
+    """이어받는 사이 끝내기(다른 기기·무발화)가 끝냈으면 실패해도 진행 중으로 되돌리지 않는다."""
+    session_id = start(api)["session"]["id"]
+    turn(api, session_id, "바나나는?")
+    before = session_row(api, session_id)
+    deleted: list[str | None] = []
+    monkeypatch.setattr(conversation, "delete_cli_session_file", lambda sid: deleted.append(sid))
+
+    async def ended_meanwhile(*args, **kwargs):
+        async with api.app.state.session_factory() as db:
+            await conversation._set_status(db, session_id, SessionStatus.ENDED)
+            await db.commit()
+        raise LlmError("llm_error", "인사말을 받지 못했습니다.")
+
+    monkeypatch.setattr(conversation, "_receive_greeting", ended_meanwhile)
+    assert reopen(api, session_id).status_code >= 500
+    assert session_row(api, session_id).status is SessionStatus.ENDED
+    assert before.cli_session_id in deleted  # 끝내기는 예전 CLI 기록을 모르므로 여기서 지운다
+
+
+def test_reopen_refuses_missing_sessions(api):
     missing = reopen(api, "없는-세션")
     assert missing.status_code == 404
     assert api.app.state.runtimes.get("없는-세션") is None

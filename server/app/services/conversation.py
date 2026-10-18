@@ -1121,12 +1121,16 @@ async def delete_session(app: FastAPI, db: AsyncSession, session_id: str) -> Non
 async def reopen_session(
     app: FastAPI, db: AsyncSession, session_id: str, mode: ConversationMode
 ) -> tuple[ConversationSession, Turn, list[Turn], LoadedPersona, VoiceStyle]:
-    """끝난 대화를 같은 세션으로 다시 연다(S3-26). (세션, 재개 인사말, 전체 전문, 페르소나, 보이스)
+    """대화를 같은 세션으로 다시 연다(S3-26). (세션, 재개 인사말, 전체 전문, 페르소나, 보이스)
 
     지우기와 같은 턴 잠금을 쥔 채 상태를 다시 읽어, 지우는 중인 대화를 열거나 연 대화를 지우지
     않게 한다. 돌던 일지 정리는 멈추고(다시 끝내면 처음부터 다시 정리한다) 정리 상태를 비운다.
     CLI 기록 파일은 끝낼 때 지웠으므로 --resume 없이 전문을 넣은 새 프롬프트로 새 CLI를 띄운다.
-    인사말을 받지 못하면 끝난 상태로 되돌린다. 일지 날짜(started_at)는 그대로다.
+    인사말을 받지 못하면 원래 상태로 되돌린다. 일지 날짜(started_at)는 그대로다.
+
+    끝나지 않은 대화(대화 화면을 닫았거나 다른 기기에서 남은 대화, S3-37)도 이어받는다. 잠금을
+    쥐었으니 답변 중은 아니다. 지금 CLI를 닫고 끝난 대화처럼 새 CLI를 띄우며, 예전 CLI 기록 파일은
+    성공한 뒤에 지운다(실패하면 그 기록으로 이어 가도록 되돌린다).
     """
     await get_session(db, session_id)  # 없는 대화에 런타임을 만들지 않는다
     runtime = app.state.runtimes.ensure(session_id)
@@ -1137,6 +1141,8 @@ async def reopen_session(
         raise TurnBusy() from None
     backup: dict | None = None
     stopped = False  # 돌던 정리를 멈췄다(실패하면 다시 띄운다)
+    taking_over = False  # 끝나지 않은 대화를 이어받는다
+    committed = False  # 다시 열기를 저장했다(그 뒤 오류는 되돌리지 않는다)
     seen: list[str] = []
     try:
         convo = await db.scalar(
@@ -1147,14 +1153,19 @@ async def reopen_session(
         if convo is None:  # 잠금을 기다리는 사이 지워졌다
             app.state.runtimes.discard(session_id)
             raise SessionNotFound()
-        if convo.status is not SessionStatus.ENDED:
-            raise SessionNotEnded()  # 진행 중인 대화의 런타임이라 버리지 않는다
-        stopped = True
-        await extract.cancel_extraction(app, session_id, _DELETE_EXTRACT_WAIT_S)
-        app.state.reformat_requests.discard(session_id)
-        await db.refresh(convo)  # 멈춘 정리가 쓴 값을 다시 읽는다
+        taking_over = convo.status is not SessionStatus.ENDED
+        if taking_over:
+            await app.state.llm.close(session_id)
+            runtime.heard_note = (
+                None  # 예전 CLI의 끼어들기 안내(잘린 답변은 전문에 그대로 들어간다)
+            )
+        else:
+            stopped = True
+            await extract.cancel_extraction(app, session_id, _DELETE_EXTRACT_WAIT_S)
+            app.state.reformat_requests.discard(session_id)
+            await db.refresh(convo)  # 멈춘 정리가 쓴 값을 다시 읽는다
         backup = {
-            "status": SessionStatus.ENDED,
+            "status": convo.status,
             "mode": convo.mode,
             "ended_at": convo.ended_at,
             "extract_status": convo.extract_status,
@@ -1197,6 +1208,7 @@ async def reopen_session(
         db.add(greeting)
         convo.cli_session_id = cli_session_id
         await db.commit()
+        committed = True
         await db.refresh(convo)  # 그사이 끝내기가 끼어들었으면 실제 상태를 돌려준다
         turns = list(
             await db.scalars(select(Turn).where(Turn.session_id == session_id).order_by(Turn.seq))
@@ -1205,7 +1217,9 @@ async def reopen_session(
         # 요청 취소·서버 종료 중에도 끝난 상태로 되돌리도록 취소에서 보호한다
         try:
             with anyio.CancelScope(shield=True):
-                if backup is not None:
+                if committed:
+                    pass  # 다시 열기는 끝났다(새 CLI 그대로 쓴다)
+                elif backup is not None:
                     await _restore_ended(app, db, session_id, backup, _last(seen))
                 elif stopped:  # 상태를 바꾸기 전에 실패했다: 멈춘 정리만 다시 띄운다
                     extract.ensure_extraction(app, session_id)
@@ -1216,6 +1230,9 @@ async def reopen_session(
         raise
     finally:
         runtime.turn_lock.release()
+        if committed and taking_over:  # 예전 CLI 기록은 새 CLI로 이어받은 뒤에 지운다
+            with anyio.CancelScope(shield=True):
+                await asyncio.to_thread(delete_cli_session_file, backup["cli_session_id"])
     return convo, greeting, turns, persona, voice
 
 
@@ -1245,16 +1262,21 @@ async def _past_summary(db: AsyncSession, convo: ConversationSession) -> PastSum
 async def _restore_ended(
     app: FastAPI, db: AsyncSession, session_id: str, backup: dict, cli_session_id: str | None
 ) -> None:
-    """다시 열기에 실패하면 끝난 상태와 정리 상태를 되돌리고 새로 띄운 CLI를 정리한다."""
+    """다시 열기에 실패하면 원래 상태(끝남 또는 이어받은 진행 중)와 정리 상태를 되돌리고 새로 띄운
+    CLI를 정리한다. 이어받은 대화는 다음 턴이 예전 CLI 기록으로 이어 간다."""
     await db.rollback()
     await teardown(app, session_id, cli_session_id)
-    await db.execute(
-        update(ConversationSession)
-        .where(ConversationSession.id == session_id)
-        .values(**backup)
-        .execution_options(synchronize_session=False)
-    )
+    query = update(ConversationSession).where(ConversationSession.id == session_id)
+    took_over = backup["status"] is not SessionStatus.ENDED
+    if took_over:
+        # 이어받는 사이 끝내기(다른 기기·무발화)가 끝냈으면 그대로 둔다: 끝내기가 잠금을 얻은 뒤
+        # 정리한다. 예전 CLI 기록은 그쪽이 모르므로 여기서 지운다
+        query = query.where(ConversationSession.status != SessionStatus.ENDED)
+    result = await db.execute(query.values(**backup).execution_options(synchronize_session=False))
     await db.commit()
+    if took_over and result.rowcount == 0:
+        await asyncio.to_thread(delete_cli_session_file, backup["cli_session_id"])
+        return
     if backup["extract_status"] is ExtractStatus.PENDING:  # 멈췄던 정리를 다시 띄운다
         extract.ensure_extraction(app, session_id)
 

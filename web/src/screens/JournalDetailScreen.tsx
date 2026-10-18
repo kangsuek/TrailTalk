@@ -45,7 +45,7 @@ const CONTINUE_MESSAGES: Record<Exclude<ContinueResult, 'ok'>, string> = {
  * onContinue: 끝난 대화를 대화 화면에서 이어서 한다(S3-26). 대화 화면에서 진행 중인 대화면 그 화면으로 옮긴다.
  * onDeleted: 대화를 지운 뒤(S3-29, App이 목록으로 옮긴다).
  * liveSessionId: 대화 화면에서 진행 중인 대화. 진행 중인데 거기 열려 있지 않은 대화(앱을 닫았거나 다른 기기)는
- * 여기서 끝낼 수 있어야 지우거나 이어서 할 수 있다. */
+ * 여기서 이어서 하거나 끝낼 수 있다(끝내야 지울 수 있다). */
 export function JournalDetailScreen({
   sessionId = null,
   onBack = () => {},
@@ -358,7 +358,7 @@ function Detail({
   retrying: boolean
   deleting: boolean // 지우는 동안 이어서·다시 정리를 막는다(지운 대화를 다시 열거나 정리하지 않게)
   onContinue?: (mode: ContinueMode) => void
-  live: boolean // 대화 화면에서 진행 중인 대화다(거기서 끝낸다)
+  live: boolean // 대화 화면에서 진행 중인 대화다(거기서 이어 가고 끝낸다)
   onReturn?: () => void
   ending: boolean
   onEnd: () => void
@@ -548,32 +548,33 @@ function Detail({
           ))}
         </ol>
       </details>
-      {onContinue && session.status === 'ended' && (
-        <div className="journal-continue" role="group" aria-label="이어서 대화하기">
-          <button type="button" className="secondary" disabled={deleting} onClick={() => onContinue('text')}>
-            글로 이어서
-          </button>
-          <button type="button" disabled={deleting} onClick={() => onContinue('voice')}>
-            음성으로 이어서
-          </button>
-        </div>
-      )}
-      {session.status !== 'ended' &&
-        (live ? (
-          onReturn && (
-            <div className="journal-continue single">
-              <button type="button" onClick={onReturn}>
-                대화로 돌아가기
-              </button>
-            </div>
-          )
-        ) : (
+      {session.status !== 'ended' && live ? (
+        onReturn && (
           <div className="journal-continue single">
-            <button type="button" disabled={ending || deleting} onClick={onEnd}>
-              {ending ? '끝내는 중…' : '대화 끝내기'}
+            <button type="button" onClick={onReturn}>
+              대화로 돌아가기
             </button>
           </div>
-        ))}
+        )
+      ) : (
+        // 끝난 대화, 또는 대화 화면에 열려 있지 않은 진행 중 대화(앱을 닫았거나 다른 기기)는 이어서 한다.
+        // 진행 중인 대화는 서버가 지금 CLI를 닫고 이어받는다(S3-37)
+        onContinue && (
+          <div className="journal-continue" role="group" aria-label="이어서 대화하기">
+            <button type="button" className="secondary" disabled={deleting || ending} onClick={() => onContinue('text')}>
+              글로 이어서
+            </button>
+            <button type="button" disabled={deleting || ending} onClick={() => onContinue('voice')}>
+              음성으로 이어서
+            </button>
+          </div>
+        )
+      )}
+      {session.status !== 'ended' && !live && (
+        <button type="button" className="secondary journal-end" disabled={ending || deleting} onClick={onEnd}>
+          {ending ? '끝내는 중…' : '대화 끝내기'}
+        </button>
+      )}
     </article>
   )
 }

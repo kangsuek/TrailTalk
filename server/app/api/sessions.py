@@ -128,9 +128,10 @@ async def create_session(body: SessionCreate, request: Request, db: DbSession) -
 async def reopen_session(
     session_id: str, body: SessionCreate, request: Request, db: DbSession
 ) -> SessionReopened:
-    """끝난 대화를 같은 세션으로 다시 연다(S3-26). 다시 끝내면 일지를 새로 정리한다.
+    """대화를 같은 세션으로 다시 연다(S3-26). 다시 끝내면 일지를 새로 정리한다.
 
-    진행 중인 대화는 409 session_not_ended, 없으면 404 session_not_found.
+    끝나지 않은 대화도 이어받는다(S3-37, 지금 CLI를 닫고 새로 띄운다). 답변 중이면 409
+    turn_in_progress, 없으면 404 session_not_found.
     """
     app = request.app
     convo, greeting, turns, loaded, voice = await conversation.reopen_session(
