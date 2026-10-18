@@ -363,7 +363,7 @@
 | S3-23 | 일지 인용: 요약·메모에 출처 번호, 인용 목록(사용자 요청 추가, S3-22 롤백 뒤 기존 형식 유지) | 완료 | `server/app/jobs/extract.py`, `server/app/jobs/page_title.py`, `web/src/screens/JournalDetailScreen.tsx` | `9716543` |
 | S3-24 | 일지 표시 개선: 결론·알게 된 것·확인할 것(사용자 요청 추가) | 완료 | `server/app/persona/rules.py`, `server/app/jobs/extract.py`, `web/src/screens/JournalDetailScreen.tsx` | `6a72b59` |
 | S3-25 | 일지 목록 여러 개 선택·한 번에 삭제(사용자 요청 추가) | 완료 | `web/src/screens/JournalListScreen.tsx`, `web/src/index.css` | `07ccb8d` |
-| S3-26 | 끝난 대화 이어서 하기(사용자 요청 추가) | 완료 | `server/app/services/conversation.py`, `server/app/api/sessions.py`, `server/app/persona/prompt.py`, `web/src/screens/JournalDetailScreen.tsx`, `web/src/screens/ConversationScreen.tsx` | |
+| S3-26 | 끝난 대화 이어서 하기(사용자 요청 추가) | 완료 | `server/app/services/conversation.py`, `server/app/api/sessions.py`, `server/app/persona/prompt.py`, `web/src/screens/JournalDetailScreen.tsx`, `web/src/screens/ConversationScreen.tsx` | `d91f13b`, `4c87241` |
 
 #### S3-01 STT(Whisper)
 - [x] `SttProvider` 인터페이스
@@ -833,3 +833,4 @@
 | 2026-10-17 | S3-23 일지 인용: 기존 형식에 검색 내용 출처 번호 [1][2]와 인용 목록(기사 제목 URL), 출처 URL 저장·조회 때 번호 매김, 인용 제목 보완, 추출 평가 100% | `9716543` |
 | 2026-10-17 | S3-24 일지 표시 개선: 결론·알게 된 것·확인할 것, 사실은 한 곳에만, 예전 형식 다시 정리, 추출 평가 채점 확대(6회차 재현율 100%) | `6a72b59` |
 | 2026-10-18 | S3-25 일지 목록 여러 개 선택·한 번에 삭제(서버 변경 없음, 항목별 DELETE 차례 호출) | `07ccb8d` |
+| 2026-10-18 | S3-26 끝난 대화 이어서 하기: 다시 열기 API(전문을 프롬프트에 넣어 새 CLI, 재개 인사말, 다시 끝내면 같은 일지 재정리), 일지 상세 글·음성으로 이어서 | `d91f13b`, `4c87241` |
