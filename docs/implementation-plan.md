@@ -366,7 +366,7 @@
 | S3-26 | 끝난 대화 이어서 하기(사용자 요청 추가) | 완료 | `server/app/services/conversation.py`, `server/app/api/sessions.py`, `server/app/persona/prompt.py`, `web/src/screens/JournalDetailScreen.tsx`, `web/src/screens/ConversationScreen.tsx` | `d91f13b`, `4c87241` |
 | S3-27 | 이어서 하기 프롬프트 줄이기: 일지 정리 재사용(사용자 요청 추가) | 완료 | `server/app/persona/prompt.py`, `server/app/services/conversation.py` |  `18a9145` |
 | S3-28 | 지난 대화 전문 검색 도구 search_conversations(사용자 요청 추가) | 완료 | `server/app/mcp/server.py`, `server/app/persona/rules.py`, `web/src/core/conversation.ts` | `39a8f33` |
-| S3-29 | 일지 상세에서 삭제(사용자 요청 추가) | 완료 | `web/src/screens/JournalDetailScreen.tsx`, `web/src/App.tsx` | |
+| S3-29 | 일지 상세에서 삭제(사용자 요청 추가) | 완료 | `web/src/screens/JournalDetailScreen.tsx`, `web/src/App.tsx` | `c02b920` |
 
 #### S3-01 STT(Whisper)
 - [x] `SttProvider` 인터페이스
@@ -858,3 +858,4 @@
 | 2026-10-18 | S3-26 끝난 대화 이어서 하기: 다시 열기 API(전문을 프롬프트에 넣어 새 CLI, 재개 인사말, 다시 끝내면 같은 일지 재정리), 일지 상세 글·음성으로 이어서 | `d91f13b`, `4c87241` |
 | 2026-10-18 | S3-27 이어서 하기 프롬프트 줄이기: 정리를 마친 긴 대화는 일지 정리 + 최근 원문 4천 자(이어서 블록 약 1/3) | `18a9145` |
 | 2026-10-18 | S3-28 지난 대화 전문 검색 도구 search_conversations(모든 대화, 필요할 때만 원문 검색) | `39a8f33` |
+| 2026-10-18 | S3-29 일지 상세에서 삭제(맨 아래 버튼, 확인 뒤 목록으로) | `c02b920` |
