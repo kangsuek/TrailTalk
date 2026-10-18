@@ -372,7 +372,7 @@
 | S3-32 | 디자인 시안 적용: 하단 3탭·카드 스타일(사용자 요청 추가) | 완료 | `web/src/App.tsx`, `web/src/index.css`, `web/src/screens/*.tsx` |  `5943fee` |
 | S3-33 | 긴 발화가 끊겨 뒷말이 사라지는 문제(사용자 요청 추가) | 완료 | `web/src/core/sessionMachine.ts`, `shared/fixtures/transitions.json`, `shared/client-defaults.json` | `69e4dcc` |
 | S3-34 | 턴마다 지금 시각을 LLM에 알리기(사용자 요청 추가) | 완료 | `server/app/services/conversation.py`, `server/app/persona/rules.py`, `server/app/persona/prompt.py` | |
-| S3-36 | Claude 남은 토큰 표시·헤더 고정(사용자 요청 추가) | 완료 | `server/app/llm/usage.py`, `server/app/api/usage.py`, `server/app/llm/claude_cli.py`, `web/src/core/usage.ts`, `web/src/screens/UsageMeter.tsx`, `web/src/App.tsx`, `web/src/index.css` | `2bf8780` |
+| S3-36 | Claude 남은 토큰 표시·헤더 고정(사용자 요청 추가) | 완료 | `server/app/llm/usage.py`, `server/app/api/usage.py`, `server/app/llm/claude_cli.py`, `web/src/core/usage.ts`, `web/src/screens/UsageMeter.tsx`, `web/src/App.tsx`, `web/src/index.css` | `2bf8780`, `42119ec` |
 
 #### S3-01 STT(Whisper)
 - [x] `SttProvider` 인터페이스
@@ -917,5 +917,5 @@
 | 2026-10-18 | S3-32 디자인 시안 적용(하단 3탭 대화·일지·설정, 색 토큰 라이트·다크, 대화 시작 큰 음성 버튼, 일지·설정 카드) |  `5943fee` |
 | 2026-10-18 | S3-33 긴 발화 끊김(처리 중 이어 말하면 첫 답변을 취소하고 뒷말을 들음, 말하기 중 끝난 말 보관, 무음 대기 1.8초·무음 기준 0.25) | `69e4dcc` |
 | 2026-10-18 | S3-34 턴마다 지금 시각을 LLM에 알리기(CLI 입력 앞 앱 안내, 기록에는 남기지 않음) | |
-| 2026-10-18 | S3-36 Claude 남은 토큰 표시(GET /api/usage, 헤더 아래 막대)·헤더 고정 | `2bf8780` |
-| 2026-10-18 | S3-36 바뀐 시안대로 음성 구슬 크기 절반(시작 66px, 대화 중 52px) | |
+| 2026-10-18 | S3-36 Claude 남은 토큰 표시(GET /api/usage, 헤더 아래 막대)·헤더 고정 | `2bf8780`, `42119ec` |
+| 2026-10-18 | S3-36 바뀐 시안대로 음성 구슬 크기 절반(시작 66px, 대화 중 52px) | `42119ec` |
