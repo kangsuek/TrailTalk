@@ -52,6 +52,7 @@ from app.db.models import (
     ConversationMode,
     ConversationSession,
     ExtractStatus,
+    Note,
     SessionStatus,
     Turn,
     TurnLatency,
@@ -75,7 +76,14 @@ from app.llm.events import (
 from app.mcp.server import mcp_client_config
 from app.persona.loader import LoadedPersona
 from app.persona.memory import load_memory
-from app.persona.prompt import MemoryContext, PastTurn, build_system_prompt
+from app.persona.prompt import (
+    SUMMARY_NOTES_MAX,
+    MemoryContext,
+    PastNote,
+    PastSummary,
+    PastTurn,
+    build_system_prompt,
+)
 from app.persona.rules import (
     GREETING_INSTRUCTION,
     INTERRUPTED_HEARD,
@@ -200,6 +208,7 @@ def _session_prompt(
     started_at: datetime,
     memory: MemoryContext,
     previous: list[PastTurn] | None = None,
+    previous_summary: PastSummary | None = None,
 ) -> str:
     """세션의 시스템 프롬프트. 미리 띄우기와 open_llm이 같은 글자를 만들도록 여기서만 조립한다.
     previous: 다시 연 대화의 앞부분 기록(started_at에는 다시 연 시각을 넘긴다)."""
@@ -211,6 +220,7 @@ def _session_prompt(
         timezone=settings.timezone,
         memory=memory,
         previous=previous,
+        previous_summary=previous_summary,
     )
 
 
@@ -1148,6 +1158,7 @@ async def reopen_session(
             select(Turn).where(Turn.session_id == session_id).order_by(Turn.seq)
         )
         previous = [PastTurn(t.role.value, t.text, t.interrupted) for t in rows if t.text.strip()]
+        summary = await _past_summary(db, convo)
         # 상태와 프롬프트를 한 번에 바꾼다(그 사이 서버가 꺼져도 전문 없는 프롬프트가 남지 않게)
         convo.status = SessionStatus.ACTIVE
         convo.mode = mode
@@ -1156,7 +1167,7 @@ async def reopen_session(
         convo.cli_session_id = None
         convo.reopened_at = now
         convo.system_prompt = _session_prompt(
-            app.state.settings, profile, loaded, mode, now, memory, previous
+            app.state.settings, profile, loaded, mode, now, memory, previous, summary
         )
         await db.commit()
         session, persona, voice = await open_llm(app, db, convo)
@@ -1194,6 +1205,29 @@ async def reopen_session(
     finally:
         runtime.turn_lock.release()
     return convo, greeting, turns, persona, voice
+
+
+async def _past_summary(db: AsyncSession, convo: ConversationSession) -> PastSummary | None:
+    """다시 여는 대화의 일지 정리(S3-27). 정리를 마친(DONE) 일지만 쓴다: 그때는 끝낸 시점의 전문
+    (아주 긴 대화는 정리 한도인 뒤쪽 10만 자)으로 정리했다. 정리 뒤 턴이 붙으면(오프라인 기록) 다시
+    PENDING이 된다. 정리 중·실패·정리 전이면 None(전문을 그대로 넣는다)."""
+    if convo.extract_status is not ExtractStatus.DONE or not convo.summary:
+        return None
+    rows = await db.execute(  # 최근 노트부터 고른다(다시 열 때마다 새 노트가 빠지지 않게)
+        select(Note.kind, Note.content, Note.done)
+        .where(Note.session_id == convo.id)
+        .order_by(Note.created_at.desc(), Note.id.desc())
+        .limit(SUMMARY_NOTES_MAX)
+    )
+    notes = [PastNote(extract.SAVED_LABELS[kind], content, done) for kind, content, done in rows][
+        ::-1
+    ]
+    return PastSummary(
+        title=convo.title,
+        summary=[line for line in convo.summary.splitlines() if line.strip()],  # 줄바꿈으로 이은 글
+        checks=list(convo.checks or []),
+        notes=notes,
+    )
 
 
 async def _restore_ended(

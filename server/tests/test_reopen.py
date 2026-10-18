@@ -267,3 +267,43 @@ def test_reopen_twice_and_count_only_new_notes(api):
     load(api, save_idea)
     closed = api.post(f"/api/sessions/{session_id}/end")
     assert closed.json()["saved"] == {"idea": 1, "todo": 0, "memo": 0}
+
+
+def system_prompt_of(api, session_id: str) -> str:
+    return session_row(api, session_id).system_prompt
+
+
+def test_reopen_uses_journal_summary_and_recent_turns(api):
+    """정리가 끝난 일지를 다시 열면 앞부분은 정리로 대신하고 최근 원문만 넣는다(S3-27)."""
+    session_id = start(api)["session"]["id"]
+    turn(api, session_id, "앞부분 이야기 " + "나" * 3000)
+    turn(api, session_id, "중간 이야기 " + "다" * 3000)
+    turn(api, session_id, "마지막 이야기")
+    end(api, session_id)
+    row = session_row(api, session_id)
+    assert row.extract_status is ExtractStatus.DONE and row.summary
+
+    assert reopen(api, session_id).status_code == 200
+    prompt = system_prompt_of(api, session_id)
+    block = prompt[prompt.index("# 이어서 하는 대화") : prompt.index("# 역할 규칙")]
+    lines = row.summary.splitlines()  # 요약은 줄바꿈으로 이은 글이다
+    assert "<정리>" in block
+    assert all(f"- {line}" in block for line in lines)  # 요약 줄이 그대로(글자로 쪼개지지 않고)
+    assert any(n.content in block for n in notes_of(api, session_id))  # 이 대화의 노트
+    assert "(앞부분은 위 정리로 대신함)" in block
+    assert "앞부분 이야기" not in block and "사용자: 마지막 이야기" in block
+
+
+def test_reopen_without_finished_journal_keeps_full_transcript(
+    fake_cli, home, oneshot, monkeypatch
+):
+    monkeypatch.setenv("FAKE_CLAUDE_FIXTURE", "multiturn")
+    oneshot("__hang__")  # 정리가 끝나지 않은 채 다시 연다
+    with make_api(fake_cli, extract_wait_s=0.2) as api:
+        session_id = start(api)["session"]["id"]
+        turn(api, session_id, "앞부분 이야기 " + "나" * 3000)
+        turn(api, session_id, "중간 이야기 " + "다" * 3000)
+        api.post(f"/api/sessions/{session_id}/end")
+        assert reopen(api, session_id).status_code == 200
+        prompt = system_prompt_of(api, session_id)
+        assert "<정리>" not in prompt and "사용자: 앞부분 이야기" in prompt
