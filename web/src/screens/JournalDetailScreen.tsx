@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { endSession } from '../api/conversation'
 import { ApiError } from '../api/http'
 import {
   deleteJournal,
@@ -41,18 +42,23 @@ const CONTINUE_MESSAGES: Record<Exclude<ContinueResult, 'ok'>, string> = {
 }
 
 /** 일지 상세: 요약, 아이디어 별표, 할 일 체크, 메모, 대화 전문. 다른 세션을 열 때는 key로 새로 그린다(App).
- * onContinue: 끝난 대화를 대화 화면에서 이어서 한다(S3-26). onDeleted: 대화를 지운 뒤(S3-29, App이 목록으로 옮긴다). */
+ * onContinue: 끝난 대화를 대화 화면에서 이어서 한다(S3-26). 대화 화면에서 진행 중인 대화면 그 화면으로 옮긴다.
+ * onDeleted: 대화를 지운 뒤(S3-29, App이 목록으로 옮긴다).
+ * liveSessionId: 대화 화면에서 진행 중인 대화. 진행 중인데 거기 열려 있지 않은 대화(앱을 닫았거나 다른 기기)는
+ * 여기서 끝낼 수 있어야 지우거나 이어서 할 수 있다. */
 export function JournalDetailScreen({
   sessionId = null,
   onBack = () => {},
   onContinue,
   onDeleted = () => {},
+  liveSessionId = () => null,
   pollMs = POLL_MS,
 }: {
   sessionId?: string | null
   onBack?: () => void
   onContinue?: (sessionId: string, mode: ContinueMode) => ContinueResult
   onDeleted?: () => void
+  liveSessionId?: () => string | null
   pollMs?: number
 }) {
   const [state, setState] = useState<DetailState>({ kind: 'loading' })
@@ -181,8 +187,34 @@ export function JournalDetailScreen({
       mounted.current = false
     }
   }, [])
+  // 상세를 보는 사이 대화 화면의 대화가 끝났을 수 있어 누를 때 다시 본다(끝났으면 다시 열지 않고 새로 불러온다)
+  const backToConversation = () => {
+    if (sessionId === null) return
+    if (liveSessionId() !== sessionId) return reload()
+    continueIn('text')
+  }
+
+  // 대화 화면에 열려 있지 않은 진행 중 대화를 끝낸다. 서버는 일지 정리를 잠깐 기다린 뒤 답하므로
+  // 대화 화면의 끝내기처럼 그동안 정리 중이라고 보인다. 끝나면 다시 불러온다(정리가 남았으면 자동 새로고침)
+  const [ending, setEnding] = useState(false)
+  const endHere = async () => {
+    if (sessionId === null || ending || deleting) return
+    setSaveError(null)
+    setEnding(true)
+    try {
+      await endSession(sessionId)
+    } catch (error) {
+      if (!mounted.current) return
+      setEnding(false)
+      return isGone(error) ? markDeleted() : setSaveError(errorMessage(error, '대화를 끝내지 못했어요.'))
+    }
+    if (!mounted.current) return
+    setEnding(false)
+    reload()
+  }
+
   const remove = async () => {
-    if (sessionId === null || deleting || state.kind !== 'ready') return
+    if (sessionId === null || deleting || ending || state.kind !== 'ready') return
     // 터치 화면에는 툴팁이 없으므로 지울 수 없는 이유를 글로 보인다
     if (state.detail.session.status !== 'ended') return setSaveError(ACTIVE_DELETE)
     if (!window.confirm(DELETE_CONFIRM)) return
@@ -249,6 +281,10 @@ export function JournalDetailScreen({
           retrying={retrying}
           deleting={deleting}
           onContinue={onContinue ? continueIn : undefined}
+          live={liveSessionId() === sessionId}
+          onReturn={onContinue ? backToConversation : undefined}
+          ending={ending}
+          onEnd={() => void endHere()}
         />
       )}
       {state.kind === 'ready' && (
@@ -256,7 +292,7 @@ export function JournalDetailScreen({
           type="button"
           className="journal-delete"
           aria-disabled={state.detail.session.status !== 'ended'}
-          disabled={deleting}
+          disabled={deleting || ending}
           onClick={() => void remove()}
         >
           {deleting ? '지우는 중…' : '이 대화 삭제'}
@@ -310,6 +346,10 @@ function Detail({
   retrying,
   deleting,
   onContinue,
+  live,
+  onReturn,
+  ending,
+  onEnd,
 }: {
   detail: JournalDetail
   onChange: (note: NoteOut, patch: NotePatch) => void
@@ -318,6 +358,10 @@ function Detail({
   retrying: boolean
   deleting: boolean // 지우는 동안 이어서·다시 정리를 막는다(지운 대화를 다시 열거나 정리하지 않게)
   onContinue?: (mode: ContinueMode) => void
+  live: boolean // 대화 화면에서 진행 중인 대화다(거기서 끝낸다)
+  onReturn?: () => void
+  ending: boolean
+  onEnd: () => void
 }) {
   const { session, notes, turns } = detail
   const ideas = notes.filter((n) => n.kind === 'idea')
@@ -338,7 +382,9 @@ function Detail({
       <h3>{session.title ?? '제목 없는 대화'}</h3>
       <p className="journal-date">{dateLabel(session.date)}</p>
       {session.status !== 'ended' && (
-        <p className="journal-note">아직 진행 중인 대화예요. 대화를 끝내면 일지로 정리돼요.</p>
+        <p className="journal-note" aria-live="polite">
+          {ending ? '대화를 끝내고 일지로 정리하는 중이에요…' : '아직 진행 중인 대화예요. 대화를 끝내면 일지로 정리돼요.'}
+        </p>
       )}
       {session.journal_status === 'pending' && (
         <div className="journal-note" aria-live="polite">
@@ -512,6 +558,22 @@ function Detail({
           </button>
         </div>
       )}
+      {session.status !== 'ended' &&
+        (live ? (
+          onReturn && (
+            <div className="journal-continue single">
+              <button type="button" onClick={onReturn}>
+                대화로 돌아가기
+              </button>
+            </div>
+          )
+        ) : (
+          <div className="journal-continue single">
+            <button type="button" disabled={ending || deleting} onClick={onEnd}>
+              {ending ? '끝내는 중…' : '대화 끝내기'}
+            </button>
+          </div>
+        ))}
     </article>
   )
 }

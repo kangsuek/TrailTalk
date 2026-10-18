@@ -1104,6 +1104,11 @@ body {
   min-height: 52px;
 }
 
+/* 진행 중인 대화: 대화로 돌아가기 또는 끝내기 한 버튼 */
+.journal-continue.single {
+  grid-template-columns: 1fr;
+}
+
 .journal button.idea-done {
   flex: none;
   min-height: 44px;

@@ -325,6 +325,80 @@ describe('JournalDetailScreen', () => {
     expect(screen.queryByRole('button', { name: '글로 이어서' })).not.toBeInTheDocument()
   })
 
+  it('대화 화면에 열려 있지 않은 진행 중 대화는 여기서 끝내고, 끝나면 이어서 할 수 있다', async () => {
+    let status = 'active'
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/api/sessions/s1/end' && init?.method === 'POST') {
+        status = 'ended'
+        return new Response(
+          JSON.stringify({
+            session: { id: 's1', status: 'ended' },
+            closing: '수고했어요.',
+            closing_audio: null,
+            saved: { idea: 0, todo: 0, memo: 0 },
+            journal_status: 'done',
+          }),
+        )
+      }
+      const journal_status = status === 'ended' ? 'done' : null
+      return new Response(JSON.stringify({ ...DETAIL, session: { ...DETAIL.session, status, journal_status } }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<JournalDetailScreen sessionId="s1" onContinue={() => 'ok'} liveSessionId={() => null} />)
+    fireEvent.click(await screen.findByRole('button', { name: '대화 끝내기' }))
+    expect(screen.getByRole('button', { name: '이 대화 삭제' })).toHaveAttribute('aria-disabled', 'true')
+    expect(fetchMock).toHaveBeenCalledWith('/api/sessions/s1/end', expect.objectContaining({ method: 'POST' }))
+    expect(await screen.findByRole('button', { name: '글로 이어서' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '대화 끝내기' })).toBeNull()
+    expect(screen.getByRole('button', { name: '이 대화 삭제' })).toHaveAttribute('aria-disabled', 'false')
+  })
+
+  it('대화를 끝내지 못하면 알리고 버튼을 남긴다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        url.endsWith('/end')
+          ? new Response(JSON.stringify({ error: { code: 'turn_in_progress', message: '답변 중이에요.' } }), { status: 409 })
+          : new Response(JSON.stringify({ ...DETAIL, session: { ...DETAIL.session, status: 'paused', journal_status: null } })),
+      ),
+    )
+    render(<JournalDetailScreen sessionId="s1" />)
+    fireEvent.click(await screen.findByRole('button', { name: '대화 끝내기' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('답변 중이에요.')
+    expect(screen.getByRole('button', { name: '대화 끝내기' })).toBeEnabled()
+  })
+
+  it('대화 화면에서 진행 중인 대화는 끝내기 대신 대화로 돌아간다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ ...DETAIL, session: { ...DETAIL.session, status: 'active', journal_status: null } }))),
+    )
+    const onContinue = vi.fn(() => 'ok' as const)
+    render(<JournalDetailScreen sessionId="s1" onContinue={onContinue} liveSessionId={() => 's1'} />)
+    fireEvent.click(await screen.findByRole('button', { name: '대화로 돌아가기' }))
+    expect(onContinue).toHaveBeenCalledWith('s1', 'text')
+    expect(screen.queryByRole('button', { name: '대화 끝내기' })).toBeNull()
+  })
+
+  it('보는 사이 대화 화면의 대화가 끝났으면 돌아가기를 눌러도 다시 열지 않고 새로 불러온다', async () => {
+    let status = 'active'
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(JSON.stringify({ ...DETAIL, session: { ...DETAIL.session, status, journal_status: status === 'ended' ? 'done' : null } })),
+      ),
+    )
+    let live: string | null = 's1'
+    const onContinue = vi.fn(() => 'ok' as const)
+    render(<JournalDetailScreen sessionId="s1" onContinue={onContinue} liveSessionId={() => live} />)
+    const back = await screen.findByRole('button', { name: '대화로 돌아가기' })
+    live = null
+    status = 'ended'
+    fireEvent.click(back)
+    expect(await screen.findByRole('button', { name: '글로 이어서' })).toBeInTheDocument()
+    expect(onContinue).not.toHaveBeenCalled()
+  })
+
   it('맨 아래 삭제는 확인한 뒤 지우고 목록으로 돌아간다(404도 지운 것으로 본다)', async () => {
     const confirm = vi.fn(() => false)
     vi.stubGlobal('confirm', confirm)

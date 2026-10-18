@@ -138,6 +138,7 @@ function App() {
             sessionId={journalId}
             onBack={() => setJournalView('list')}
             onContinue={continueSession}
+            liveSessionId={() => conversation.current?.liveSession() ?? null}
             onDeleted={() => {
               setJournalId(null)
               setJournalView('list')

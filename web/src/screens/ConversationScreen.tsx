@@ -30,6 +30,8 @@ export interface ConversationHandle {
    * 여기서 막는다). 음성은 시작 버튼처럼 사용자 동작 안에서 불러야 소리가 난다
    */
   continueWith(sessionId: string, mode: Mode): ContinueResult
+  /** 이 화면에서 진행 중(또는 다시 여는 중)인 대화. 없거나 끝내는 중이면 null */
+  liveSession(): string | null
 }
 
 const MODE_KEY = 'trailtalk.mode'
@@ -308,15 +310,17 @@ export function ConversationScreen({
       })
     })
 
+  const live =
+    state.status === 'starting' ||
+    state.status === 'active' ||
+    state.status === 'paused' ||
+    state.ending ||
+    voice.machine.name !== 'idle'
+  const liveSession = () => (live && !state.ending ? (state.sessionId ?? reopening.current) : null)
+
   const continueWith = (sessionId: string, next: Mode): ContinueResult => {
-    const live =
-      state.status === 'starting' ||
-      state.status === 'active' ||
-      state.status === 'paused' ||
-      state.ending ||
-      voice.machine.name !== 'idle'
     // 그 대화가 이미 진행 중(또는 다시 여는 중)이면 방식은 그대로 두고 화면만 옮긴다
-    if (live) return (state.sessionId ?? reopening.current) === sessionId && !state.ending ? 'ok' : 'busy'
+    if (live) return liveSession() === sessionId ? 'ok' : 'busy'
     if (next === 'voice') {
       if (voice.ready !== true) return voice.ready === null ? 'voice_loading' : 'voice_unavailable'
       if (!voice.resume(sessionId)) return 'busy'
@@ -342,7 +346,7 @@ export function ConversationScreen({
     return 'ok'
   }
   // 상세 화면의 버튼이 늘 지금 상태로 판단하도록 매번 새로 넘긴다
-  useImperativeHandle(ref, () => ({ continueWith }))
+  useImperativeHandle(ref, () => ({ continueWith, liveSession }))
 
   const canSend =
     state.sessionId !== null &&
