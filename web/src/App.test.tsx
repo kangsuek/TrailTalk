@@ -62,6 +62,15 @@ describe('App', () => {
     expect(await screen.findByText('서버 연결됨')).toBeInTheDocument()
   })
 
+  it('지금 탭을 앱 뿌리에 표시한다(대화 탭에서는 헤더가 함께 스크롤된다)', () => {
+    stubHealth(true)
+    const { container } = render(<App />)
+    const app = container.querySelector('.app')
+    expect(app).toHaveAttribute('data-tab', 'conversation')
+    fireEvent.click(screen.getByRole('tab', { name: '일지' }))
+    expect(app).toHaveAttribute('data-tab', 'journal')
+  })
+
   it('탭은 WAI-ARIA 탭 패턴을 따른다(패널 연결, 화살표·Home·End 이동)', () => {
     stubHealth(true)
     render(<App />)

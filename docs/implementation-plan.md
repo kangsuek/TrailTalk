@@ -374,6 +374,7 @@
 | S3-34 | 턴마다 지금 시각을 LLM에 알리기(사용자 요청 추가) | 완료 | `server/app/services/conversation.py`, `server/app/persona/rules.py`, `server/app/persona/prompt.py` | |
 | S3-36 | Claude 남은 토큰 표시·헤더 고정(사용자 요청 추가) | 완료 | `server/app/llm/usage.py`, `server/app/api/usage.py`, `server/app/llm/claude_cli.py`, `web/src/core/usage.ts`, `web/src/screens/UsageMeter.tsx`, `web/src/App.tsx`, `web/src/index.css` | `2bf8780`, `42119ec` |
 | S3-37 | 대화 화면에 열려 있지 않은 진행 중 대화를 일지 상세에서 이어서 하기·끝내기(사용자 오류 신고) | 완료 | `server/app/services/conversation.py`, `web/src/screens/JournalDetailScreen.tsx`, `web/src/screens/ConversationScreen.tsx`, `web/src/App.tsx`, `web/src/index.css` | `a852f8c`, `d4dbea7` |
+| S3-38 | 대화 탭에서는 헤더가 함께 스크롤(사용자 요청 추가) | 완료 | `web/src/App.tsx`, `web/src/index.css` | |
 
 #### S3-01 STT(Whisper)
 - [x] `SttProvider` 인터페이스
@@ -623,6 +624,11 @@
 - 리뷰 반영(이어서): 이어받는 사이 끝내기가 끝냈으면 실패해도 진행 중으로 되돌리지 않음(예전 CLI 기록만 지움), 이어받을 때 예전 끼어들기 안내(heard_note) 비움, 저장한 뒤의 오류는 되돌리지 않고 예전 기록은 잠금을 푼 뒤 지움
 - 확인(이어서): pytest 669, test_reopen 18(+진행 중 대화 이어받기·실패 시 되돌림·사이에 끝남·끼어들기 안내), Vitest 283. Playwright(가짜 CLI 8300, 가짜 마이크): 글 대화 1턴 뒤 창을 닫고 새 창 일지 상세 → "글로 이어서" → 이전 말풍선 + 재개 인사말, 새 메시지에 답변. 그 대화를 다시 닫고 새 창에서 "음성으로 이어서" → 대화 탭, 음성 상태 listening
 - 남은 한계: 다른 기기에서 진행 중인 대화도 여기서 끝내거나 이어받을 수 있다(그 기기는 같은 세션에 이어 쓴다)(그 기기는 다음 턴에 끝난 대화로 안내받음). 음성 대화였으면 끝낼 때 마무리 멘트 음성을 합성하지만 재생하지 않는다
+
+#### S3-38 대화 탭에서는 헤더가 함께 스크롤
+사용자 요청(2026-10-18): 대화 내용이 보이는 화면에서는 헤더(+남은 토큰 막대)를 고정하지 않고 함께 스크롤해 말풍선을 넓게 본다. 일지·설정 탭은 S3-36대로 고정.
+- [x] `.app`에 `data-tab`(지금 탭)을 달고 대화 탭에서만 `.app-top`을 `position: static`, 그 탭의 `scroll-padding-top`을 0으로(`html:has(...)`). 입력창·음성 패널·하단 탭의 아래 고정은 그대로
+- 확인: Vitest 284(+data-tab). Playwright 폰 화면(390×844, 가짜 CLI 8300) 라이트·다크: 글 대화 2턴 뒤 맨 아래로 스크롤하면 헤더 top -620px(함께 올라감)·입력창 보임, 맨 위에서 0, 설정 탭은 0
 
 **완료 기준**
 
@@ -933,3 +939,4 @@
 | 2026-10-18 | S3-36 바뀐 시안대로 음성 구슬 크기 절반(시작 66px, 대화 중 52px) | `42119ec` |
 | 2026-10-18 | S3-37 진행 중인데 대화 화면에 열려 있지 않은 대화를 일지 상세에서 끝내기(대화 중이면 대화로 돌아가기) | `a852f8c` |
 | 2026-10-18 | S3-37 열려 있지 않은 진행 중 대화도 글·음성으로 이어서(다시 열기 API가 진행 중 대화를 이어받음) | `d4dbea7` |
+| 2026-10-18 | S3-38 대화 탭에서는 헤더가 함께 스크롤(일지·설정은 고정 유지) | |

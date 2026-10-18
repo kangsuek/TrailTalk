@@ -153,8 +153,9 @@ function App() {
   }
 
   return (
-    <div className="app">
-      {/* 헤더와 남은 토큰 막대는 화면 위에 고정한다(스크롤해도 보이게) */}
+    <div className="app" data-tab={tab}>
+      {/* 헤더와 남은 토큰 막대는 화면 위에 고정한다(스크롤해도 보이게). 대화 탭에서는 말풍선을
+          넓게 보도록 함께 스크롤된다 */}
       <div className="app-top">
         <header>
           <h1>TrailTalk</h1>

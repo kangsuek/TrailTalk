@@ -78,6 +78,15 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
+/* 대화 탭: 대화 내용을 넓게 보도록 헤더도 함께 스크롤한다(가릴 고정 헤더가 없다) */
+.app[data-tab='conversation'] .app-top {
+  position: static;
+}
+
+html:has(.app[data-tab='conversation']) {
+  scroll-padding-top: 0;
+}
+
 .app-top > header {
   min-height: var(--header-h);
   display: flex;
