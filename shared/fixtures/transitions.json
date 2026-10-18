@@ -3991,6 +3991,492 @@
           }
         }
       ]
+    },
+    {
+      "name": "답변을 기다리며 이어서 말하는 중에 첫 답변 문장이 오면 끼어들어 뒷말을 마저 듣는다",
+      "steps": [
+        {
+          "event": {
+            "type": "tap"
+          },
+          "expect": {
+            "state": "processing",
+            "commands": [
+              {
+                "type": "startSession"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "session_started",
+            "turnId": "t0"
+          },
+          "expect": {
+            "state": "speaking",
+            "commands": [
+              {
+                "type": "setVadMode",
+                "mode": "playback"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "playback_idle"
+          },
+          "expect": {
+            "state": "listening",
+            "commands": [
+              {
+                "type": "micOn"
+              },
+              {
+                "type": "setVadMode",
+                "mode": "normal"
+              },
+              {
+                "type": "playSound",
+                "name": "listen"
+              },
+              {
+                "type": "startIdleTimer",
+                "minutes": 30
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "speech_start"
+          },
+          "expect": {
+            "state": "listening",
+            "commands": []
+          }
+        },
+        {
+          "event": {
+            "type": "speech_end",
+            "utteranceId": "u1"
+          },
+          "expect": {
+            "state": "processing",
+            "commands": [
+              {
+                "type": "clearIdleTimer"
+              },
+              {
+                "type": "sendTurn",
+                "utteranceId": "u1"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "turn",
+            "turnId": "t1"
+          },
+          "expect": {
+            "state": "processing",
+            "commands": [],
+            "context": {
+              "userSpeaking": false
+            }
+          }
+        },
+        {
+          "event": {
+            "type": "speech_start"
+          },
+          "expect": {
+            "state": "processing",
+            "commands": [],
+            "context": {
+              "userSpeaking": true,
+              "turnId": "t1"
+            }
+          }
+        },
+        {
+          "event": {
+            "type": "sentence",
+            "turnId": "t1",
+            "index": 0
+          },
+          "expect": {
+            "state": "listening",
+            "commands": [
+              {
+                "type": "stopPlayback"
+              },
+              {
+                "type": "cancelTurn",
+                "turnId": "t1",
+                "lastPlayed": -1
+              },
+              {
+                "type": "micOn"
+              },
+              {
+                "type": "setVadMode",
+                "mode": "normal"
+              },
+              {
+                "type": "playSound",
+                "name": "listen"
+              },
+              {
+                "type": "startIdleTimer",
+                "minutes": 30
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "turn_done",
+            "turnId": "t1",
+            "sessionStatus": "active"
+          },
+          "expect": {
+            "state": "listening",
+            "commands": [],
+            "context": {
+              "userSpeaking": true,
+              "queued": 0
+            }
+          }
+        },
+        {
+          "event": {
+            "type": "speech_end",
+            "utteranceId": "u2"
+          },
+          "expect": {
+            "state": "processing",
+            "commands": [
+              {
+                "type": "clearIdleTimer"
+              },
+              {
+                "type": "sendTurn",
+                "utteranceId": "u2"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "이어서 한 말을 다 끝낸 뒤 온 답변은 그대로 듣고 이어서 한 말은 답변 뒤에 보낸다",
+      "steps": [
+        {
+          "event": {
+            "type": "tap"
+          },
+          "expect": {
+            "state": "processing",
+            "commands": [
+              {
+                "type": "startSession"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "session_started",
+            "turnId": "t0"
+          },
+          "expect": {
+            "state": "speaking",
+            "commands": [
+              {
+                "type": "setVadMode",
+                "mode": "playback"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "playback_idle"
+          },
+          "expect": {
+            "state": "listening",
+            "commands": [
+              {
+                "type": "micOn"
+              },
+              {
+                "type": "setVadMode",
+                "mode": "normal"
+              },
+              {
+                "type": "playSound",
+                "name": "listen"
+              },
+              {
+                "type": "startIdleTimer",
+                "minutes": 30
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "speech_end",
+            "utteranceId": "u1"
+          },
+          "expect": {
+            "state": "processing",
+            "commands": [
+              {
+                "type": "clearIdleTimer"
+              },
+              {
+                "type": "sendTurn",
+                "utteranceId": "u1"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "turn",
+            "turnId": "t1"
+          },
+          "expect": {
+            "state": "processing",
+            "commands": []
+          }
+        },
+        {
+          "event": {
+            "type": "speech_start"
+          },
+          "expect": {
+            "state": "processing",
+            "commands": []
+          }
+        },
+        {
+          "event": {
+            "type": "speech_end",
+            "utteranceId": "u2"
+          },
+          "expect": {
+            "state": "processing",
+            "commands": [
+              {
+                "type": "queueUtterance",
+                "utteranceId": "u2"
+              }
+            ],
+            "context": {
+              "userSpeaking": false,
+              "queued": 1
+            }
+          }
+        },
+        {
+          "event": {
+            "type": "sentence",
+            "turnId": "t1",
+            "index": 0
+          },
+          "expect": {
+            "state": "speaking",
+            "commands": [
+              {
+                "type": "setVadMode",
+                "mode": "playback"
+              }
+            ],
+            "context": {
+              "userSpeaking": false
+            }
+          }
+        },
+        {
+          "event": {
+            "type": "playback_idle"
+          },
+          "expect": {
+            "state": "speaking",
+            "commands": []
+          }
+        },
+        {
+          "event": {
+            "type": "turn_done",
+            "turnId": "t1",
+            "sessionStatus": "active"
+          },
+          "expect": {
+            "state": "processing",
+            "commands": [
+              {
+                "type": "clearIdleTimer"
+              },
+              {
+                "type": "sendQueued"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "말하는 중에 끝난 말은 버리지 않고 큐에 넣었다가 답변 뒤에 보낸다",
+      "steps": [
+        {
+          "event": {
+            "type": "tap"
+          },
+          "expect": {
+            "state": "processing",
+            "commands": [
+              {
+                "type": "startSession"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "session_started",
+            "turnId": "t0"
+          },
+          "expect": {
+            "state": "speaking",
+            "commands": [
+              {
+                "type": "setVadMode",
+                "mode": "playback"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "playback_idle"
+          },
+          "expect": {
+            "state": "listening",
+            "commands": [
+              {
+                "type": "micOn"
+              },
+              {
+                "type": "setVadMode",
+                "mode": "normal"
+              },
+              {
+                "type": "playSound",
+                "name": "listen"
+              },
+              {
+                "type": "startIdleTimer",
+                "minutes": 30
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "speech_end",
+            "utteranceId": "u1"
+          },
+          "expect": {
+            "state": "processing",
+            "commands": [
+              {
+                "type": "clearIdleTimer"
+              },
+              {
+                "type": "sendTurn",
+                "utteranceId": "u1"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "turn",
+            "turnId": "t1"
+          },
+          "expect": {
+            "state": "processing",
+            "commands": []
+          }
+        },
+        {
+          "event": {
+            "type": "sentence",
+            "turnId": "t1",
+            "index": 0
+          },
+          "expect": {
+            "state": "speaking",
+            "commands": [
+              {
+                "type": "setVadMode",
+                "mode": "playback"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "speech_end",
+            "utteranceId": "u2"
+          },
+          "expect": {
+            "state": "speaking",
+            "commands": [
+              {
+                "type": "queueUtterance",
+                "utteranceId": "u2"
+              }
+            ],
+            "context": {
+              "queued": 1
+            }
+          }
+        },
+        {
+          "event": {
+            "type": "playback_idle"
+          },
+          "expect": {
+            "state": "speaking",
+            "commands": []
+          }
+        },
+        {
+          "event": {
+            "type": "turn_done",
+            "turnId": "t1",
+            "sessionStatus": "active"
+          },
+          "expect": {
+            "state": "processing",
+            "commands": [
+              {
+                "type": "clearIdleTimer"
+              },
+              {
+                "type": "sendQueued"
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }

@@ -464,12 +464,52 @@ describe('createVoiceController', () => {
     await tick()
     expect(t.state()).toBe('processing')
     expect(t.enqueued.at(-1)).toEqual({ audio: 'Tk9USUNF', index: null })
+    expect(t.input.setMode).toHaveBeenLastCalledWith('playback') // 안내 음성을 말소리로 잡지 않게
     t.controller.tap()
+    expect(t.input.setMode).toHaveBeenLastCalledWith('normal')
     expect(t.output.stop).toHaveBeenCalled()
     expect(signal?.aborted).toBe(true)
     expect(t.state()).toBe('listening')
     expect(t.deps.cancelTurn).toHaveBeenCalledWith('s1', 'a1', -1)
     expect(t.actions).toContainEqual({ type: 'interrupt', turnId: 'a1', keep: 0 })
+  })
+
+  it('앞말을 보낸 뒤 이어서 말하는 중에 첫 답변이 오면 취소하고 이어 한 말을 다음 턴으로 보낸다', async () => {
+    let signal: AbortSignal | undefined
+    let answer = () => {}
+    const sendAudioTurn = vi.fn<VoiceDeps['sendAudioTurn']>(async (_id, _audio, onEvent, s) => {
+      if (sendAudioTurn.mock.calls.length > 1) {
+        for (const event of TURN) onEvent(event)
+        return
+      }
+      signal = s
+      onEvent({ type: 'turn', turn_id: 'a1' })
+      await new Promise<void>((resolve) => (answer = resolve))
+      onEvent({ type: 'sentence', index: 0, text: '정말요?', audio: 'UzA=' })
+      await new Promise((resolve) => s?.addEventListener('abort', resolve))
+      throw new DOMException('aborted', 'AbortError')
+    })
+    let cancelled = () => {}
+    const cancelTurn = vi.fn(() => new Promise<void>((resolve) => (cancelled = resolve)))
+    const t = setup({ sendAudioTurn, cancelTurn })
+    await startListening(t)
+    t.speak() // 앞말(1.8초 쉬어 끊김)
+    await tick()
+    t.micEvent({ type: 'speech_start' }) // 이어서 말하기 시작
+    answer() // 이어 말하는 중에 앞말의 첫 답변 문장이 왔다
+    await tick()
+    expect(t.output.stop).toHaveBeenCalled()
+    expect(signal?.aborted).toBe(true)
+    expect(t.deps.cancelTurn).toHaveBeenCalledWith('s1', 'a1', -1)
+    expect(t.state()).toBe('listening')
+    t.speak() // 뒷말이 끝났다: 버리지 않고 다음 턴으로 보낸다
+    await tick()
+    // 서버가 앞 답변을 정리하기(취소 응답) 전에 보내면 turn_in_progress로 거절되므로 기다린다
+    expect(sendAudioTurn).toHaveBeenCalledTimes(1)
+    cancelled()
+    await tick()
+    expect(sendAudioTurn).toHaveBeenCalledTimes(2)
+    expect(t.state()).toBe('speaking')
   })
 
   it('끝까지 받은 답변을 재생 중에 끊으면 들려준 문장 번호로 자른다', async () => {

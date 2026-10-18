@@ -27,6 +27,7 @@ export interface SessionState {
   queued: number // 오프라인 큐에 남은 발화 수(이번 대화)
   connected: boolean // 서버에 닿는가(전송 실패면 false, online·성공한 턴이면 true)
   sendingQueued: boolean // 지금 처리 중인 턴이 보관한 말이다(정보용: 전이에는 쓰지 않는다)
+  userSpeaking: boolean // 사용자가 말하는 중이다(speech_start 뒤 speech_end 전, 마이크를 끄면 false)
 }
 
 export type SessionEvent =
@@ -98,6 +99,7 @@ export const initialSession: SessionState = {
   queued: 0,
   connected: true,
   sendingQueued: false,
+  userSpeaking: false,
 }
 
 // 세션이 서버에서 이미 끝났다는 오류(규약 2절: 클라이언트는 끝난 상태로 간다)
@@ -127,14 +129,14 @@ function enterListening(state: SessionState, config: SessionConfig, commands: Se
 
 function enterPaused(state: SessionState, config: SessionConfig): Transition {
   return {
-    state: { ...state, ...NEW_TURN, name: 'paused' },
+    state: { ...state, ...NEW_TURN, name: 'paused', userSpeaking: false },
     commands: [{ type: 'micOff' }, { type: 'startIdleTimer', minutes: config.idleTimeoutMinutes }],
   }
 }
 
 function enterClosing(state: SessionState, commands: SessionCommand[]): Transition {
   return {
-    state: { ...state, ...NEW_TURN, name: 'closing' },
+    state: { ...state, ...NEW_TURN, name: 'closing', userSpeaking: false },
     commands: [...commands, { type: 'micOff' }, { type: 'clearIdleTimer' }, { type: 'endSession' }],
   }
 }
@@ -168,12 +170,21 @@ function cancelCurrent(state: SessionState): SessionCommand[] {
 
 const unchanged = (state: SessionState): Transition => ({ state, commands: [] })
 
+// 마이크가 켜져 있는 상태(듣기에서 켜고 쉬기·정리에서 끈다)
+const MIC_ON = new Set<SessionStateName>(['listening', 'processing', 'speaking', 'offline'])
+
 /** 상태에 이벤트를 적용한다. 표에 없는 조합은 상태도 명령도 바꾸지 않는다. */
 export function transition(
   state: SessionState,
   event: SessionEvent,
   config: SessionConfig = DEFAULT_SESSION_CONFIG,
 ): Transition {
+  // 마이크가 켜진 상태에서 사용자가 말하는 중인지 적어 둔다(아래 상태별 처리는 바뀐 값을 본다).
+  // speech_start는 발화마다 한 번뿐이라, 처리 중에 시작한 말은 답변이 온 뒤에도 기억해야 한다
+  if ((event.type === 'speech_start' || event.type === 'speech_end') && MIC_ON.has(state.name)) {
+    state = { ...state, userSpeaking: event.type === 'speech_start' }
+  }
+
   // 어느 상태에서나 같은 이벤트
   switch (event.type) {
     case 'online': {
@@ -242,6 +253,11 @@ export function transition(
           }
         case 'sentence':
           if (event.turnId !== state.turnId) return unchanged(state)
+          if (state.userSpeaking) {
+            // 앞말을 보낸 뒤 이어서 말하는 중에 답이 왔다: 반쪽 말에 답하지 않게 끼어들기로 처리하고
+            // 이어 하는 말을 마저 듣는다(서버는 들려준 문장이 없다는 안내와 함께 앞말을 맥락에 남긴다)
+            return enterListening(state, config, [{ type: 'stopPlayback' }, ...cancelCurrent(state)])
+          }
           return {
             state: { ...state, name: 'speaking', playbackIdle: false },
             commands: [{ type: 'setVadMode', mode: 'playback' }],
@@ -303,6 +319,13 @@ export function transition(
         case 'tap':
           // 끼어들기: 재생을 멈추고 들려준 문장까지만 남기게 한다
           return enterListening(state, config, [{ type: 'stopPlayback' }, ...cancelCurrent(state)])
+        case 'speech_end':
+          // 말하기 전에 시작한 말이 여기서 끝났다(보통은 끼어들기로 듣기에 있다). 버리지 않고 큐 뒤에 넣어
+          // 턴이 끝나면 보낸다
+          return {
+            state: { ...state, queued: state.queued + 1 },
+            commands: [{ type: 'queueUtterance', utteranceId: event.utteranceId }],
+          }
         case 'turn_error':
           // 말하는 중에는 이미 턴이 시작됐으므로 턴 시작 전 오류(turnId null)는 늦게 온 것이다
           if (event.turnId !== state.turnId) return unchanged(state)

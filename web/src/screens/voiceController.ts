@@ -514,7 +514,9 @@ export function createVoiceController({
     const sendThis = (onEvent: (event: StreamEvent) => void, signal: AbortSignal) =>
       typed !== null ? d.sendTextTurn(sid, typed.text, onEvent, signal) : d.sendAudioTurn(sid, audio, onEvent, signal)
     try {
-      if (typed !== null) await cancelling
+      // 끼어든 직후면 서버가 이전 답변을 정리한 뒤에 보낸다(그 전에 보내면 turn_in_progress로 거절된다).
+      // 말도 그렇다: 답변을 기다리며 이어 말하다 끼어든 경우 첫 답변 문장(CLI 생성 중)에 취소하므로 정리가 길다
+      await cancelling
       if (abort.signal.aborted) throw new DOMException('aborted', 'AbortError')
       await sendThis(
         (event) => {
@@ -539,7 +541,13 @@ export function createVoiceController({
               return
             case 'tool':
               dispatch({ type: 'event', event })
-              if (event.notice) enqueueAudio(event.notice.audio, null)
+              if (event.notice) {
+                // 안내 음성을 말소리로 잡지 않게 재생 중 임계값을 쓴다. 처리 중에 말을 시작한 것으로 보면
+                // 첫 답변 문장이 끼어들기로 취소된다. 듣기로 돌아갈 때 평상시 값으로 되돌린다(enterListening)
+                // 이미 이어서 말하는 중이면 그 말이 일찍 끊기지 않게 그대로 둔다
+                if (event.notice.audio && !state.userSpeaking) mic().setMode('playback')
+                enqueueAudio(event.notice.audio, null)
+              }
               if (event.name === 'save_note' && event.phase === 'end' && !event.is_error) {
                 send({ type: 'note_saved' })
               }

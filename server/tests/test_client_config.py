@@ -47,7 +47,7 @@ def _write(tmp_path, change) -> object:
             ),
             "재생 중 임계값은",
         ),
-        (lambda d: d["vad"].update(playback_silence_threshold=0.3), "재생 중 무음 임계값은"),
+        (lambda d: d["vad"].update(playback_silence_threshold=0.2), "재생 중 무음 임계값은"),
         (lambda d: d["vad"].update(speech_threshold=1.5), "speech_threshold"),
         (lambda d: d["vad"].update(end_of_speech_silence_ms=0), "end_of_speech_silence_ms"),
         (lambda d: d["vad"].update(unknown=1), "unknown"),  # 모르는 키
