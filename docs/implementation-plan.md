@@ -371,7 +371,7 @@
 | S3-31 | 대화 모델 선택: 설정 화면·말로 바꾸기(사용자 요청 추가) | 완료 | `server/app/llm/manager.py`, `server/app/mcp/server.py`, `server/app/api/profile.py`, `web/src/screens/SettingsScreen.tsx` | `fd62f5d` |
 | S3-32 | 디자인 시안 적용: 하단 3탭·카드 스타일(사용자 요청 추가) | 완료 | `web/src/App.tsx`, `web/src/index.css`, `web/src/screens/*.tsx` |  `5943fee` |
 | S3-33 | 긴 발화가 끊겨 뒷말이 사라지는 문제(사용자 요청 추가) | 완료 | `web/src/core/sessionMachine.ts`, `shared/fixtures/transitions.json`, `shared/client-defaults.json` | `69e4dcc` |
-| S3-34 | 턴마다 지금 시각을 LLM에 알리기(사용자 요청 추가) | 완료 | `server/app/services/conversation.py`, `server/app/persona/rules.py`, `server/app/persona/prompt.py` | |
+| S3-34 | 턴마다 지금 시각을 LLM에 알리기(사용자 요청 추가) | 완료 | `server/app/services/conversation.py`, `server/app/persona/rules.py`, `server/app/persona/prompt.py` | `bbc0b75` |
 
 #### S3-01 STT(Whisper)
 - [x] `SttProvider` 인터페이스
@@ -906,4 +906,4 @@
 | 2026-10-18 | S3-31 대화 모델 선택(설정 화면 라디오, 말로 set_model, 다음 답변부터 같은 맥락으로 새 모델) | `fd62f5d` |
 | 2026-10-18 | S3-32 디자인 시안 적용(하단 3탭 대화·일지·설정, 색 토큰 라이트·다크, 대화 시작 큰 음성 버튼, 일지·설정 카드) |  `5943fee` |
 | 2026-10-18 | S3-33 긴 발화 끊김(처리 중 이어 말하면 첫 답변을 취소하고 뒷말을 들음, 말하기 중 끝난 말 보관, 무음 대기 1.8초·무음 기준 0.25) | `69e4dcc` |
-| 2026-10-18 | S3-34 턴마다 지금 시각을 LLM에 알리기(CLI 입력 앞 앱 안내, 기록에는 남기지 않음) | |
+| 2026-10-18 | S3-34 턴마다 지금 시각을 LLM에 알리기(CLI 입력 앞 앱 안내, 기록에는 남기지 않음) | `bbc0b75` |
