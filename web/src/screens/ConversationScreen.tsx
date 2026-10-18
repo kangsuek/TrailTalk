@@ -1,5 +1,15 @@
-import { useEffect, useLayoutEffect, useReducer, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
-import { ApiError, endSession, prepareSession, sendTurn, startSession } from '../api/conversation'
+import {
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useReducer,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+  type Ref,
+} from 'react'
+import { ApiError, endSession, prepareSession, reopenSession, sendTurn, startSession } from '../api/conversation'
 import {
   conversationReducer,
   initialConversation,
@@ -10,6 +20,18 @@ import { useVoiceConversation } from './useVoiceConversation'
 import { VoiceControls } from './VoiceControls'
 
 type Mode = 'text' | 'voice'
+
+/** 이어서 하기 결과: 시작함(또는 이미 그 대화 중), 다른 대화가 진행 중, 음성 기능을 불러오는 중·못 씀 */
+export type ContinueResult = 'ok' | 'busy' | 'voice_loading' | 'voice_unavailable'
+
+export interface ConversationHandle {
+  /**
+   * 끝난 대화를 다시 열어 이어서 한다(S3-26). 다른 대화가 진행 중이면 'busy'(서버는 막지 않으므로
+   * 여기서 막는다). 음성은 시작 버튼처럼 사용자 동작 안에서 불러야 소리가 난다
+   */
+  continueWith(sessionId: string, mode: Mode): ContinueResult
+}
+
 const MODE_KEY = 'trailtalk.mode'
 
 /** 마지막으로 고른 대화 방식(미리 준비를 같은 방식으로 하려고 기억한다). 처음에는 음성 */
@@ -119,13 +141,16 @@ function VoiceUnavailable() {
 }
 
 /** visible: 탭에서 지금 보이는지. 숨겨져 있어도 대화를 유지하려고 언마운트하지 않는다(App).
- * onOpenJournal: 끝난 대화의 일지 상세를 연다(App이 탭을 옮긴다). */
+ * onOpenJournal: 끝난 대화의 일지 상세를 연다(App이 탭을 옮긴다).
+ * ref: 일지 상세의 "이어서" 버튼이 이 화면으로 대화를 다시 연다(ConversationHandle). */
 export function ConversationScreen({
   visible = true,
   onOpenJournal,
+  ref,
 }: {
   visible?: boolean
   onOpenJournal?: (sessionId: string) => void
+  ref?: Ref<ConversationHandle>
 }) {
   const [state, dispatch] = useReducer(conversationReducer, initialConversation)
   const [draft, setDraft] = useState('')
@@ -240,13 +265,18 @@ export function ConversationScreen({
     }
   }
 
+  // 다시 여는 중인 대화(S3-26). 응답이 오기 전(sessionId 없음)에 같은 대화를 또 눌러도 그 대화로 본다
+  const reopening = useRef<string | null>(null)
+
   const startVoice = () => {
+    reopening.current = null
     chooseMode('voice')
     stickToBottom.current = true
     voice.tap() // 버튼을 누른 동작 안에서 오디오를 연다
   }
 
   const start = () => {
+    reopening.current = null
     chooseMode('text')
     void startText()
   }
@@ -262,6 +292,42 @@ export function ConversationScreen({
         greeting: { turnId: body.greeting.turn_id, text: body.greeting.text },
       })
     })
+
+  const continueWith = (sessionId: string, next: Mode): ContinueResult => {
+    const live =
+      state.status === 'starting' ||
+      state.status === 'active' ||
+      state.status === 'paused' ||
+      state.ending ||
+      voice.machine.name !== 'idle'
+    // 그 대화가 이미 진행 중(또는 다시 여는 중)이면 방식은 그대로 두고 화면만 옮긴다
+    if (live) return (state.sessionId ?? reopening.current) === sessionId && !state.ending ? 'ok' : 'busy'
+    if (next === 'voice') {
+      if (voice.ready !== true) return voice.ready === null ? 'voice_loading' : 'voice_unavailable'
+      if (!voice.resume(sessionId)) return 'busy'
+      reopening.current = sessionId
+      stickToBottom.current = true
+      chooseMode('voice')
+      return 'ok'
+    }
+    reopening.current = sessionId
+    stickToBottom.current = true
+    chooseMode('text')
+    void run(async (signal) => {
+      dispatch({ type: 'start' })
+      const body = await reopenSession(sessionId, 'text', signal)
+      dispatch({
+        type: 'started',
+        sessionId: body.session.id,
+        personaName: body.persona.name,
+        greeting: { turnId: body.greeting.turn_id, text: body.greeting.text },
+        history: body.turns,
+      })
+    })
+    return 'ok'
+  }
+  // 상세 화면의 버튼이 늘 지금 상태로 판단하도록 매번 새로 넘긴다
+  useImperativeHandle(ref, () => ({ continueWith }))
 
   const canSend =
     state.sessionId !== null &&

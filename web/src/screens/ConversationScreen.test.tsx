@@ -1,7 +1,8 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { createRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { StreamEvent } from '../core/conversation'
-import { ConversationScreen } from './ConversationScreen'
+import { ConversationScreen, type ConversationHandle } from './ConversationScreen'
 
 afterEach(() => {
   cleanup()
@@ -412,5 +413,49 @@ describe('대화 방식', () => {
     expect(localStorage.getItem('trailtalk.mode')).toBe('text')
     const started = requests().find(([url]) => url === '/api/sessions')
     expect(JSON.parse(started![1].body as string)).toEqual({ mode: 'text' })
+  })
+
+  it('이어서 하기(S3-26): 끝난 대화를 다시 열어 이전 말풍선과 재개 인사말을 보인다', async () => {
+    const reopened = {
+      ...STARTED,
+      greeting: { turn_id: 'g2', text: '지난번 지도 이야기 이어서 할까요?', audio: null },
+      turns: [
+        { id: 'g1', seq: 0, role: 'assistant', text: '안녕하세요!', interrupted: false, created_at: '' },
+        { id: 'u1', seq: 1, role: 'user', text: '지도 앱 어때?', interrupted: false, created_at: '' },
+        { id: 'g2', seq: 2, role: 'assistant', text: '지난번 지도 이야기 이어서 할까요?', interrupted: false, created_at: '' },
+      ],
+    }
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/api/sessions/old/reopen') {
+        expect(JSON.parse(String(init?.body))).toEqual({ mode: 'text' })
+        return new Response(JSON.stringify(reopened))
+      }
+      if (url === '/api/sessions/prepare') return new Response(null, { status: 204 })
+      if (url === '/api/sessions') return new Response(JSON.stringify(STARTED), { status: 201 })
+      throw new Error(`unexpected ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const ref = createRef<ConversationHandle>()
+    render(<ConversationScreen ref={ref} />)
+    let result: string | undefined
+    act(() => {
+      result = ref.current?.continueWith('old', 'text')
+    })
+    expect(result).toBe('ok')
+    await screen.findByText('지난번 지도 이야기 이어서 할까요?')
+    expect(screen.getByText('지도 앱 어때?')).toBeInTheDocument()
+    expect(screen.getByText('안녕하세요!')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('textbox', { name: '메시지' })).toHaveFocus())
+
+    // 대화 중에 다른 대화를 이어서 하려 하면 막고, 같은 대화면 화면만 옮긴다
+    act(() => {
+      result = ref.current?.continueWith('other', 'text')
+    })
+    expect(result).toBe('busy')
+    act(() => {
+      result = ref.current?.continueWith('s1', 'text')
+    })
+    expect(result).toBe('ok')
+    expect(calls(fetchMock, '/reopen')).toBe(1)
   })
 })

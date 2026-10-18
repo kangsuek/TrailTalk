@@ -732,6 +732,18 @@ body {
   color: var(--muted);
 }
 
+/* 이어서 대화하기(S3-26): 전문 아래 꽉 찬 두 버튼 */
+.journal-continue {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.journal .journal-continue button {
+  min-height: 48px;
+}
+
 .journal button.idea-done {
   margin-left: auto;
   padding: 2px 10px;

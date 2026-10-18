@@ -45,6 +45,31 @@ function last(state: ConversationState): AssistantMessage {
 }
 
 describe('conversationReducer', () => {
+  it('다시 연 대화(S3-26)는 전문으로 말풍선을 채운다', () => {
+    const state = reduce([
+      { type: 'start' },
+      {
+        type: 'started',
+        sessionId: 's1',
+        personaName: '도우미',
+        greeting: { turnId: 'g2', text: '지난번 이야기 이어서 할까요?' },
+        history: [
+          { id: 'g1', role: 'assistant', text: '안녕하세요!', interrupted: false },
+          { id: 'u1', role: 'user', text: '지도 앱 어때?', interrupted: false },
+          { id: 'a1', role: 'assistant', text: '좋아요. 누가', interrupted: true },
+          { id: 'g2', role: 'assistant', text: '지난번 이야기 이어서 할까요?', interrupted: false },
+        ],
+      },
+    ])
+    expect(state.status).toBe('active')
+    expect(state.messages).toEqual([
+      expect.objectContaining({ role: 'assistant', id: 'g1', sentences: ['안녕하세요!'] }),
+      { role: 'user', id: 'u1', text: '지도 앱 어때?' },
+      expect.objectContaining({ role: 'assistant', id: 'a1', interrupted: true, status: 'done' }),
+      expect.objectContaining({ role: 'assistant', id: 'g2', sentences: ['지난번 이야기 이어서 할까요?'] }),
+    ])
+  })
+
   it('시작하면 인사말 말풍선 하나로 대화를 연다', () => {
     const state = reduce(started)
     expect(state.status).toBe('active')

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { fetchHealth } from './api/health'
-import { ConversationScreen } from './screens/ConversationScreen'
+import { ConversationScreen, type ConversationHandle, type ContinueResult } from './screens/ConversationScreen'
 import { JournalDetailScreen } from './screens/JournalDetailScreen'
 import { JournalListScreen } from './screens/JournalListScreen'
 import { SettingsScreen } from './screens/SettingsScreen'
@@ -75,6 +75,14 @@ function App() {
     setScreen('journal-detail')
   }
 
+  // 일지 상세의 "이어서" 버튼(S3-26). 버튼을 누른 동작 안에서 바로 대화 화면을 불러 음성이 소리 나게 한다
+  const conversation = useRef<ConversationHandle>(null)
+  const continueSession = (sessionId: string, mode: 'text' | 'voice'): ContinueResult => {
+    const result = conversation.current?.continueWith(sessionId, mode) ?? 'busy'
+    if (result === 'ok') setScreen('conversation')
+    return result
+  }
+
   const panel = (id: ScreenId) => {
     switch (id) {
       case 'journal-list':
@@ -85,6 +93,7 @@ function App() {
             key={journalId ?? ''}
             sessionId={journalId}
             onBack={() => setScreen('journal-list')}
+            onContinue={continueSession}
           />
         )
       case 'settings':
@@ -135,6 +144,7 @@ function App() {
                 나머지는 열 때마다 새로 그려 최신 내용을 불러온다 */}
             {s.id === 'conversation' ? (
               <ConversationScreen
+                ref={conversation}
                 visible={screen === 'conversation'}
                 onOpenJournal={openJournal}
               />

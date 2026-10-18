@@ -293,4 +293,35 @@ describe('JournalDetailScreen', () => {
       expect(fetchMock).toHaveBeenCalledWith('/api/journal/s1/retry', expect.objectContaining({ method: 'POST' })),
     )
   })
+
+  it('끝난 대화는 전문 아래에서 글·음성으로 이어서 하고, 다른 대화가 진행 중이면 안내한다', async () => {
+    stub()
+    const onContinue = vi.fn(() => 'ok' as const)
+    const { unmount } = render(<JournalDetailScreen sessionId="s1" onContinue={onContinue} />)
+    fireEvent.click(await screen.findByRole('button', { name: '글로 이어서' }))
+    expect(onContinue).toHaveBeenLastCalledWith('s1', 'text')
+    fireEvent.click(screen.getByRole('button', { name: '음성으로 이어서' }))
+    expect(onContinue).toHaveBeenLastCalledWith('s1', 'voice')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    unmount()
+
+    render(<JournalDetailScreen sessionId="s1" onContinue={() => 'busy'} />)
+    fireEvent.click(await screen.findByRole('button', { name: '글로 이어서' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('진행 중인 대화를 끝낸 뒤 이어서 할 수 있어요.')
+    cleanup()
+
+    render(<JournalDetailScreen sessionId="s1" onContinue={() => 'voice_loading'} />)
+    fireEvent.click(await screen.findByRole('button', { name: '음성으로 이어서' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('음성 기능을 준비하는 중이에요.')
+  })
+
+  it('진행 중인 대화에는 이어서 버튼이 없다', async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ ...DETAIL, session: { ...DETAIL.session, status: 'active', journal_status: null } })),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    render(<JournalDetailScreen sessionId="s1" onContinue={() => 'ok'} />)
+    await screen.findByText(/아직 진행 중인 대화예요/)
+    expect(screen.queryByRole('button', { name: '글로 이어서' })).not.toBeInTheDocument()
+  })
 })

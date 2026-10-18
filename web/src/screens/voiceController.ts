@@ -8,8 +8,10 @@ import {
   recordAudioTurn,
   reportLatency,
   sendAudioTurn,
+  reopenSession,
   sendTurn as sendTextTurn,
   startSession,
+  type SessionReopened,
 } from '../api/conversation'
 import { fetchHealth } from '../api/health'
 import { getProfile } from '../api/profile'
@@ -44,6 +46,7 @@ export interface VoiceDeps {
   createInput: (settings: VadSettings, onEvent: (event: AudioInputEvent) => void) => AudioInput
   createOutput: (onEvent: (event: AudioOutputEvent) => void) => AudioOutput
   startSession: typeof startSession
+  reopenSession: typeof reopenSession // 끝난 대화 다시 열기(S3-26)
   sendAudioTurn: typeof sendAudioTurn
   sendTextTurn: typeof sendTextTurn // 음성 대화 중 글로 보낸 말(서버가 답변 음성도 만든다)
   cancelTurn: typeof cancelTurn
@@ -104,6 +107,7 @@ const DEFAULT_DEPS: VoiceDeps = {
   createOutput: (onEvent) =>
     lazyAudioOutput(onEvent, { listen: listenSound, saved: savedSound, offline: offlineSound }),
   startSession,
+  reopenSession,
   sendAudioTurn,
   sendTextTurn,
   cancelTurn,
@@ -143,6 +147,11 @@ export interface VoiceController {
   /** 길게 누르기(종료) */
   longPress(): void
   /**
+   * 끝난 대화를 다시 열어 이어서 한다(S3-26). 대기 중일 때만 받고, 시작 버튼처럼 사용자 동작 안에서
+   * 불러야 소리가 난다. 받지 못하면 false
+   */
+  resume(sessionId: string): boolean
+  /**
    * 음성 대화 중 글로 보낸 말. 듣는 중(말하는 중이면 끼어든 뒤, 쉬는 중이면 다시 들은 뒤)에만 받아
    * 말 한 번처럼 머신에 넣는다. 받지 못하면 false. 서버에 닿지 않으면 보관하지 않고 onUnsent로 돌려준다
    */
@@ -168,6 +177,7 @@ export function createVoiceController({
   let startAbort: AbortController | null = null
   let turnAbort: AbortController | null = null
   let greetingTurn: string | null = null // 인사말 턴(문장 번호 없이 재생하므로 끼어들어도 자르지 않는다)
+  let resumeId: string | null = null // 다음 시작을 새 대화 대신 이 대화 다시 열기로 한다(S3-26)
   let endAbort: AbortController | null = null
   let idleTimer: ReturnType<typeof setTimeout> | undefined
   let disposed = false
@@ -289,10 +299,15 @@ export function createVoiceController({
     const abort = new AbortController()
     startAbort = abort
     closingReason = null
+    const reopening = resumeId
+    resumeId = null
     dispatch({ type: 'start' })
     try {
       // 서버 설정값(VAD)을 받은 뒤에 마이크를 만들도록 함께 기다린다(보통 먼저 끝나 있다)
-      const [body] = await Promise.all([d.startSession('voice', abort.signal), profileLoaded])
+      const [body] = await Promise.all([
+        reopening ? d.reopenSession(reopening, 'voice', abort.signal) : d.startSession('voice', abort.signal),
+        profileLoaded,
+      ])
       if (abort.signal.aborted || disposed) return
       sessionId = body.session.id
       greetingTurn = body.greeting.turn_id
@@ -301,6 +316,7 @@ export function createVoiceController({
         sessionId: body.session.id,
         personaName: body.persona.name,
         greeting: { turnId: body.greeting.turn_id, text: body.greeting.text },
+        history: 'turns' in body ? (body as SessionReopened).turns : undefined,
       })
       // 소리가 없어도 대기열을 거치면 바로 playback_idle이 온다
       output.enqueue({ audio: body.greeting.audio ?? null, index: null })
@@ -747,6 +763,15 @@ export function createVoiceController({
     },
     longPress() {
       send({ type: 'long_press' })
+    },
+    resume(id) {
+      if (disposed || state.name !== 'idle') return false
+      resumeId = id
+      void output.unlock()
+      send({ type: 'tap' })
+      if (state.name !== 'idle') return true
+      resumeId = null // 시작하지 못했다(다음 새 대화에 남기지 않는다)
+      return false
     },
     sendText(text, onUnsent) {
       const value = text.trim()

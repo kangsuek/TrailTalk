@@ -20,14 +20,27 @@ function errorMessage(error: unknown, fallback: string): string {
   return error instanceof ApiError ? error.message : fallback
 }
 
-/** 일지 상세: 요약, 아이디어 별표, 할 일 체크, 메모, 대화 전문. 다른 세션을 열 때는 key로 새로 그린다(App). */
+type ContinueMode = 'text' | 'voice'
+/** 이어서 하기 결과(App이 대화 화면에 맡긴다): 시작함, 다른 대화가 진행 중, 음성 기능을 못 씀 */
+type ContinueResult = 'ok' | 'busy' | 'voice_loading' | 'voice_unavailable'
+
+const CONTINUE_MESSAGES: Record<Exclude<ContinueResult, 'ok'>, string> = {
+  busy: '진행 중인 대화를 끝낸 뒤 이어서 할 수 있어요.',
+  voice_loading: '음성 기능을 준비하는 중이에요. 잠시 뒤 다시 눌러 주세요.',
+  voice_unavailable: '음성 기능을 불러오지 못했어요. 글로 이어서 하거나 새로 고침해 주세요.',
+}
+
+/** 일지 상세: 요약, 아이디어 별표, 할 일 체크, 메모, 대화 전문. 다른 세션을 열 때는 key로 새로 그린다(App).
+ * onContinue: 끝난 대화를 대화 화면에서 이어서 한다(S3-26). */
 export function JournalDetailScreen({
   sessionId = null,
   onBack = () => {},
+  onContinue,
   pollMs = POLL_MS,
 }: {
   sessionId?: string | null
   onBack?: () => void
+  onContinue?: (sessionId: string, mode: ContinueMode) => ContinueResult
   pollMs?: number
 }) {
   const [state, setState] = useState<DetailState>({ kind: 'loading' })
@@ -126,6 +139,13 @@ export function JournalDetailScreen({
       .catch((error) => setSaveError(errorMessage(error, '다시 정리하지 못했어요.')))
   }
 
+  const continueIn = (mode: ContinueMode) => {
+    if (sessionId === null || !onContinue) return
+    setSaveError(null)
+    const result = onContinue(sessionId, mode)
+    if (result !== 'ok') setSaveError(CONTINUE_MESSAGES[result])
+  }
+
   if (sessionId === null) {
     return (
       <section className="journal">
@@ -160,6 +180,7 @@ export function JournalDetailScreen({
           onReload={reload}
           onRetry={retry}
           retrying={retrying}
+          onContinue={onContinue ? continueIn : undefined}
         />
       )}
       {saveError && (
@@ -208,12 +229,14 @@ function Detail({
   onReload,
   onRetry,
   retrying,
+  onContinue,
 }: {
   detail: JournalDetail
   onChange: (note: NoteOut, patch: NotePatch) => void
   onReload: () => void
   onRetry: () => void
   retrying: boolean
+  onContinue?: (mode: ContinueMode) => void
 }) {
   const { session, notes, turns } = detail
   const ideas = notes.filter((n) => n.kind === 'idea')
@@ -398,6 +421,16 @@ function Detail({
           ))}
         </ol>
       </details>
+      {onContinue && session.status === 'ended' && (
+        <div className="journal-continue" role="group" aria-label="이어서 대화하기">
+          <button type="button" onClick={() => onContinue('text')}>
+            글로 이어서
+          </button>
+          <button type="button" onClick={() => onContinue('voice')}>
+            음성으로 이어서
+          </button>
+        </div>
+      )}
     </article>
   )
 }

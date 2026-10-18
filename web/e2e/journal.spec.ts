@@ -166,3 +166,44 @@ test('일지 목록: 여러 개를 골라 한 번에 지운다', async ({ page }
   await expect(page.getByText(/불러오는 중/)).toHaveCount(0)
   for (const title of titles) await expect(page.getByText(title)).toHaveCount(0)
 })
+
+// 이어서 하기(S3-26): 끝난 대화를 일지 상세에서 다시 열어 같은 일지에 이어 쓴다
+test('일지 상세: 끝난 대화를 글로 이어서 하고, 다시 끝내면 같은 일지에 쌓인다', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: /^글로 (새 )?대화$/ }).click()
+  const log = page.getByRole('log', { name: '대화 내용' })
+  await expect(log.locator('.message.assistant').first()).toBeVisible()
+  await page.getByRole('textbox', { name: '메시지' }).fill('Claude Code 최신 버전 알려줘')
+  await page.getByRole('button', { name: '보내기' }).click()
+  await expect(log.locator('.message.assistant')).toHaveCount(2)
+  const ended = page.waitForResponse((r) => r.url().endsWith('/end'))
+  await page.getByRole('button', { name: '대화 끝내기' }).click()
+  const closed = await (await ended).json()
+  const id = closed.session.id
+
+  await page.getByRole('button', { name: '일지 보기' }).click()
+  const reopened = page.waitForResponse((r) => r.url().endsWith(`/api/sessions/${id}/reopen`))
+  await page.getByRole('button', { name: '글로 이어서' }).click()
+  expect((await reopened).status()).toBe(200)
+  await expect(page.getByRole('tab', { name: '대화', exact: true })).toHaveAttribute('aria-selected', 'true')
+  // 이전 말풍선(인사말·질문·답변)에 재개 인사말이 더해진다
+  await expect(log.locator('.message.user').filter({ hasText: 'Claude Code 최신 버전 알려줘' })).toHaveCount(1)
+  await expect(log.locator('.message.assistant')).toHaveCount(3)
+  await expect(page.getByRole('textbox', { name: '메시지' })).toBeFocused()
+  await page.screenshot({ path: 'test-results/journal-continued.png', fullPage: true })
+
+  await page.getByRole('textbox', { name: '메시지' }).fill('이어서 더 알려줘')
+  await page.getByRole('button', { name: '보내기' }).click()
+  await expect(log.locator('.message.assistant')).toHaveCount(4)
+  const reEnded = page.waitForResponse((r) => r.url().endsWith('/end'))
+  await page.getByRole('button', { name: '대화 끝내기' }).click()
+  const again = await (await reEnded).json()
+  expect(again.session.id).toBe(id) // 같은 일지다
+  expect(again.journal_status).toBe('done')
+
+  await page.getByRole('button', { name: '일지 보기' }).click()
+  await page.getByText(/대화 전문 보기/).click()
+  const transcript = page.locator('.journal-transcript')
+  await expect(transcript.getByText('이어서 더 알려줘')).toBeVisible()
+  await expect(transcript.getByText('Claude Code 최신 버전 알려줘')).toBeVisible()
+})

@@ -34,6 +34,14 @@ export interface AssistantMessage {
 
 export type Message = UserMessage | AssistantMessage
 
+/** 다시 연 대화(S3-26)의 지난 턴. 서버 전문(turns)에서 필요한 값만 받는다 */
+export interface PastTurn {
+  id: string
+  role: 'user' | 'assistant'
+  text: string
+  interrupted: boolean
+}
+
 export type SessionStatus = 'idle' | 'starting' | 'active' | 'paused' | 'ended'
 
 export interface ConversationState {
@@ -56,6 +64,8 @@ export type ConversationAction =
       sessionId: string
       personaName: string
       greeting: { turnId: string; text: string }
+      // 다시 연 대화(S3-26): 재개 인사말까지 포함한 전체 전문. 있으면 이것으로 말풍선을 채운다
+      history?: PastTurn[]
     }
   | { type: 'send'; id: string; text: string }
   | { type: 'event'; event: StreamEvent }
@@ -172,6 +182,18 @@ function applyEvent(state: ConversationState, event: StreamEvent): ConversationS
   }
 }
 
+function pastMessage(turn: PastTurn): Message {
+  if (turn.role === 'user') return { role: 'user', id: turn.id, text: turn.text }
+  return {
+    role: 'assistant',
+    id: turn.id,
+    sentences: turn.text ? [turn.text] : [],
+    tools: [],
+    status: 'done',
+    interrupted: turn.interrupted,
+  }
+}
+
 export function conversationReducer(
   state: ConversationState,
   action: ConversationAction,
@@ -186,16 +208,18 @@ export function conversationReducer(
         sessionId: action.sessionId,
         personaName: action.personaName,
         error: null,
-        messages: [
-          {
-            role: 'assistant',
-            id: action.greeting.turnId,
-            sentences: [action.greeting.text],
-            tools: [],
-            status: 'done',
-            interrupted: false,
-          },
-        ],
+        messages: action.history
+          ? action.history.map(pastMessage)
+          : [
+              {
+                role: 'assistant',
+                id: action.greeting.turnId,
+                sentences: [action.greeting.text],
+                tools: [],
+                status: 'done',
+                interrupted: false,
+              },
+            ],
       }
     case 'send':
       return {

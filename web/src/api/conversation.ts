@@ -8,6 +8,7 @@ import type { components } from './schema'
 export { ApiError }
 
 export type SessionStarted = components['schemas']['SessionStarted']
+export type SessionReopened = components['schemas']['SessionReopened']
 export type SessionOut = components['schemas']['SessionOut']
 export type SessionClosed = components['schemas']['SessionClosed']
 export type RecordedTurn = components['schemas']['RecordedTurn']
@@ -29,6 +30,15 @@ export async function startSession(
   signal?: AbortSignal,
 ): Promise<SessionStarted> {
   return (await post('/api/sessions', { mode }, signal)).json()
+}
+
+/** 끝난 대화를 같은 세션으로 다시 연다(S3-26). turns는 재개 인사말까지 포함한 전체 전문이다. */
+export async function reopenSession(
+  sessionId: string,
+  mode: 'text' | 'voice',
+  signal?: AbortSignal,
+): Promise<SessionReopened> {
+  return (await post(`/api/sessions/${encodeURIComponent(sessionId)}/reopen`, { mode }, signal)).json()
 }
 
 /** 끼어들기(S3-04): 답변을 멈추고 다 들려준 문장(lastPlayed번까지, 없으면 -1)만 기록하게 한다. 멱등. */

@@ -980,4 +980,42 @@ describe('createVoiceController', () => {
       expect(t.state()).toBe('listening')
     })
   })
+
+  it('이어서 하기(S3-26)는 새 대화 대신 다시 열고, 전문과 재개 인사말로 시작한다', async () => {
+    const reopened = {
+      ...STARTED,
+      greeting: { turn_id: 'g2', text: '이어서 할까요?', audio: 'R1JFRVQ=' },
+      turns: [
+        { id: 'g1', seq: 0, role: 'assistant', text: '안녕하세요', interrupted: false, created_at: '' },
+        { id: 'g2', seq: 1, role: 'assistant', text: '이어서 할까요?', interrupted: false, created_at: '' },
+      ],
+    }
+    const t = setup({ reopenSession: vi.fn(async () => reopened) as VoiceDeps['reopenSession'] })
+    expect(t.controller.resume('s0')).toBe(true)
+    expect(t.output.unlock).toHaveBeenCalled()
+    await tick()
+    expect(t.deps.reopenSession).toHaveBeenCalledWith('s0', 'voice', expect.any(AbortSignal))
+    expect(t.deps.startSession).not.toHaveBeenCalled()
+    const started = t.actions.find((a) => a.type === 'started')
+    expect(started).toMatchObject({ greeting: { turnId: 'g2' }, history: reopened.turns })
+    t.played({ type: 'playback_idle' })
+    expect(t.state()).toBe('listening')
+    expect(t.controller.resume('s0')).toBe(false) // 대화 중에는 받지 않는다
+    expect(t.deps.reopenSession).toHaveBeenCalledTimes(1)
+  })
+
+  it('다시 열기에 실패하면 다음 시작은 새 대화다', async () => {
+    const t = setup({
+      reopenSession: vi.fn(async () => {
+        throw new ApiError('session_not_ended', '아직 끝나지 않은 대화입니다.', 409)
+      }) as VoiceDeps['reopenSession'],
+    })
+    expect(t.controller.resume('s0')).toBe(true)
+    await tick()
+    expect(t.state()).toBe('idle')
+    t.controller.tap()
+    await tick()
+    expect(t.deps.reopenSession).toHaveBeenCalledTimes(1)
+    expect(t.deps.startSession).toHaveBeenCalledTimes(1)
+  })
 })
