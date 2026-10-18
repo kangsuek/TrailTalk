@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { fetchHealth } from './api/health'
+import { fetchUsage } from './api/usage'
+import type { UsageLimits } from './core/usage'
 import { ConversationScreen, type ConversationHandle, type ContinueResult } from './screens/ConversationScreen'
 import { JournalDetailScreen } from './screens/JournalDetailScreen'
 import { JournalListScreen } from './screens/JournalListScreen'
 import { SettingsScreen } from './screens/SettingsScreen'
 import { UpdateBanner } from './screens/UpdateBanner'
+import { UsageMeter } from './screens/UsageMeter'
 
 // 하단 탭(S3-32 디자인 시안). 일지 상세는 탭이 아니라 일지 탭 안의 화면이다
 const TABS = [
@@ -55,16 +58,22 @@ function App() {
   // 일지 탭 안에서 목록과 상세 중 무엇을 보일지
   const [journalView, setJournalView] = useState<'list' | 'detail'>('list')
   const [server, setServer] = useState<ServerState>('checking')
+  // Claude 남은 토큰(S3-36). 서버는 답변이 올 때마다 값을 새로 받는다. 못 불러오면 앞의 값을 둔다
+  const [usage, setUsage] = useState<UsageLimits | null>(null)
+  const [now, setNow] = useState(() => new Date())
 
-  // 서버 상태는 앱을 열 때와 30초마다, 탭이 다시 보일 때 확인한다(서버가 꺼졌다 켜져도 반영)
+  // 서버 상태와 남은 토큰은 앱을 열 때와 30초마다, 탭이 다시 보일 때 확인한다(서버가 꺼졌다 켜져도 반영)
   useEffect(() => {
     const controller = new AbortController()
-    const check = () =>
-      fetchHealth(controller.signal)
+    const check = () => {
+      setNow(new Date())
+      fetchUsage(controller.signal).then(setUsage, () => {})
+      return fetchHealth(controller.signal)
         .then((ok) => setServer(ok ? 'ok' : 'error'))
         .catch(() => {
           if (!controller.signal.aborted) setServer('error')
         })
+    }
     void check()
     const timer = setInterval(check, HEALTH_INTERVAL_MS)
     const onVisible = () => document.visibilityState === 'visible' && void check()
@@ -144,12 +153,16 @@ function App() {
 
   return (
     <div className="app">
-      <header>
-        <h1>TrailTalk</h1>
-        <span className="server-status" data-state={server} role="status">
-          {SERVER_LABELS[server]}
-        </span>
-      </header>
+      {/* 헤더와 남은 토큰 막대는 화면 위에 고정한다(스크롤해도 보이게) */}
+      <div className="app-top">
+        <header>
+          <h1>TrailTalk</h1>
+          <span className="server-status" data-state={server} role="status">
+            {SERVER_LABELS[server]}
+          </span>
+        </header>
+        <UsageMeter limits={usage} now={now} />
+      </div>
       <UpdateBanner />
       <main>
         {TABS.map((t) => (

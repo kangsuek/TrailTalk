@@ -10,6 +10,7 @@
 - 타입은 FastAPI OpenAPI 스키마에서 생성한다: 웹은 openapi-typescript(`npm run gen:api` → `web/src/api/schema.d.ts`, 서버 `python -m app.openapi`), 안드로이드는 openapi-generator.
 - 턴 SSE는 POST 응답이라 `EventSource` 대신 스트림을 직접 읽는다. 파서는 `web/src/core/sse.ts`(줄 끝은 `\r\n`·`\r`·`\n`만, 빈 줄로 끝나지 않은 마지막 메시지는 버림).
 - 폰 접속(결정 D1): 서버는 집 Mac에서 돌고, 폰은 Tailscale Serve가 tailnet 안에만 여는 HTTPS 주소(`https://<Mac 기기 이름>.<tailnet>.ts.net/`)로 접속한다(`./run.sh --phone`, `docs/phone.md`). 브라우저 마이크는 HTTPS(또는 localhost)에서만 열린다. 서버 API에는 로그인이 없으므로 공개 주소로 열지 않는다. 앱 도구 경로 `/internal/*`은 프록시를 거친 요청을 403으로 막는다.
+- Claude 남은 토큰(S3-36): `GET /api/usage` → `{status, five_hour, seven_day, updated_at}`. 한도는 `{utilization, resets_at}`(쓴 비율 0~1, 초기화 시각) 또는 `null`이다. 서버는 CLI가 답변마다 알려 주는 구독 한도(`rate_limit_event`)의 마지막 값을 메모리에 두므로, 서버를 켠 뒤 첫 답변 전에는 모두 `null`이다(따로 조회할 방법이 없다). `status`는 `allowed`·`allowed_warning`·`rejected`. 클라이언트는 화면 위 고정 헤더 아래에 두 한도 중 덜 남은 쪽을 "남은 %·N시간 뒤 초기화"로 보이고(초기화 시각이 지난 한도는 100%), 서버 상태 확인과 함께 30초마다·화면이 다시 보일 때 다시 불러온다. 남은 % 계산은 `web/src/core/usage.ts`.
 - 웹 PWA: 서비스 워커는 앱 셸만 미리 저장하고, 음성 감지 자산(5절의 `/vad/<…>/`)은 처음 쓸 때 저장한다. `/api`·`/internal`은 다루지 않아 SSE·업로드는 늘 네트워크로 간다. 새 버전은 자동으로 새로 고치지 않고 화면 위 "새 버전 적용" 버튼으로 바꾼다(대화 중 페이지가 다시 열리지 않게).
 
 ## 2. SSE 이벤트

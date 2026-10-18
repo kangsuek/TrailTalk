@@ -2,7 +2,7 @@
 
 턴 경계는 result 이벤트다. system/init은 턴마다 다시 오고, assistant 메시지는 블록 종료
 이벤트보다 먼저 올 수 있으며, thinking 블록·status·rate_limit 이벤트가 섞인다
-(docs/spikes/claude-cli.md 1·9절).
+(docs/spikes/claude-cli.md 1·9절). rate_limit 이벤트는 구독 사용 한도로 바꾼다(RateLimitUpdated).
 """
 
 import json
@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 
 from app.llm.events import (
     LlmEvent,
+    RateLimitUpdated,
     TextDelta,
     ToolCalled,
     ToolFinished,
@@ -122,6 +123,9 @@ class StreamJsonParser:
             return self._tool_results(event)
         if kind == "result":
             return [self._result(event)]
+        if kind == "rate_limit_event":
+            info = event.get("rate_limit_info")
+            return [RateLimitUpdated(info)] if isinstance(info, dict) else []
         return []
 
     @staticmethod

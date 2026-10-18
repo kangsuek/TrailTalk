@@ -56,4 +56,20 @@ class TurnFinished:
     usage: dict[str, Any] = field(default_factory=dict)
 
 
-LlmEvent = TurnStarted | TextDelta | ToolStarted | ToolCalled | ToolFinished | TurnFinished
+@dataclass(frozen=True)
+class RateLimitUpdated:
+    """구독 사용 한도(CLI rate_limit_event의 rate_limit_info). 턴 이벤트로 내보내지 않고
+    CLI 세션이 백엔드의 on_rate_limit 콜백으로 넘긴다(app/llm/usage.py)."""
+
+    info: dict[str, Any]
+
+
+LlmEvent = (
+    TurnStarted
+    | TextDelta
+    | ToolStarted
+    | ToolCalled
+    | ToolFinished
+    | TurnFinished
+    | RateLimitUpdated
+)

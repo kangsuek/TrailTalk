@@ -11,7 +11,7 @@ import pytest
 from app.errors import AppError
 from app.llm.backend import LlmProcessError, LlmTimeoutError, TurnInProgressError
 from app.llm.claude_cli import ClaudeCliBackend, build_command
-from app.llm.events import TextDelta, TurnFinished, TurnStarted
+from app.llm.events import RateLimitUpdated, TextDelta, TurnFinished, TurnStarted
 from app.llm.manager import LlmSessionManager
 from tests.conftest import FAKE_TOKEN
 
@@ -72,6 +72,30 @@ async def test_multiple_turns_on_one_process(fake_cli):
     assert record["DISABLE_AUTOUPDATER"] == "1"
     assert record["has_token"] is True
     assert "/cli-sessions/s1/" in record["cwd"]
+
+
+async def test_rate_limit_goes_to_callback_not_turn_events(fake_cli):
+    infos = []
+    backend = ClaudeCliBackend(fake_cli.settings, on_rate_limit=infos.append)
+    session = await backend.open_session("s1", system_prompt="너는 제니야.", model="sonnet")
+    try:
+        events = await run_turn(session, "사과?")
+        assert not any(isinstance(e, RateLimitUpdated) for e in events)
+        assert infos and infos[0]["unifiedWindows"]["five_hour"]["utilization"] == 0.4
+    finally:
+        await session.close()
+
+
+async def test_rate_limit_callback_failure_keeps_turn(fake_cli):
+    def broken(info):
+        raise RuntimeError("boom")
+
+    backend = ClaudeCliBackend(fake_cli.settings, on_rate_limit=broken)
+    session = await backend.open_session("s1", system_prompt="너는 제니야.", model="sonnet")
+    try:
+        assert finished(await run_turn(session, "사과?")).text
+    finally:
+        await session.close()
 
 
 async def test_interrupt_then_next_turn(fake_cli, monkeypatch):

@@ -18,6 +18,9 @@
   --error: #b3261e;
   --radius-card: 16px;
   --tabbar-h: 68px;
+  --header-h: 56px;
+  --usage-h: 36px; /* 헤더 아래 남은 토큰 막대 */
+  --warn: #8f5600;
 
   font: 16px/1.5 system-ui, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
   color: var(--text);
@@ -43,7 +46,13 @@
     --warn-bg: #3a2e14;
     --warn-text: #f2c46b;
     --error: #ff8a80;
+    --warn: #f2c46b;
   }
+}
+
+html {
+  /* 위 고정 헤더(.app-top)에 포커스·스크롤 대상이 가려지지 않게 */
+  scroll-padding-top: calc(env(safe-area-inset-top) + var(--header-h) + var(--usage-h));
 }
 
 body {
@@ -59,8 +68,18 @@ body {
   flex-direction: column;
 }
 
-.app > header {
-  min-height: 56px;
+/* 헤더 + 남은 토큰 막대: 화면 위에 고정 */
+.app-top {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding-top: env(safe-area-inset-top);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.app-top > header {
+  min-height: var(--header-h);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -103,6 +122,66 @@ body {
 
 .server-status[data-state='error'] {
   color: var(--error);
+}
+
+.usage-meter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--usage-h);
+  padding: 0 16px;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.usage-label {
+  flex: none;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.usage-bar {
+  flex: 1;
+  min-width: 40px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.usage-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+.usage-meter[data-level='low'] .usage-bar > span {
+  background: var(--warn);
+}
+
+.usage-meter[data-level='out'] .usage-bar > span {
+  background: var(--error);
+}
+
+.usage-value {
+  flex: none;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-meter[data-level='low'] .usage-value {
+  color: var(--warn);
+}
+
+.usage-meter[data-level='out'] .usage-value {
+  color: var(--error);
+}
+
+.usage-reset {
+  flex: none;
 }
 
 .app > main {
@@ -195,7 +274,10 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  min-height: calc(100dvh - 56px - 8px - var(--tabbar-h) - env(safe-area-inset-bottom));
+  min-height: calc(
+    100dvh - env(safe-area-inset-top) - var(--header-h) - var(--usage-h) - 1px - 8px - var(--tabbar-h) -
+      env(safe-area-inset-bottom)
+  );
   box-sizing: border-box;
   padding: 24px 4px 20px;
 }
@@ -1577,6 +1659,14 @@ fieldset.settings-field > legend + * {
 
 /* 고대비 모드에서는 배경색이 사라지므로 테두리·윤곽선으로 상태를 보인다 */
 @media (forced-colors: active) {
+  .usage-bar {
+    border: 1px solid CanvasText;
+  }
+
+  .usage-bar > span {
+    background: Highlight;
+  }
+
   .settings-switch {
     border: 1px solid ButtonText;
   }
@@ -1595,6 +1685,7 @@ fieldset.settings-field > legend + * {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .usage-bar > span,
   .settings-switch,
   .settings-switch::after {
     transition: none;

@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from app.llm.events import (
+    RateLimitUpdated,
     TextDelta,
     ToolCalled,
     ToolFinished,
@@ -120,6 +121,13 @@ def test_error_uses_is_error_not_subtype():
     assert finished.is_error and not finished.interrupted
     assert "no-such-model-xyz" in finished.error_message
     assert finished.text == ""
+
+
+def test_rate_limit_event_becomes_usage_update():
+    limits = [e for e in parse("multiturn") if isinstance(e, RateLimitUpdated)]
+    assert len(limits) == 3
+    assert limits[0].info["unifiedWindows"]["five_hour"]["utilization"] == 0.4
+    assert StreamJsonParser().feed('{"type": "rate_limit_event", "rate_limit_info": 1}') == []
 
 
 ODD_LINES = [

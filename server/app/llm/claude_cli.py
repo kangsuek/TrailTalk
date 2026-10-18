@@ -18,13 +18,13 @@ import shutil
 import time
 import uuid
 from collections import deque
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 
 from app.config import Settings
 from app.errors import AppError
 from app.llm.backend import LlmError, LlmProcessError, LlmTimeoutError, TurnInProgressError
-from app.llm.events import LlmEvent, TurnFinished, TurnStarted
+from app.llm.events import LlmEvent, RateLimitUpdated, TurnFinished, TurnStarted
 from app.llm.parser import StreamJsonParser
 
 logger = logging.getLogger("trailtalk.llm")
@@ -198,9 +198,11 @@ class ClaudeCliSession:
         turn_timeout_s: float,
         secrets: tuple[str, ...] = (),
         model: str = "",
+        on_rate_limit: Callable[[dict], None] | None = None,
     ) -> None:
         self.key = key
         self.model = model
+        self._on_rate_limit = on_rate_limit
         self._command = command
         self._env = env
         self._cwd = cwd
@@ -332,6 +334,9 @@ class ClaudeCliSession:
                         self._turn_active = False
                         raise await self._exited_error()
                     for event in parser.feed(line.decode(errors="replace")):
+                        if isinstance(event, RateLimitUpdated):
+                            self._report_rate_limit(event)
+                            continue
                         if isinstance(event, TurnStarted) and event.cli_session_id:
                             self._cli_session_id = event.cli_session_id
                         if isinstance(event, TurnFinished):
@@ -345,6 +350,14 @@ class ClaudeCliSession:
                     await self._abort_turn(parser)
                 self.busy_since = None
                 self.last_used = time.monotonic()
+
+    def _report_rate_limit(self, event: RateLimitUpdated) -> None:
+        if self._on_rate_limit is None:
+            return
+        try:
+            self._on_rate_limit(event.info)
+        except Exception:  # 사용량 표시 때문에 대화가 끊기지 않게 한다
+            logger.warning("사용 한도 반영 실패(session=%s)", self.key, exc_info=True)
 
     async def _abort_turn(self, parser: StreamJsonParser) -> None:
         """인터럽트를 보내고 이 턴의 result까지 읽어 버린다.
@@ -361,7 +374,9 @@ class ClaudeCliSession:
                 if not line:
                     break
                 for event in parser.feed(line.decode(errors="replace")):
-                    if isinstance(event, TurnFinished):
+                    if isinstance(event, RateLimitUpdated):
+                        self._report_rate_limit(event)
+                    elif isinstance(event, TurnFinished):
                         self._turn_active = False
         except asyncio.CancelledError:
             # 취소 중에는 더 기다릴 수 없다(anyio는 await마다 다시 취소한다): 즉시 죽인다
@@ -439,8 +454,11 @@ class ClaudeCliSession:
 
 
 class ClaudeCliBackend:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self, settings: Settings, *, on_rate_limit: Callable[[dict], None] | None = None
+    ) -> None:
         self._settings = settings
+        self._on_rate_limit = on_rate_limit  # 턴마다 오는 구독 사용 한도(app/llm/usage.py)
 
     async def open_session(
         self,
@@ -482,6 +500,7 @@ class ClaudeCliBackend:
                 turn_timeout_s=settings.cli_turn_timeout_s,
                 secrets=tuple(secrets),
                 model=model,
+                on_rate_limit=self._on_rate_limit,
             )
         except BaseException:
             shutil.rmtree(cwd, ignore_errors=True)  # 토큰이 든 mcp.json을 남기지 않는다

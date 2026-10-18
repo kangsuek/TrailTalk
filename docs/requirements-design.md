@@ -253,6 +253,7 @@ ID는 UUID 문자열(`persona`는 이름 키, `user_profile`은 단일 행 1), �
 | PATCH | /notes/{id} | 별표·완료·내용 수정 |
 | GET | /journal/{session_id}/export.md | Markdown 내보내기 |
 | GET/PUT | /profile | 호칭·관심사·보이스·페르소나 설정 |
+| GET | /usage | Claude 구독 사용 한도(5시간·7일 사용률과 초기화 시각, 화면 위 남은 토큰 막대) |
 
 ### 4.7 확장: 주간 브리핑 (P2)
 

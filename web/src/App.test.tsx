@@ -14,11 +14,15 @@ function stubFetch(response: () => Promise<Response>) {
 const PROFILE = { nickname: null, interests: [], persona_id: 'p1', voice: null, speaking_rate: null, keep_audio: false, client: {} }
 const VOICES = { voices: ['nova'], default_voice: 'nova', default_rate: 1, min_rate: 0.75, max_rate: 1.5 }
 
-function stubHealth(ok: boolean) {
+const USAGE = { status: null, five_hour: null, seven_day: null, updated_at: null }
+
+function stubHealth(ok: boolean, usage: object = USAGE) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string) =>
-      url.startsWith('/api/journal')
+      url === '/api/usage'
+        ? new Response(JSON.stringify(usage))
+        : url.startsWith('/api/journal')
         ? new Response('[]')
         : url === '/api/profile'
           ? new Response(JSON.stringify(PROFILE))
@@ -150,6 +154,28 @@ describe('App', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('헤더 아래에 Claude 남은 토큰을 보인다(값이 없으면 대화하면 표시)', async () => {
+    const resetsAt = new Date(Date.now() + 3.5 * 3_600_000).toISOString()
+    stubHealth(true, {
+      status: 'allowed',
+      five_hour: { utilization: 0.38, resets_at: resetsAt },
+      seven_day: { utilization: 0.07, resets_at: resetsAt },
+      updated_at: null,
+    })
+    render(<App />)
+    const meter = screen.getByRole('meter', { name: 'Claude 남은 토큰' })
+    expect(await screen.findByText('62%')).toBeInTheDocument()
+    expect(meter).toHaveTextContent('3시간 뒤 초기화')
+    expect(meter).toHaveAttribute('aria-valuenow', '62')
+    expect(meter).toHaveAttribute('aria-valuetext', '5시간 한도 62% 남음, 3시간 뒤 초기화')
+    cleanup()
+
+    stubHealth(true)
+    render(<App />)
+    expect(await screen.findByText('서버 연결됨')).toBeInTheDocument()
+    expect(screen.getByRole('meter', { name: 'Claude 남은 토큰' })).toHaveTextContent('대화하면 표시')
   })
 
   it('서버 헬스체크 결과를 표시한다', async () => {
