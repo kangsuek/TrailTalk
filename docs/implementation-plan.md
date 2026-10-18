@@ -375,7 +375,7 @@
 | S3-36 | Claude 남은 토큰 표시·헤더 고정(사용자 요청 추가) | 완료 | `server/app/llm/usage.py`, `server/app/api/usage.py`, `server/app/llm/claude_cli.py`, `web/src/core/usage.ts`, `web/src/screens/UsageMeter.tsx`, `web/src/App.tsx`, `web/src/index.css` | `2bf8780`, `42119ec` |
 | S3-37 | 대화 화면에 열려 있지 않은 진행 중 대화를 일지 상세에서 이어서 하기·끝내기(사용자 오류 신고) | 완료 | `server/app/services/conversation.py`, `web/src/screens/JournalDetailScreen.tsx`, `web/src/screens/ConversationScreen.tsx`, `web/src/App.tsx`, `web/src/index.css` | `a852f8c`, `d4dbea7` |
 | S3-38 | 대화 탭에서는 헤더가 함께 스크롤(사용자 요청 추가) | 완료 | `web/src/App.tsx`, `web/src/index.css` | `9d67fd1` |
-| S3-39 | 지난 아이디어 이어 가기 카드(디자인 시안, 사용자 요청 추가) | 완료 | `server/app/api/journal.py`, `web/src/api/journal.ts`, `web/src/screens/ConversationScreen.tsx`, `web/src/index.css` | |
+| S3-39 | 지난 아이디어 이어 가기 카드(디자인 시안, 사용자 요청 추가) | 완료 | `server/app/api/journal.py`, `web/src/api/journal.ts`, `web/src/screens/ConversationScreen.tsx`, `web/src/index.css` || `c54d255` |
 
 #### S3-01 STT(Whisper)
 - [x] `SttProvider` 인터페이스
@@ -950,4 +950,4 @@
 | 2026-10-18 | S3-37 진행 중인데 대화 화면에 열려 있지 않은 대화를 일지 상세에서 끝내기(대화 중이면 대화로 돌아가기) | `a852f8c` |
 | 2026-10-18 | S3-37 열려 있지 않은 진행 중 대화도 글·음성으로 이어서(다시 열기 API가 진행 중 대화를 이어받음) | `d4dbea7` |
 | 2026-10-18 | S3-38 대화 탭에서는 헤더가 함께 스크롤(일지·설정은 고정 유지) | `9d67fd1` |
-| 2026-10-18 | S3-39 지난 아이디어 이어 가기 카드(GET /api/notes/latest-idea, 대화 시작 화면 → 일지 상세) | |
+| 2026-10-18 | S3-39 지난 아이디어 이어 가기 카드(GET /api/notes/latest-idea, 대화 시작 화면 → 일지 상세) || `c54d255` |
