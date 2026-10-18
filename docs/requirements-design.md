@@ -224,12 +224,13 @@ voice:
 
 | 테이블 | 주요 컬럼 |
 |---|---|
-| conversation_session | id, started_at, ended_at, status(active/paused/ended), title, summary, tags, topics(아이디어 주제), cli_session_id(Claude CLI `--resume`용) |
-| turn | id, session_id, seq, role(user/assistant), text, audio_path(nullable), interrupted, created_at |
-| note | id, session_id, turn_id, kind(idea/todo/memo), content, starred, done, created_at |
+| conversation_session | id, started_at, ended_at, status(active/paused/ended), title, summary, tags, topics(아이디어 주제), 요약·메모 인용(summary_cites, citations, checks), extract_status, system_prompt(시작 때 고정), cli_session_id(Claude CLI `--resume`용) |
+| turn | id, session_id, seq, role(user/assistant), text, audio_path(nullable), interrupted, greeting, created_at |
+| turn_latency | turn_id, session_id, 서버 단계별 ms, 클라이언트 보고 ms(NFR-01 측정) |
+| note | id, session_id, turn_id, kind(idea/todo/memo), content, cites, starred, done, created_at |
 | pending_upload (기기 로컬) | id, session_id, audio_file, recorded_at, retry_count |
 | persona | id(예: jenny), yaml 경로, version(YAML 내용 해시), updated_at |
-| user_profile | id(본인용 단일 행), nickname, interests[], persona_id, voice, keep_audio, updated_at |
+| user_profile | id(본인용 단일 행), nickname, interests[], persona_id, voice, speaking_rate, chat_model, keep_audio, updated_at |
 | briefing (확장) | id, week_start, script_text, audio_path, sources_json |
 
 ID는 UUID 문자열(`persona`는 이름 키, `user_profile`은 단일 행 1), 시각은 UTC로 저장한다. 열거값은 DB CHECK 제약으로 막고, 스키마 변경은 Alembic 마이그레이션(`server/migrations/`)으로 한다. `pending_upload`는 기기 로컬, `briefing`은 5단계에서 만든다.
@@ -242,7 +243,11 @@ ID는 UUID 문자열(`persona`는 이름 키, `user_profile`은 단일 행 1), �
 |---|---|---|
 | POST | /sessions/prepare | 대화 화면이 열릴 때 다음 세션의 CLI를 미리 띄움(인사말 대기 단축, 사용량 없음) |
 | POST | /sessions | 세션 시작, 제니 인사말(텍스트+오디오) 반환 |
-| POST | /sessions/{id}/turns | 발화 오디오 또는 텍스트 업로드 → STT 결과와 제니 답변(문장별 텍스트+오디오)을 SSE로 스트리밍 |
+| POST | /sessions/{id}/turns | 글 턴: 텍스트 업로드 → 제니 답변(문장별 텍스트+오디오)을 SSE로 스트리밍 |
+| POST | /sessions/{id}/turns/audio | 음성 턴: 발화 오디오 업로드 → STT 결과와 제니 답변을 SSE로 스트리밍 |
+| POST | /sessions/{id}/turns/audio/record | 오프라인에서 보관했던 발화를 인식만 해 기록(답변 없음) |
+| POST | /sessions/{id}/turns/{turn_id}/latency | 클라이언트가 잰 지연(말 끝 → 첫 소리) 보고 |
+| POST | /sessions/{id}/reopen | 끝난(또는 열려 있지 않은 진행 중) 대화를 같은 세션으로 다시 열어 이어서 대화 |
 | POST | /sessions/{id}/turns/{turn_id}/cancel | 끼어들기: 생성 중단, 들려준 문장까지만 기록 |
 | POST | /sessions/{id}/end | 세션 종료 + 요약·추출 실행 |
 | GET | /journal?from=&to=&q= | 대화 일지 목록·검색 |
@@ -252,8 +257,11 @@ ID는 UUID 문자열(`persona`는 이름 키, `user_profile`은 단일 행 1), �
 | POST | /journal/{session_id}/retry | 정리에 실패한(또는 정리 기록이 없거나 예전 형식인) 끝난 대화를 다시 정리 |
 | PATCH | /notes/{id} | 별표·완료·내용 수정 |
 | GET | /notes/latest-idea | 대화 시작 화면 "지난 아이디어 이어 가기" 카드용 완료하지 않은 아이디어 1개(별표 먼저, 최신순, 없으면 null) |
-| GET | /journal/{session_id}/export.md | Markdown 내보내기 |
-| GET/PUT | /profile | 호칭·관심사·보이스·페르소나 설정 |
+| GET | /journal/{session_id}/export.md | Markdown 내보내기(5단계 S5-03 예정, 아직 없음) |
+| GET/PUT | /profile | 호칭·관심사·보이스·말 속도·대화 모델·음성 원본 보관·페르소나 설정, 클라이언트 설정값(`client`, 읽기 전용) |
+| GET | /voices, /voices/{voice}/sample | 선택 가능한 보이스 목록, 보이스 미리 듣기 MP3 |
+| GET | /latency | 음성 턴 지연 측정 요약(NFR-01) |
+| GET | /health | 서버 상태 확인 |
 | GET | /usage | Claude 구독 사용 한도(5시간·7일 사용률과 초기화 시각, 화면 위 남은 토큰 막대) |
 
 ### 4.7 확장: 주간 브리핑 (P2)
@@ -328,12 +336,13 @@ Claude는 Anthropic API를 직접 부르지 않고, 서버에 설치한 Claude C
 ```
 trailtalk/
   server/            # FastAPI
-    app/api/         # sessions, turns, journal, notes, profile
+    app/api/         # sessions(turns 포함), journal(notes 포함), profile(voices 포함), latency, usage, health
     app/voice/       # Whisper STT, TTS, 문장 분할
     app/persona/     # 프롬프트 조립기
     app/llm/         # Claude CLI 프로세스 관리, stream-json 파서
     app/mcp/         # 제니 도구 MCP 서버(save_note 등)
-    app/jobs/        # 세션 종료 추출, (확장) 브리핑
+    app/services/    # 대화 처리(세션·턴 SSE), 대화별 런타임, 프로필
+    app/jobs/        # 세션 종료 추출·중복 제거·마무리 멘트, 무발화 타임아웃, (확장) 브리핑
     personas/jenny.yaml
     tests/
   web/               # 1차 클라이언트: TypeScript + React PWA
@@ -346,7 +355,12 @@ trailtalk/
   shared/            # 효과음, 안내 문구, VAD 모델, 클라이언트 설정 기본값
   docs/
     client-contract.md  # API·SSE·오디오·상태 머신 규약
+    handoff.md          # 새 세션 인계(현재 상태·검증 방법)
+    implementation-plan.md  # 구현 계획서(진행 상태)
+    phone.md            # 폰에서 쓰기(Tailscale)
     spikes/             # 기술 검증 기록
+    eval/               # 톤·추출 평가 리포트
+  run.sh, stop.sh       # 앱 실행·종료
   CLAUDE.md
 ```
 
@@ -400,9 +414,9 @@ trailtalk/
 
 **결정 필요 사항**
 
-- [ ] 서버를 어디에 둘지: 집 PC(무료, 항상 켜두기) vs 클라우드 VM(월 소액)
-- [ ] Whisper 운영 방식: OpenAI Whisper API(사용량만큼 과금, 서버 부담 없음) vs faster-whisper 직접 운영(무료, 서버 사양 필요)
-- [ ] TTS 보이스 서비스 선택(샘플 3종 청취 후)
+- [x] 서버를 어디에 둘지: 집 Mac + Tailscale Serve로 결정(D1, 2026-10-17)
+- [x] Whisper 운영 방식: OpenAI 음성 인식 API로 결정(D2, 2026-10-16)
+- [x] TTS 보이스 서비스: OpenAI TTS, 보이스 `nova`로 결정(D3, 2026-10-16)
 - [ ] 등산 중 제니가 먼저 말을 걸지(구간별 격려 등) 여부
 - [ ] 브리핑 관심사 초기 목록(예: 전시·테크·등산·맛집·SNS 챌린지)
 - [ ] 서비스화 시점과 멀티 사용자 지원 여부

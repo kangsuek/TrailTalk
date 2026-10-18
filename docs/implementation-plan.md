@@ -1,7 +1,7 @@
 # TrailTalk 구현 계획서
 
 - 기준 문서: [requirements-design.md](requirements-design.md) (이하 "설계서")
-- 최종 갱신: 2026-10-17
+- 최종 갱신: 2026-10-19
 
 ## 1. 문서 사용법
 
@@ -25,13 +25,13 @@
 | [0. 준비·기술 검증](#3-0단계--준비와-기술-검증) | 완료 | 5/5 | 3~5일 | 2026-10-12 | 2026-10-12 | `a9b2970` |
 | [1. 제니 텍스트 대화](#4-1단계--제니-텍스트-대화) | 완료 | 11/11 | 1~2주 | 2026-10-12 | 2026-10-15 | `4dac567` |
 | [2. 대화 기록](#5-2단계--대화-기록) | 완료 | 9/9 | 1~2주 | 2026-10-15 | 2026-10-16 | `5749ea3` |
-| [3. 웹 음성 대화](#6-3단계--웹-음성-대화) | 진행 중 | 33/34 | 2~3주 | 2026-10-16 | | |
+| [3. 웹 음성 대화](#6-3단계--웹-음성-대화) | 진행 중 | 36/37 | 2~3주 | 2026-10-16 | | |
 | [4. 안드로이드 포팅](#7-4단계--안드로이드-포팅) | 대기 | 0/9 | 3주 | | | |
 | [5. 다듬기·확장](#8-5단계--다듬기와-확장) | 대기 | 0/6 | 2주 | | | |
-| **전체** | | **58/74** | 약 10~13주 | | | |
+| **전체** | | **61/77** | 약 10~13주 | | | |
 
-- **현재 작업**: S3-17 일지 정렬·아이디어별 보기(다른 세션)
-- **다음 작업**: 3단계 종료 점검 진행 중(NFR-01 미달 대응 결정 대기, 실제 산책·D4·D7은 사용자), S3-17 마무리(다른 세션)
+- **현재 작업**: S3-17 일지 정렬·아이디어별 보기(서버 완료, 기존 일지 분류 실행·웹 보기 전환 남음)
+- **다음 작업**: 3단계 종료 점검 진행 중(NFR-01 미달 대응 결정 대기, 실제 산책·D4·D7은 사용자), S3-17 마무리
 
 ## 3. 0단계 — 준비와 기술 검증
 
@@ -301,7 +301,7 @@
 
 #### S2-09 추출 품질 평가 세트
 - [x] 대화 전문 10개와 사람이 만든 정답(아이디어·할 일)(`server/tests/extract_eval/cases.yaml`: 거절한 제안, 아이디어 없는 대화, 시간 든 할 일, 웹 검색, 부정, 말 끊김, 메모 섞임 포함. 정답은 개발 중 작성, 사용자 검토 필요)
-- [x] 비교 스크립트와 재현율 리포트(`run_eval.py`: 앱과 같은 프롬프트·스키마로 추출, 채점 모델(sonnet)이 같은 종류끼리 정답 포함·근거 없는 항목 판정. 첫 측정(1회차, 회차 기록은 `docs/eval/extract-2026-10-15-5.md`): 재현율 26/26, 근거 없는 항목 0/26(엄격히 2/26). 마일스톤 실제 대화 확인에서 찾은 중복 노트·진행 기록 메모를 고친 뒤 대화 12개(저장 노트 사례 2개 추가)로 다시 잼. 최종 `extract-2026-10-15-5.md`: 재현율 27/28(96%, 회차별 96~100%), 근거 없음 0, 저장 노트와 중복 0, 진행 기록 메모 0)
+- [x] 비교 스크립트와 재현율 리포트(`run_eval.py`: 앱과 같은 프롬프트·스키마로 추출, 채점 모델(sonnet)이 같은 종류끼리 정답 포함·근거 없는 항목 판정. 첫 측정(1회차, 2단계 시점 리포트는 정리해 git 이력에만 있다. 최신 회차 기록은 `docs/eval/extract-2026-10-17.md`): 재현율 26/26, 근거 없는 항목 0/26(엄격히 2/26). 마일스톤 실제 대화 확인에서 찾은 중복 노트·진행 기록 메모를 고친 뒤 대화 12개(저장 노트 사례 2개 추가)로 다시 잼. 최종 `extract-2026-10-15-5.md`: 재현율 27/28(96%, 회차별 96~100%), 근거 없음 0, 저장 노트와 중복 0, 진행 기록 메모 0)
 
 **완료 기준**
 
@@ -310,7 +310,7 @@
 | 웹 대화가 일지로 정리 | 5회 모두 | 5/5(실제 CLI, Playwright 대화 5회, 모두 `done`). 확인 중 찾은 중복 노트·진행 기록 메모는 `e386dfb`에서 고친 뒤 대화 2회로 재확인(중복 0) | 통과 |
 | 다음 세션에서 제니가 지난 아이디어를 먼저 언급 | 동작 | 실제 CLI 세션 2~6과 수정 후 재확인 모두 첫인사에서 지난 아이디어·할 일을 먼저 꺼냄 | 통과 |
 | 세션 도중 서버 강제 종료 시 직전 턴까지 보존 | 유실 0건 | 유실 0건(실제 CLI: 답변 첫 문장 표시 뒤 SIGKILL, 화면 문장 모두 DB에 `interrupted`로 남고 재기동 후 `--resume`으로 이어짐. 가짜 CLI 테스트 `test_server_kill.py`·Playwright도 동일) | 통과 |
-| 추출 재현율(아이디어·할 일) | 80% 이상(첫 측정 후 조정) | 27/28(96%, 회차별 96~100%). 근거 없음 0/27, 저장 노트와 중복 0/2, 진행 기록 메모 0/10(`extract-2026-10-15-5.md`) | 통과(평가 세트가 쉬워 실제 일지로 재측정 필요) |
+| 추출 재현율(아이디어·할 일) | 80% 이상(첫 측정 후 조정) | 27/28(96%, 회차별 96~100%). 근거 없음 0/27, 저장 노트와 중복 0/2, 진행 기록 메모 0/10(2단계 시점 리포트, git 이력) | 통과(평가 세트가 쉬워 실제 일지로 재측정 필요) |
 | Playwright 일지 목록 → 상세, 별표·완료 저장 | 통과 | `e2e/journal.spec.ts` 통과(새로고침 뒤에도 유지) | 통과 |
 
 **마일스톤 종료 체크리스트**
@@ -364,18 +364,18 @@
 | S3-24 | 일지 표시 개선: 결론·알게 된 것·확인할 것(사용자 요청 추가) | 완료 | `server/app/persona/rules.py`, `server/app/jobs/extract.py`, `web/src/screens/JournalDetailScreen.tsx` | `6a72b59` |
 | S3-25 | 일지 목록 여러 개 선택·한 번에 삭제(사용자 요청 추가) | 완료 | `web/src/screens/JournalListScreen.tsx`, `web/src/index.css` | `07ccb8d` |
 | S3-26 | 끝난 대화 이어서 하기(사용자 요청 추가) | 완료 | `server/app/services/conversation.py`, `server/app/api/sessions.py`, `server/app/persona/prompt.py`, `web/src/screens/JournalDetailScreen.tsx`, `web/src/screens/ConversationScreen.tsx` | `d91f13b`, `4c87241` |
-| S3-27 | 이어서 하기 프롬프트 줄이기: 일지 정리 재사용(사용자 요청 추가) | 완료 | `server/app/persona/prompt.py`, `server/app/services/conversation.py` |  `18a9145` |
+| S3-27 | 이어서 하기 프롬프트 줄이기: 일지 정리 재사용(사용자 요청 추가) | 완료 | `server/app/persona/prompt.py`, `server/app/services/conversation.py` | `18a9145` |
 | S3-28 | 지난 대화 전문 검색 도구 search_conversations(사용자 요청 추가) | 완료 | `server/app/mcp/server.py`, `server/app/persona/rules.py`, `web/src/core/conversation.ts` | `39a8f33` |
 | S3-29 | 일지 상세에서 삭제(사용자 요청 추가) | 완료 | `web/src/screens/JournalDetailScreen.tsx`, `web/src/App.tsx` | `c02b920` |
 | S3-30 | 지워진 대화 안내(사용자 요청 추가) | 완료 | `web/src/screens/JournalDetailScreen.tsx` | `d177d00` |
 | S3-31 | 대화 모델 선택: 설정 화면·말로 바꾸기(사용자 요청 추가) | 완료 | `server/app/llm/manager.py`, `server/app/mcp/server.py`, `server/app/api/profile.py`, `web/src/screens/SettingsScreen.tsx` | `fd62f5d` |
-| S3-32 | 디자인 시안 적용: 하단 3탭·카드 스타일(사용자 요청 추가) | 완료 | `web/src/App.tsx`, `web/src/index.css`, `web/src/screens/*.tsx` |  `5943fee` |
+| S3-32 | 디자인 시안 적용: 하단 3탭·카드 스타일(사용자 요청 추가) | 완료 | `web/src/App.tsx`, `web/src/index.css`, `web/src/screens/*.tsx` | `5943fee` |
 | S3-33 | 긴 발화가 끊겨 뒷말이 사라지는 문제(사용자 요청 추가) | 완료 | `web/src/core/sessionMachine.ts`, `shared/fixtures/transitions.json`, `shared/client-defaults.json` | `69e4dcc` |
-| S3-34 | 턴마다 지금 시각을 LLM에 알리기(사용자 요청 추가) | 완료 | `server/app/services/conversation.py`, `server/app/persona/rules.py`, `server/app/persona/prompt.py` | |
+| S3-34 | 턴마다 지금 시각을 LLM에 알리기(사용자 요청 추가) | 완료 | `server/app/services/conversation.py`, `server/app/persona/rules.py`, `server/app/persona/prompt.py` | `bbc0b75` |
 | S3-36 | Claude 남은 토큰 표시·헤더 고정(사용자 요청 추가) | 완료 | `server/app/llm/usage.py`, `server/app/api/usage.py`, `server/app/llm/claude_cli.py`, `web/src/core/usage.ts`, `web/src/screens/UsageMeter.tsx`, `web/src/App.tsx`, `web/src/index.css` | `2bf8780`, `42119ec` |
 | S3-37 | 대화 화면에 열려 있지 않은 진행 중 대화를 일지 상세에서 이어서 하기·끝내기(사용자 오류 신고) | 완료 | `server/app/services/conversation.py`, `web/src/screens/JournalDetailScreen.tsx`, `web/src/screens/ConversationScreen.tsx`, `web/src/App.tsx`, `web/src/index.css` | `a852f8c`, `d4dbea7` |
 | S3-38 | 대화 탭에서는 헤더가 함께 스크롤(사용자 요청 추가) | 완료 | `web/src/App.tsx`, `web/src/index.css` | `9d67fd1` |
-| S3-39 | 지난 아이디어 이어 가기 카드(디자인 시안, 사용자 요청 추가) | 완료 | `server/app/api/journal.py`, `web/src/api/journal.ts`, `web/src/screens/ConversationScreen.tsx`, `web/src/index.css` || `c54d255` |
+| S3-39 | 지난 아이디어 이어 가기 카드(디자인 시안, 사용자 요청 추가) | 완료 | `server/app/api/journal.py`, `web/src/api/journal.ts`, `web/src/screens/ConversationScreen.tsx`, `web/src/index.css` | `c54d255` |
 
 #### S3-01 STT(Whisper)
 - [x] `SttProvider` 인터페이스
@@ -655,7 +655,7 @@
 - NFR-01 측정 방법: 산책 뒤 `GET /api/latency`의 `summary.total_ms.median`(검색 턴 제외는 `total_ms_reply`). 말 끝은 VAD가 끝을 알아챈 때에서 무음 대기(1.8초, S3-33 전 1.2초)를 뺀 시각이라, 무음 대기도 3초 안에 들어간다(S3-07).
 
 **마일스톤 종료 체크리스트**
-- [x] 유닛 테스트와 Playwright 실제 구동 검증 통과(pytest 565, Vitest 234, E2E 7, S3-17 병합 전 기준 — 병합 뒤 다시 돌린다)
+- [x] 유닛 테스트와 Playwright 실제 구동 검증 통과(pytest 565, Vitest 234, E2E 7은 S3-17 병합 전 기준. 2026-10-18 S3-39 시점 pytest 671, Vitest 287, E2E 15 — 3단계를 닫을 때 다시 돌린다)
 - [ ] 폰 브라우저 실제 산책 테스트(폰 음성 대화 연결은 S3-14에서 확인)
 - [x] 실제 Claude CLI로 수동 통합 테스트 1회(2026-10-17): 음성 인사말·발화 2턴·끼어들기(연결 끊김+cancel 겹침, 경고 없음)·끝내기·일지 정리, 음성 세션 검색 답변(출처는 사이트 이름으로만, 링크 없음)
 - [ ] `CLAUDE.md`·`client-contract.md`가 실제 코드와 일치(client-contract는 S3-15 확정본, S3-17 병합 뒤 둘 다 다시 대조)
@@ -826,7 +826,7 @@
 | FR-18 | S5-05 | 5 | 대기 |
 | FR-19 | S5-06 | 5 | 대기 |
 | FR-20 | S1-03, S1-04, S1-05, S1-09, S1-10, S3-03 | 1, 3 | 진행 중 |
-| NFR-01 | S3-03, S3-07 | 3 | 대기 |
+| NFR-01 | S3-03, S3-07 | 3 | 진행 중(책상 측정 미달) |
 | NFR-02 | S4-06, S4-07 | 4 | 대기 |
 | NFR-03 | S3-01, S3-10, S4-03 | 3, 4 | 진행 중 |
 | NFR-04 | S2-01, S3-12, S4-05 | 2, 3, 4 | 진행 중 |
@@ -942,12 +942,13 @@
 | 2026-10-18 | S3-29 일지 상세에서 삭제(맨 아래 버튼, 확인 뒤 목록으로) | `c02b920` |
 | 2026-10-18 | S3-30 지워진 대화 안내(일지 상세 404 → '지워진 대화예요' + 목록으로) | `d177d00` |
 | 2026-10-18 | S3-31 대화 모델 선택(설정 화면 라디오, 말로 set_model, 다음 답변부터 같은 맥락으로 새 모델) | `fd62f5d` |
-| 2026-10-18 | S3-32 디자인 시안 적용(하단 3탭 대화·일지·설정, 색 토큰 라이트·다크, 대화 시작 큰 음성 버튼, 일지·설정 카드) |  `5943fee` |
+| 2026-10-18 | S3-32 디자인 시안 적용(하단 3탭 대화·일지·설정, 색 토큰 라이트·다크, 대화 시작 큰 음성 버튼, 일지·설정 카드) | `5943fee` |
 | 2026-10-18 | S3-33 긴 발화 끊김(처리 중 이어 말하면 첫 답변을 취소하고 뒷말을 들음, 말하기 중 끝난 말 보관, 무음 대기 1.8초·무음 기준 0.25) | `69e4dcc` |
-| 2026-10-18 | S3-34 턴마다 지금 시각을 LLM에 알리기(CLI 입력 앞 앱 안내, 기록에는 남기지 않음) | |
+| 2026-10-18 | S3-34 턴마다 지금 시각을 LLM에 알리기(CLI 입력 앞 앱 안내, 기록에는 남기지 않음) | `bbc0b75` |
 | 2026-10-18 | S3-36 Claude 남은 토큰 표시(GET /api/usage, 헤더 아래 막대)·헤더 고정 | `2bf8780` |
 | 2026-10-18 | S3-36 바뀐 시안대로 음성 구슬 크기 절반(시작 66px, 대화 중 52px) | `42119ec` |
 | 2026-10-18 | S3-37 진행 중인데 대화 화면에 열려 있지 않은 대화를 일지 상세에서 끝내기(대화 중이면 대화로 돌아가기) | `a852f8c` |
 | 2026-10-18 | S3-37 열려 있지 않은 진행 중 대화도 글·음성으로 이어서(다시 열기 API가 진행 중 대화를 이어받음) | `d4dbea7` |
 | 2026-10-18 | S3-38 대화 탭에서는 헤더가 함께 스크롤(일지·설정은 고정 유지) | `9d67fd1` |
-| 2026-10-18 | S3-39 지난 아이디어 이어 가기 카드(GET /api/notes/latest-idea, 대화 시작 화면 → 일지 상세) || `c54d255` |
+| 2026-10-18 | S3-39 지난 아이디어 이어 가기 카드(GET /api/notes/latest-idea, 대화 시작 화면 → 일지 상세) | `c54d255` |
+| 2026-10-19 | 문서 현행화: 대시보드 작업 수(3단계 36/37, 전체 61/77)·표 형식 오류 바로잡기, 설계서 API 표·데이터 모델·결정 사항, 인계 문서 갱신, 불필요 파일 정리 | |
