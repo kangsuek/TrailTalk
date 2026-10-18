@@ -11,6 +11,7 @@
 (여러 문장 답변용).
 "__say_then_crash__:<글>"은 글을 보낸 뒤 죽고, "__say_then_hang__:<글>"은 글을 보낸 뒤
 "__hang_until_interrupt__"처럼 멈춘다(답변 도중 끊김·서버 강제 종료 시험용).
+서버가 메시지 앞에 붙이는 앱 안내 문단("(앱 안내: …)\n\n", 지금 시각·끼어들기)은 건너뛰고 판단한다.
 
 단발 모드: 인자에 --json-schema가 있으면(세션 종료 추출 등) stdin 전체를 프롬프트로 읽고
 FAKE_CLAUDE_ONESHOT 파일의 첫 줄(CLI JSON 출력)을 낸다. 줄이 여러 개면 첫 줄을 지워 다음 호출이
@@ -43,6 +44,16 @@ def load_turns(name: str) -> list[list[dict]]:
         if event.get("type") == "result":
             turns.append([])
     return [t for t in turns if t]
+
+
+APP_NOTE = "(앱 안내:"
+
+
+def strip_app_notes(content: str) -> str:
+    """서버가 사용자 말 앞에 붙인 앱 안내 문단을 떼어 낸다(지시어는 그 뒤에 온다)."""
+    while content.startswith(APP_NOTE) and "\n\n" in content:
+        content = content.split("\n\n", 1)[1]
+    return content
 
 
 def emit(event: dict) -> None:
@@ -194,7 +205,7 @@ def main() -> None:
         message = json.loads(line)
         if message.get("type") == "control_request":
             continue  # 턴 밖의 인터럽트는 무시
-        content = message.get("message", {}).get("content", "")
+        content = strip_app_notes(message.get("message", {}).get("content", ""))
         if content == "__crash__":
             print("fake crash", file=sys.stderr, flush=True)
             sys.exit(3)

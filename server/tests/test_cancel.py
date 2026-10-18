@@ -1,7 +1,11 @@
-"""끼어들기 API(계획서 S3-04): 들려준 문장까지만 기록하고, 진행 중이면 CLI를 인터럽트한다."""
+"""끼어들기 API(계획서 S3-04): 들려준 문장까지만 기록하고, 진행 중이면 CLI를 인터럽트한다.
 
+CLI 입력 앞에 붙는 안내(끼어들기·지금 시각 S3-34)도 여기서 확인한다."""
+
+import re
 import threading
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -35,8 +39,13 @@ def cancel(api, session_id: str, turn_id: str, last_played: int):
     )
 
 
-def capture_cli_input(api) -> list[str]:
-    """CLI에 보낸 사용자 메시지를 모은다."""
+# 턴마다 맨 앞에 붙는 지금 시각 안내(S3-34). 모을 때 확인하고 떼어 낸다
+TIME_NOTE = re.compile(r"\(앱 안내: 지금 시각은 [^\n]+?이다\. [^\n]*\)\n\n")
+
+
+def capture_cli_input(api, *, raw: bool = False) -> list[str]:
+    """CLI에 보낸 사용자 메시지를 모은다(raw가 아니면 맨 앞의 지금 시각 안내는 확인한 뒤 뗀다).
+    대화를 시작한 뒤에 부른다(인사말 안내 앞에도 시각이 붙지만 형식 확인은 턴 기준이다)."""
     sent: list[str] = []
     manager = api.app.state.llm
     original = manager.get
@@ -49,7 +58,9 @@ def capture_cli_input(api) -> list[str]:
             return getattr(self._inner, name)
 
         def send(self, text):
-            sent.append(text)
+            note = TIME_NOTE.match(text)
+            assert note is not None, text
+            sent.append(text if raw else text[note.end() :])
             return self._inner.send(text)
 
     async def get(key, **kwargs):
@@ -57,6 +68,18 @@ def capture_cli_input(api) -> list[str]:
 
     manager.get = get
     return sent
+
+
+def test_every_turn_tells_cli_the_current_time_without_recording_it(api, monkeypatch):
+    session_id = start(api, "voice")["session"]["id"]
+    sent = capture_cli_input(api, raw=True)
+    # 대화를 시작한 때와 다른 시각의 턴: 시스템 프롬프트의 시작 시각이 아니라 턴 때의 시각을 알린다
+    later = datetime(2026, 10, 13, 23, 5, tzinfo=UTC)  # 한국 시각 10월 14일(수) 오전 8시 5분
+    monkeypatch.setattr("app.services.conversation.utcnow", lambda: later)
+    turn(api, session_id, "지금 몇 시야?")
+    assert sent[0].startswith("(앱 안내: 지금 시각은 2026년 10월 14일(수) 오전 8시 5분이다.")
+    assert sent[0].endswith(")\n\n지금 몇 시야?")
+    assert turns_of(api, session_id)[1].text == "지금 몇 시야?"  # 기록에는 남기지 않는다
 
 
 def test_cancel_running_turn_interrupts_cli_and_keeps_played_sentences(api):

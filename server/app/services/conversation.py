@@ -83,6 +83,7 @@ from app.persona.prompt import (
     PastSummary,
     PastTurn,
     build_system_prompt,
+    current_time_note,
 )
 from app.persona.rules import (
     GREETING_INSTRUCTION,
@@ -450,8 +451,11 @@ async def start_session(
     try:
         async with runtime.turn_lock:
             session, persona, voice = await open_llm(app, db, convo)
+            # 미리 띄운 CLI는 준비한 때의 시각으로 프롬프트를 만들었으므로 인사말에도
+            # 지금 시각을 붙인다
+            now_note = current_time_note(utcnow(), app.state.settings.timezone)
             text, cli_session_id = await _receive_greeting(
-                session, GREETING_INSTRUCTION, session_id, seen
+                session, now_note + GREETING_INSTRUCTION, session_id, seen
             )
             greeting = Turn(session_id=convo.id, seq=0, role=TurnRole.ASSISTANT, text=text)
             db.add(greeting)
@@ -735,8 +739,11 @@ async def _run_turn(
         notice_sent = False
         spoken = False  # 이번 턴에 소리 있는 문장을 보냈는가(검색 안내 조건)
 
-        # 직전 답변을 끊었으면 사용자가 어디까지 들었는지 CLI에만 알린다(기록에는 남기지 않는다)
-        cli_text, runtime.heard_note = (runtime.heard_note or "") + text, None
+        # 지금 시각과, 직전 답변을 끊었으면 사용자가 어디까지 들었는지를 CLI에만 알린다(기록에는
+        # 남기지 않는다)
+        now_note = current_time_note(utcnow(), app.state.settings.timezone)
+        cli_text = now_note + (runtime.heard_note or "") + text
+        runtime.heard_note = None
         # CLI 오류(크래시·시간 초과)로 끝나도 받은 글은 아래에서 마저 보내고 저장한 뒤 다시 던진다
         stream_error: LlmError | None = None
         try:
@@ -1175,8 +1182,9 @@ async def reopen_session(
         )
         await db.commit()
         session, persona, voice = await open_llm(app, db, convo)
+        now_note = current_time_note(utcnow(), app.state.settings.timezone)
         text, cli_session_id = await _receive_greeting(
-            session, REOPEN_GREETING_INSTRUCTION, session_id, seen
+            session, now_note + REOPEN_GREETING_INSTRUCTION, session_id, seen
         )
         last_seq = await db.scalar(select(func.max(Turn.seq)).where(Turn.session_id == session_id))
         greeting = Turn(

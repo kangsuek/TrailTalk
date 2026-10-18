@@ -17,6 +17,7 @@ from app.persona.prompt import (
     PastSummary,
     PastTurn,
     build_system_prompt,
+    current_time_note,
     persona_block,
 )
 
@@ -273,6 +274,13 @@ def test_memory_items_cannot_break_structure(jenny):
 )
 def test_time_formatting(jenny, utc, expected):
     assert expected in build(jenny, now=utc)
+
+
+def test_current_time_note_uses_local_time():
+    # 턴마다 CLI 입력 앞에 붙는 지금 시각(S3-34). 시간대는 설정값을 따른다
+    note = current_time_note(datetime(2026, 10, 13, 3, 5, tzinfo=UTC), "Asia/Seoul")
+    assert note.startswith("(앱 안내: 지금 시각은 2026년 10월 13일(화) 오후 12시 5분이다.")
+    assert note.endswith(")\n\n")
 
 
 def test_naive_now_rejected(jenny):

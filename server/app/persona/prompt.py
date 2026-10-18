@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from app.persona.rules import ROLE_RULE_SECTIONS
+from app.persona.rules import CURRENT_TIME_NOTE, ROLE_RULE_SECTIONS
 from app.persona.schema import Persona
 
 Mode = Literal["voice", "text"]
@@ -129,10 +129,16 @@ def _format_time(now: datetime, timezone: str) -> str:
     )
 
 
+def current_time_note(now: datetime, timezone: str) -> str:
+    """턴마다 CLI 입력 앞에 붙이는 지금 시각 안내(rules.CURRENT_TIME_NOTE)."""
+    return CURRENT_TIME_NOTE.format(now=_format_time(now, timezone))
+
+
 def situation_block(persona: Persona, mode: Mode, now: datetime, timezone: str) -> str:
     lines = [
         "# 상황",
-        f"대화 시작 시각: {_format_time(now, timezone)}. 대화가 길어지면 지금은 이보다 늦다.",
+        f"대화 시작 시각: {_format_time(now, timezone)}. "
+        "그 뒤로는 사용자 말 앞의 앱 안내가 지금 시각을 알려 준다.",
     ]
     if mode == "voice":
         lines += [

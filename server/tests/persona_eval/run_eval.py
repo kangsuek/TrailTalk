@@ -29,7 +29,7 @@ from app.config import REPO_DIR, Settings
 from app.llm.claude_cli import ClaudeCliBackend, build_env, delete_cli_session_file
 from app.llm.events import TextDelta, TurnFinished
 from app.persona.loader import load_persona
-from app.persona.prompt import build_system_prompt
+from app.persona.prompt import build_system_prompt, current_time_note
 from app.persona.schema import Persona
 from tests.persona_eval.checks import Check, code_checks
 
@@ -124,7 +124,9 @@ async def generate(backend: ClaudeCliBackend, settings: Settings, prompt: str, r
     try:
         parts: list[str] = []
         finished = None
-        async with aclosing(session.send(r.question)) as stream:
+        # 운영처럼 지금 시각 안내를 앞에 붙인다(S3-34, 시스템 프롬프트가 이 안내를 가리킨다)
+        text = current_time_note(datetime.now(UTC), settings.timezone) + r.question
+        async with aclosing(session.send(text)) as stream:
             async for event in stream:
                 if isinstance(event, TextDelta):
                     parts.append(event.text)
