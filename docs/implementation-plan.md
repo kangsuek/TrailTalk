@@ -373,7 +373,7 @@
 | S3-33 | 긴 발화가 끊겨 뒷말이 사라지는 문제(사용자 요청 추가) | 완료 | `web/src/core/sessionMachine.ts`, `shared/fixtures/transitions.json`, `shared/client-defaults.json` | `69e4dcc` |
 | S3-34 | 턴마다 지금 시각을 LLM에 알리기(사용자 요청 추가) | 완료 | `server/app/services/conversation.py`, `server/app/persona/rules.py`, `server/app/persona/prompt.py` | |
 | S3-36 | Claude 남은 토큰 표시·헤더 고정(사용자 요청 추가) | 완료 | `server/app/llm/usage.py`, `server/app/api/usage.py`, `server/app/llm/claude_cli.py`, `web/src/core/usage.ts`, `web/src/screens/UsageMeter.tsx`, `web/src/App.tsx`, `web/src/index.css` | `2bf8780`, `42119ec` |
-| S3-37 | 대화 화면에 열려 있지 않은 진행 중 대화를 일지 상세에서 끝내기(사용자 오류 신고) | 완료 | `web/src/screens/JournalDetailScreen.tsx`, `web/src/screens/ConversationScreen.tsx`, `web/src/App.tsx`, `web/src/index.css` | |
+| S3-37 | 대화 화면에 열려 있지 않은 진행 중 대화를 일지 상세에서 끝내기(사용자 오류 신고) | 완료 | `web/src/screens/JournalDetailScreen.tsx`, `web/src/screens/ConversationScreen.tsx`, `web/src/App.tsx`, `web/src/index.css` | `a852f8c` |
 
 #### S3-01 STT(Whisper)
 - [x] `SttProvider` 인터페이스
@@ -928,4 +928,4 @@
 | 2026-10-18 | S3-34 턴마다 지금 시각을 LLM에 알리기(CLI 입력 앞 앱 안내, 기록에는 남기지 않음) | |
 | 2026-10-18 | S3-36 Claude 남은 토큰 표시(GET /api/usage, 헤더 아래 막대)·헤더 고정 | `2bf8780` |
 | 2026-10-18 | S3-36 바뀐 시안대로 음성 구슬 크기 절반(시작 66px, 대화 중 52px) | `42119ec` |
-| 2026-10-18 | S3-37 진행 중인데 대화 화면에 열려 있지 않은 대화를 일지 상세에서 끝내기(대화 중이면 대화로 돌아가기) | |
+| 2026-10-18 | S3-37 진행 중인데 대화 화면에 열려 있지 않은 대화를 일지 상세에서 끝내기(대화 중이면 대화로 돌아가기) | `a852f8c` |
