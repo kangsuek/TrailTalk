@@ -416,5 +416,74 @@ describe('JournalDetailScreen', () => {
     await new Promise((r) => setTimeout(r, 20))
     expect(onDeleted).not.toHaveBeenCalled()
   })
+
+  it('없는 일지(지운 대화)는 지워졌다고 안내하고 목록으로 보낸다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({ error: { code: 'session_not_found', message: '대화 세션을 찾을 수 없습니다.' } }),
+          { status: 404 },
+        ),
+      ),
+    )
+    const onBack = vi.fn()
+    render(<JournalDetailScreen sessionId="gone" onBack={onBack} />)
+    expect(await screen.findByText('지워진 대화예요. 일지 목록에서 다른 대화를 골라 주세요.')).toBeInTheDocument()
+    expect(screen.queryByText('대화 세션을 찾을 수 없습니다.')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '다시 불러오기' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '이 대화 삭제' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '일지 목록으로' }))
+    expect(onBack).toHaveBeenCalled()
+  })
+
+  it('다른 오류는 지금처럼 다시 불러오기를 보이고, 정리 중에 지워지면 안내로 바뀐다', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(new TypeError('끊김'))))
+    const { unmount } = render(<JournalDetailScreen sessionId="s1" />)
+    expect(await screen.findByRole('button', { name: '다시 불러오기' })).toBeInTheDocument()
+    expect(screen.queryByText(/지워진 대화예요/)).not.toBeInTheDocument()
+    unmount()
+
+    let calls = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        calls += 1
+        if (calls === 1) {
+          return new Response(JSON.stringify({ ...DETAIL, session: { ...DETAIL.session, journal_status: 'pending' } }))
+        }
+        return new Response(JSON.stringify({ error: { code: 'session_not_found', message: '없음' } }), { status: 404 })
+      }),
+    )
+    render(<JournalDetailScreen sessionId="s1" pollMs={10} />)
+    expect(await screen.findByText(/지워진 대화예요/)).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { level: 3 })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '일지 목록으로' })).toHaveFocus() // 사라진 버튼 대신
+    const seen = calls
+    await new Promise((r) => setTimeout(r, 50))
+    expect(calls).toBe(seen) // 더는 다시 불러오지 않는다
+  })
+
+  it('다시 정리가 404(지운 대화)를 받으면 안내로 바꾸고, 다른 404는 오류로 둔다', async () => {
+    let retryStatus = { code: 'session_not_found', message: '대화 세션을 찾을 수 없습니다.' }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.endsWith('/retry')) return new Response(JSON.stringify({ error: retryStatus }), { status: 404 })
+        return new Response(JSON.stringify({ ...DETAIL, session: { ...DETAIL.session, journal_status: 'failed' } }))
+      }),
+    )
+    const { unmount } = render(<JournalDetailScreen sessionId="s1" />)
+    fireEvent.click(await screen.findByRole('button', { name: '다시 정리' }))
+    expect(await screen.findByText(/지워진 대화예요/)).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    unmount()
+
+    retryStatus = { code: 'http_error', message: '요청한 주소가 없어요.' }
+    render(<JournalDetailScreen sessionId="s1" />)
+    fireEvent.click(await screen.findByRole('button', { name: '다시 정리' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('요청한 주소가 없어요.')
+    expect(screen.queryByText(/지워진 대화예요/)).not.toBeInTheDocument()
+  })
 })
 

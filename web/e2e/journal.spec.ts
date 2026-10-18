@@ -242,3 +242,25 @@ test('일지 상세: 맨 아래 삭제 버튼으로 지우면 목록으로 돌�
   await expect(page.getByText(/불러오는 중/)).toHaveCount(0)
   await expect(page.getByText(title)).toHaveCount(0)
 })
+
+// 지워진 대화 안내(S3-30): 대화 탭이 끝난 대화를 들고 있는 동안 그 일지를 지우면 "일지 보기"가 안내를 보인다
+test('지운 대화를 대화 탭의 일지 보기로 열면 지워졌다고 안내한다', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: /^글로 (새 )?대화$/ }).click()
+  const log = page.getByRole('log', { name: '대화 내용' })
+  await expect(log.locator('.message.assistant').first()).toBeVisible()
+  await page.getByRole('textbox', { name: '메시지' }).fill('Claude Code 최신 버전 알려줘')
+  await page.getByRole('button', { name: '보내기' }).click()
+  await expect(log.locator('.message.assistant')).toHaveCount(2)
+  const ended = page.waitForResponse((r) => r.url().endsWith('/end'))
+  await page.getByRole('button', { name: '대화 끝내기' }).click()
+  const id = (await (await ended).json()).session.id
+  expect((await page.request.delete(`/api/journal/${id}`)).status()).toBe(204) // 다른 곳(목록·다른 기기)에서 지웠다
+
+  await page.getByRole('button', { name: '일지 보기' }).click()
+  await expect(page.getByText('지워진 대화예요. 일지 목록에서 다른 대화를 골라 주세요.')).toBeVisible()
+  await expect(page.getByRole('button', { name: '다시 불러오기' })).toHaveCount(0)
+  await page.screenshot({ path: 'test-results/journal-deleted.png' })
+  await page.getByRole('button', { name: '일지 목록으로' }).click()
+  await expect(page.getByRole('tab', { name: '일지 목록' })).toHaveAttribute('aria-selected', 'true')
+})

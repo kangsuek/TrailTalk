@@ -15,7 +15,12 @@ import { dateLabel, MAX_POLLS, POLL_MS } from '../core/journal'
 type DetailState =
   | { kind: 'loading' }
   | { kind: 'error'; message: string }
+  | { kind: 'deleted' } // 없는 일지(지운 뒤 대화 탭의 "일지 보기"나 오래된 목록 항목으로 열었다)
   | { kind: 'ready'; detail: JournalDetail }
+
+// 대화가 없다(지웠다). 경로 설정 오류 같은 다른 404와 구분하려고 오류 코드까지 본다
+const isGone = (error: unknown) =>
+  error instanceof ApiError && error.status === 404 && error.code === 'session_not_found'
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof ApiError ? error.message : fallback
@@ -53,6 +58,15 @@ export function JournalDetailScreen({
   const [state, setState] = useState<DetailState>({ kind: 'loading' })
   const [attempt, setAttempt] = useState(0)
   const [saveError, setSaveError] = useState<string | null>(null)
+  // 지워진 대화로 바꾼다. 남아 있던 저장 오류는 지우고, 사라진 버튼 대신 목록 버튼으로 포커스를 옮긴다
+  const goneButton = useRef<HTMLButtonElement>(null)
+  const markDeleted = () => {
+    setSaveError(null)
+    setState({ kind: 'deleted' })
+  }
+  useEffect(() => {
+    if (state.kind === 'deleted') goneButton.current?.focus()
+  }, [state.kind])
 
   useEffect(() => {
     if (sessionId === null) return
@@ -60,9 +74,9 @@ export function JournalDetailScreen({
     getJournal(sessionId, controller.signal)
       .then((detail) => setState({ kind: 'ready', detail }))
       .catch((error) => {
-        if (!controller.signal.aborted) {
-          setState({ kind: 'error', message: errorMessage(error, '일지를 불러오지 못했어요.') })
-        }
+        if (controller.signal.aborted) return
+        if (isGone(error)) markDeleted()
+        else setState({ kind: 'error', message: errorMessage(error, '일지를 불러오지 못했어요.') })
       })
     return () => controller.abort()
   }, [sessionId, attempt])
@@ -78,8 +92,10 @@ export function JournalDetailScreen({
       polls.current += 1
       getJournal(sessionId, controller.signal)
         .then((detail) => setState({ kind: 'ready', detail }))
-        .catch(() => {
-          if (!controller.signal.aborted) setFailures((n) => n + 1)
+        .catch((error) => {
+          if (controller.signal.aborted) return
+          if (isGone(error)) markDeleted() // 정리 중에 다른 곳에서 지웠다
+          else setFailures((n) => n + 1)
         })
     }, pollMs)
     return () => {
@@ -143,7 +159,9 @@ export function JournalDetailScreen({
           current.kind === 'ready' ? { kind: 'ready', detail: { ...current.detail, session } } : current,
         )
       })
-      .catch((error) => setSaveError(errorMessage(error, '다시 정리하지 못했어요.')))
+      .catch((error) =>
+        isGone(error) ? markDeleted() : setSaveError(errorMessage(error, '다시 정리하지 못했어요.')),
+      )
   }
 
   const continueIn = (mode: ContinueMode) => {
@@ -205,6 +223,14 @@ export function JournalDetailScreen({
           <p role="alert">{state.message}</p>
           <button type="button" onClick={reload}>
             다시 불러오기
+          </button>
+        </div>
+      )}
+      {state.kind === 'deleted' && (
+        <div className="journal-note">
+          <p role="status">지워진 대화예요. 일지 목록에서 다른 대화를 골라 주세요.</p>
+          <button type="button" className="journal-gone" ref={goneButton} onClick={onBack}>
+            일지 목록으로
           </button>
         </div>
       )}
