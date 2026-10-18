@@ -280,3 +280,32 @@ def test_detail_has_citations(client):
     # 메모 내용을 고쳐도 근거 번호는 그대로 돌려준다
     edited = client.patch(f"/api/notes/{note_id}", json={"content": "고친 메모"}).json()
     assert edited["cites"] == [2, 1]
+
+
+def test_latest_idea_none(client):
+    assert client.get("/api/notes/latest-idea").json() is None
+
+
+def test_latest_idea_prefers_starred_then_newest_open(client):
+    """S3-39: 시작 화면 카드. 기억 블록과 같은 순서(별표 먼저, 최신순), 완료·다른 종류는 뺀다."""
+    old = add_session(client, kst(2026, 10, 14, 9, 0))
+    new = add_session(client, kst(2026, 10, 15, 9, 0))
+    add_note(client, old, NoteKind.IDEA, "오래된 아이디어", created_at=kst(2026, 10, 14, 10, 0))
+    add_note(client, new, NoteKind.IDEA, "새 아이디어", created_at=kst(2026, 10, 15, 10, 0))
+    done_at = kst(2026, 10, 15, 11, 0)
+    add_note(client, new, NoteKind.IDEA, "끝낸 아이디어", done=True, created_at=done_at)
+    add_note(client, new, NoteKind.TODO, "할 일", created_at=kst(2026, 10, 15, 12, 0))
+
+    body = client.get("/api/notes/latest-idea").json()
+    assert body["content"] == "새 아이디어"
+    assert body["session_id"] == new
+    assert body["starred"] is False
+
+    star_at = kst(2026, 10, 13, 9, 0)
+    starred = add_note(client, old, NoteKind.IDEA, "별표", starred=True, created_at=star_at)
+    body = client.get("/api/notes/latest-idea").json()
+    assert body == {"id": starred, "content": "별표", "starred": True, "session_id": old}
+
+    # 완료하면 다음 아이디어로 넘어간다
+    assert client.patch(f"/api/notes/{starred}", json={"done": True}).status_code == 200
+    assert client.get("/api/notes/latest-idea").json()["content"] == "새 아이디어"

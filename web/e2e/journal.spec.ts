@@ -264,3 +264,40 @@ test('지운 대화를 대화 탭의 일지 보기로 열면 지워졌다고 안
   await page.getByRole('button', { name: '일지 목록으로' }).click()
   await expect(page.getByRole('heading', { level: 2, name: '일지 목록' })).toBeVisible()
 })
+
+// 지난 아이디어 이어 가기(S3-39): 대화 시작 화면 카드 → 그 아이디어가 나온 대화의 일지 상세
+test('대화 시작 화면의 지난 아이디어 카드를 누르면 그 대화의 일지를 열고, 완료하면 카드가 바뀐다', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: /^글로 (새 )?대화$/ }).click()
+  const log = page.getByRole('log', { name: '대화 내용' })
+  await expect(log.locator('.message.assistant').first()).toBeVisible()
+  await page.getByRole('textbox', { name: '메시지' }).fill('Claude Code 최신 버전 알려줘')
+  await page.getByRole('button', { name: '보내기' }).click()
+  await expect(log.locator('.message.assistant')).toHaveCount(2)
+  const ended = page.waitForResponse((r) => r.url().endsWith('/end'))
+  await page.getByRole('button', { name: '대화 끝내기' }).click()
+  const id = (await (await ended).json()).session.id
+
+  // 다른 spec의 아이디어와 섞이지 않게 이 대화의 아이디어를 고유한 글로 바꾸고 별표한다(별표 먼저)
+  const detail = await (await page.request.get(`/api/journal/${id}`)).json()
+  const note = detail.notes.find((n: { kind: string }) => n.kind === 'idea')
+  const content = `카드로 이어 갈 아이디어 ${Date.now()}`
+  expect((await page.request.patch(`/api/notes/${note.id}`, { data: { content, starred: true } })).status()).toBe(200)
+
+  await page.reload()
+  const card = page.getByRole('button', { name: /지난 아이디어 이어 가기/ })
+  await expect(card).toContainText(content)
+  await page.screenshot({ path: 'test-results/idea-card.png' })
+  const opened = page.waitForResponse((r) => r.url().endsWith(`/api/journal/${id}`))
+  await card.click()
+  await opened
+  await expect(page.getByRole('tab', { name: '일지' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('button', { name: '글로 이어서' })).toBeVisible()
+
+  // 완료하면 다음 대화 시작 화면에서 이 아이디어는 빠진다
+  const closed = page.waitForResponse((r) => r.url().includes('/api/notes/') && r.request().method() === 'PATCH')
+  await page.getByRole('button', { name: `완료: ${content}` }).click()
+  await closed
+  await page.getByRole('tab', { name: '대화', exact: true }).click()
+  await expect(page.getByRole('button', { name: /지난 아이디어 이어 가기/ })).not.toContainText(content)
+})

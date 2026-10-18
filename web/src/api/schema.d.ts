@@ -306,6 +306,27 @@ export interface paths {
         patch: operations["update_journal_api_journal__session_id__patch"];
         trace?: never;
     };
+    "/api/notes/latest-idea": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Latest Idea
+         * @description 대화 시작 화면의 "지난 아이디어 이어 가기" 카드(S3-39). 완료하지 않은 아이디어 하나를
+         *     기억 블록과 같은 순서(별표 먼저, 최신순)로 고른다. 없으면 null.
+         */
+        get: operations["latest_idea_api_notes_latest_idea_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/notes/{note_id}": {
         parameters: {
             query?: never;
@@ -546,6 +567,17 @@ export interface components {
             first_sound_notice: boolean | null;
             /** Total Ms */
             total_ms: number | null;
+        };
+        /** LatestIdea */
+        LatestIdea: {
+            /** Id */
+            id: string;
+            /** Content */
+            content: string;
+            /** Starred */
+            starred: boolean;
+            /** Session Id */
+            session_id: string;
         };
         /** NoteCounts */
         NoteCounts: {
@@ -1625,6 +1657,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    latest_idea_api_notes_latest_idea_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LatestIdea"] | null;
                 };
             };
         };

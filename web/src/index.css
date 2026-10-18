@@ -305,6 +305,63 @@ html:has(.app[data-tab='conversation']) {
   letter-spacing: -0.4px;
 }
 
+/* "지난 아이디어 이어 가기" 카드(S3-39): 누르면 그 아이디어가 나온 대화의 일지 상세 */
+.conversation button.idea-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 64px;
+  margin-top: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 400;
+  text-align: left;
+}
+
+.conversation button.idea-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.idea-card-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.idea-card-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.idea-card-label {
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.idea-card-content {
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.idea-card > svg {
+  flex: none;
+  color: var(--muted);
+}
+
 .start-actions {
   display: flex;
   flex-direction: column;

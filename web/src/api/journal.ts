@@ -35,3 +35,10 @@ export async function updateNote(noteId: string, patch: NotePatch, signal?: Abor
 export async function retryJournal(sessionId: string, signal?: AbortSignal): Promise<JournalItem> {
   return (await request(`/api/journal/${encodeURIComponent(sessionId)}/retry`, 'POST', undefined, signal)).json()
 }
+
+export type LatestIdea = components['schemas']['LatestIdea']
+
+/** 대화 시작 화면 카드의 지난 아이디어(완료하지 않은 것 중 별표 먼저, 최신순). 없으면 null(S3-39). */
+export async function fetchLatestIdea(signal?: AbortSignal): Promise<LatestIdea | null> {
+  return (await request('/api/notes/latest-idea', 'GET', undefined, signal)).json()
+}

@@ -10,6 +10,7 @@ import {
   type Ref,
 } from 'react'
 import { ApiError, endSession, prepareSession, reopenSession, sendTurn, startSession } from '../api/conversation'
+import { fetchLatestIdea, type LatestIdea } from '../api/journal'
 import {
   conversationReducer,
   initialConversation,
@@ -70,6 +71,24 @@ function KeyboardIcon() {
       strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <rect x="2" y="6" width="20" height="12" rx="2" />
       <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10" />
+    </svg>
+  )
+}
+
+function StarIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3l2.6 5.6 6 .7-4.5 4.1 1.2 6L12 16.4 6.7 19.4l1.2-6L3.4 9.3l6-.7z" />
+    </svg>
+  )
+}
+
+function ChevronIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 6l6 6-6 6" />
     </svg>
   )
 }
@@ -209,6 +228,19 @@ export function ConversationScreen({
       prepare.abort()
     }
   }, [waitingToStart, mode])
+
+  // 시작 화면의 "지난 아이디어 이어 가기" 카드(S3-39). 시작 화면이 보일 때마다 다시 불러온다
+  // (일지에서 별표·완료·삭제를 바꾸고 돌아와도 맞게). 못 불러오면 숨긴다(지워진 대화를 열지 않게)
+  const [idea, setIdea] = useState<LatestIdea | null>(null)
+  const showingStart = visible && pageVisible && state.status === 'idle'
+  useEffect(() => {
+    if (!showingStart) return
+    const load = new AbortController()
+    fetchLatestIdea(load.signal).then(setIdea, () => {
+      if (!load.signal.aborted) setIdea(null)
+    })
+    return () => load.abort()
+  }, [showingStart])
 
   // 새 말풍선·문장이 오면 아래로 내린다. 위로 올려 읽는 중이면 끌어내리지 않는다
   const stickToBottom = useRef(true)
@@ -481,6 +513,23 @@ export function ConversationScreen({
             <br />
             같이 이야기해 봐요.
           </p>
+          {idea && onOpenJournal && (
+            <button
+              type="button"
+              className="idea-card"
+              onClick={() => onOpenJournal(idea.session_id)}
+              disabled={state.status === 'starting'}
+            >
+              <span className="idea-card-icon">
+                <StarIcon />
+              </span>
+              <span className="idea-card-text">
+                <span className="idea-card-label">지난 아이디어 이어 가기</span>
+                <span className="idea-card-content">{idea.content}</span>
+              </span>
+              <ChevronIcon />
+            </button>
+          )}
           <div className="start-actions">
             <button
               type="button"

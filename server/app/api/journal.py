@@ -296,6 +296,31 @@ async def delete_journal(session_id: str, request: Request, db: DbSession) -> No
     await conversation.delete_session(request.app, db, session_id)
 
 
+class LatestIdea(BaseModel):
+    id: str
+    content: str
+    starred: bool
+    session_id: str  # 이 아이디어가 나온 대화(일지 상세로 연다)
+
+
+@router.get("/notes/latest-idea")
+async def latest_idea(db: DbSession) -> LatestIdea | None:
+    """대화 시작 화면의 "지난 아이디어 이어 가기" 카드(S3-39). 완료하지 않은 아이디어 하나를
+    기억 블록과 같은 순서(별표 먼저, 최신순)로 고른다. 없으면 null.
+    """
+    note = await db.scalar(
+        select(Note)
+        .where(Note.kind == NoteKind.IDEA, Note.done.is_(False))
+        .order_by(Note.starred.desc(), Note.created_at.desc(), Note.id)
+        .limit(1)
+    )
+    if note is None:
+        return None
+    return LatestIdea(
+        id=note.id, content=note.content, starred=note.starred, session_id=note.session_id
+    )
+
+
 @router.patch("/notes/{note_id}")
 async def update_note(note_id: str, body: NotePatch, db: DbSession) -> NoteOut:
     note = await db.get(Note, note_id)

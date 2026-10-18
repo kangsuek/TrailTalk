@@ -11,13 +11,15 @@ test('IndexedDB 큐에 녹음을 보관하고 새로 고친 뒤에도 꺼낸다'
   await page.evaluate(async (path) => {
     const { createLocalQueue } = await import(path)
     const queue = createLocalQueue()
+    // 기준 시각은 한 번만 잡는다(넣는 사이 시간이 흘러 e2e-1이 더 늦어지지 않게)
+    const now = Date.now()
     for (const id of ['e2e-2', 'e2e-1']) {
       await queue.add({
         id,
         sessionId: 'e2e-session',
         mimeType: 'audio/webm',
         bytes: new Uint8Array([id === 'e2e-1' ? 1 : 2]),
-        createdAt: Date.now() + (id === 'e2e-1' ? 0 : 1), // 30일 기한 안(지나면 앱이 지운다)
+        createdAt: now + (id === 'e2e-1' ? 0 : 1), // 30일 기한 안(지나면 앱이 지운다)
         attempts: 0,
       })
     }
