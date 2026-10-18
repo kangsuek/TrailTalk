@@ -369,7 +369,7 @@
 | S3-29 | 일지 상세에서 삭제(사용자 요청 추가) | 완료 | `web/src/screens/JournalDetailScreen.tsx`, `web/src/App.tsx` | `c02b920` |
 | S3-30 | 지워진 대화 안내(사용자 요청 추가) | 완료 | `web/src/screens/JournalDetailScreen.tsx` | `d177d00` |
 | S3-31 | 대화 모델 선택: 설정 화면·말로 바꾸기(사용자 요청 추가) | 완료 | `server/app/llm/manager.py`, `server/app/mcp/server.py`, `server/app/api/profile.py`, `web/src/screens/SettingsScreen.tsx` | `fd62f5d` |
-| S3-32 | 디자인 시안 적용: 하단 3탭·카드 스타일(사용자 요청 추가) | 완료 | `web/src/App.tsx`, `web/src/index.css`, `web/src/screens/*.tsx` | |
+| S3-32 | 디자인 시안 적용: 하단 3탭·카드 스타일(사용자 요청 추가) | 완료 | `web/src/App.tsx`, `web/src/index.css`, `web/src/screens/*.tsx` |  `5943fee` |
 
 #### S3-01 STT(Whisper)
 - [x] `SttProvider` 인터페이스
@@ -887,4 +887,4 @@
 | 2026-10-18 | S3-29 일지 상세에서 삭제(맨 아래 버튼, 확인 뒤 목록으로) | `c02b920` |
 | 2026-10-18 | S3-30 지워진 대화 안내(일지 상세 404 → '지워진 대화예요' + 목록으로) | `d177d00` |
 | 2026-10-18 | S3-31 대화 모델 선택(설정 화면 라디오, 말로 set_model, 다음 답변부터 같은 맥락으로 새 모델) | `fd62f5d` |
-| 2026-10-18 | S3-32 디자인 시안 적용(하단 3탭 대화·일지·설정, 색 토큰 라이트·다크, 대화 시작 큰 음성 버튼, 일지·설정 카드) | |
+| 2026-10-18 | S3-32 디자인 시안 적용(하단 3탭 대화·일지·설정, 색 토큰 라이트·다크, 대화 시작 큰 음성 버튼, 일지·설정 카드) |  `5943fee` |
