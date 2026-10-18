@@ -346,6 +346,11 @@ export function toolNotice(tool: ToolState): string | null {
       if (!finished) return keyword ? `지난 메모에서 '${keyword}' 찾는 중…` : '지난 메모 찾는 중…'
       return keyword ? `지난 메모 찾기: ${keyword}` : '지난 메모 찾기 완료'
     }
+    case 'search_conversations': {
+      const keyword = text(tool.input?.keyword)
+      if (!finished) return keyword ? `지난 대화에서 '${keyword}' 찾는 중…` : '지난 대화 찾는 중…'
+      return keyword ? `지난 대화 찾기: ${keyword}` : '지난 대화 찾기 완료'
+    }
     case 'summarize_session':
       return finished ? '대화 정리 완료' : '대화 정리 중…'
     case 'set_nickname': {

@@ -473,6 +473,22 @@ def test_symbol_only_words_before_search_still_get_notice(fake_cli, home, monkey
     assert events[first_tool].notice is not None
 
 
+def test_conversation_search_without_words_gets_notice(fake_cli, home, monkeypatch, tmp_path):
+    """지난 대화 찾기(search_conversations, S3-28)도 말없이 시작하면 안내 음성을 낸다."""
+    turns = recorded_turns("web_search")
+    search = [
+        line.replace('"name": "WebSearch"', '"name": "mcp__trailtalk__search_conversations"')
+        for line in turns[1]
+    ]
+    monkeypatch.setenv("FAKE_CLAUDE_FIXTURE", write_fixture(tmp_path, "convo", [turns[0], search]))
+    with TestClient(create_app(voice_settings(fake_cli))) as api:
+        session_id = start(api, "voice")["session"]["id"]
+        api.app.state.tts = FakeTts()
+        events = events_of(api.post(f"/api/sessions/{session_id}/turns", json={"text": "그거"}))
+    starts = [e for e in events if e.type == "tool" and e.phase == "start"]
+    assert starts[0].name == "search_conversations" and starts[0].notice is not None
+
+
 def test_text_session_search_has_no_notice(fake_cli, home, monkeypatch):
     monkeypatch.setenv("FAKE_CLAUDE_FIXTURE", "web_search")
     with TestClient(create_app(voice_settings(fake_cli))) as api:

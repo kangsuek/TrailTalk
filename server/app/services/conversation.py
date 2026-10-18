@@ -607,7 +607,7 @@ async def stream_turn(
 
 
 # 캐릭터가 아무 말 없이 시작하면 검색 안내 음성을 대신 들려줄 도구
-_SEARCH_TOOLS = {"web_search", "web_fetch"}
+_SEARCH_TOOLS = {"web_search", "web_fetch", "search_conversations"}  # 찾는 동안 안내 음성
 
 
 async def _run_turn(
