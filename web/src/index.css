@@ -1,11 +1,23 @@
 :root {
-  --text: #1f1d24;
-  --muted: #6b6375;
-  --bg: #fff;
-  --border: #e5e4e7;
+  /* 디자인 시안(S3-32) 색 토큰. 배경 위에 흰 카드(surface)를 얹고 녹색 하나로 강조한다 */
+  --bg: #f6f7f4;
+  --surface: #fff;
+  --surface-muted: #eef0ec;
+  --segment-on: #fff; /* 세그먼트에서 고른 칸 */
+  --border: #e3e6e1;
+  --border-strong: #d5dad4;
+  --text: #1c1f1d;
+  --muted: #5e6660;
   --accent: #2f7d4f;
+  --accent-soft: #e6f0e9;
+  --accent-text: #2f6b45;
+  --on-accent: #fff;
   --ok: #2f7d4f;
+  --warn-bg: #fbf1dc;
+  --warn-text: #7a4f00;
   --error: #b3261e;
+  --radius-card: 16px;
+  --tabbar-h: 68px;
 
   font: 16px/1.5 system-ui, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
   color: var(--text);
@@ -15,13 +27,22 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --text: #ecebee;
-    --muted: #a39fab;
-    --bg: #16151a;
-    --border: #2e2c34;
+    --bg: #111412;
+    --surface: #1a1e1b;
+    --surface-muted: #242925;
+    --segment-on: #343b36;
+    --border: #2b312d;
+    --border-strong: #343b36;
+    --text: #e7ece8;
+    --muted: #9aa59d;
     --accent: #6fcf97;
+    --accent-soft: #1c2e23;
+    --accent-text: #8eddb0;
+    --on-accent: #0e2a1a;
     --ok: #6fcf97;
-    --error: #f2b8b5;
+    --warn-bg: #3a2e14;
+    --warn-text: #f2c46b;
+    --error: #ff8a80;
   }
 }
 
@@ -32,80 +53,136 @@ body {
 
 .app {
   max-width: 640px;
+  min-height: 100dvh;
   margin: 0 auto;
-  padding: 16px;
+  display: flex;
+  flex-direction: column;
 }
 
-.app header {
+.app > header {
+  min-height: 56px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  padding: 0 16px;
 }
 
 .app h1 {
   margin: 0;
-  font-size: 1.4rem;
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.3px;
 }
 
+/* 연결 상태 알약: 점 + 문구 */
 .server-status {
-  font-size: 0.85rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--surface-muted);
   color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.server-status::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
 }
 
 .server-status[data-state='ok'] {
-  color: var(--ok);
+  background: var(--accent-soft);
+  color: var(--accent-text);
 }
 
 .server-status[data-state='error'] {
   color: var(--error);
 }
 
+.app > main {
+  flex: 1;
+  padding: 8px 16px 0;
+}
+
+.app > .update-banner {
+  margin: 0 16px 8px;
+}
+
+/* 하단 탭: 아이콘 + 글자, 고른 탭은 알약 배경 */
 .tabs {
-  display: flex;
-  gap: 4px;
-  margin: 16px 0;
-  border-bottom: 1px solid var(--border);
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  min-height: var(--tabbar-h);
+  padding-bottom: env(safe-area-inset-bottom);
+  background: var(--surface);
+  border-top: 1px solid var(--border);
 }
 
 .tabs button {
-  flex: 1;
-  padding: 10px 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 56px;
+  padding: 6px 4px;
   border: 0;
-  border-bottom: 2px solid transparent;
   background: none;
   color: var(--muted);
   font: inherit;
+  font-size: 0.75rem;
+  font-weight: 500;
   cursor: pointer;
 }
 
-.tabs button[aria-selected='true'] {
-  color: var(--text);
-  border-bottom-color: var(--accent);
-  font-weight: 600;
+.tab-icon {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 30px;
+  border-radius: 999px;
 }
 
-.conversation h2 {
-  margin: 0 0 12px;
-  font-size: 1.1rem;
+.tabs button[aria-selected='true'] {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.tabs button[aria-selected='true'] .tab-icon {
+  background: var(--accent-soft);
+}
+
+.tabs button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -4px;
+  border-radius: 12px;
 }
 
 .conversation button {
   padding: 10px 16px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 999px;
   background: var(--accent);
-  color: var(--bg);
+  color: var(--on-accent);
   font: inherit;
   font-weight: 600;
   cursor: pointer;
 }
 
 .conversation button.secondary {
-  border: 1px solid var(--border);
-  background: none;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
   color: var(--text);
-  font-weight: 400;
+  font-weight: 500;
 }
 
 .conversation button:disabled {
@@ -113,24 +190,37 @@ body {
   cursor: default;
 }
 
+/* 시작·끝난 화면: 위에 날짜와 안내, 엄지가 닿는 아래쪽에 큰 음성 버튼과 글로 대화 알약 */
 .conversation-start {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 24px 0 8px;
+  min-height: calc(100dvh - 56px - 8px - var(--tabbar-h) - env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  padding: 24px 4px 20px;
+}
+
+.conversation-date {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9375rem;
 }
 
 .conversation-lead {
-  margin: 0 0 8px;
-  font-size: 1.05rem;
-  text-align: center;
+  margin: 0;
+  font-size: 1.625rem;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: -0.4px;
 }
 
-/* 시작·끝난 화면 버튼: 엄지로 누르기 쉽게 꽉 찬 폭, 52px 높이로 세로로 쌓는다 */
 .start-actions {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  align-items: center;
+  gap: 14px;
+  margin-top: auto;
+  padding-top: 24px;
 }
 
 .conversation .start-actions button {
@@ -138,37 +228,87 @@ body {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 52px;
-  border-radius: 14px;
-  font-size: 1.05rem;
+  min-height: 48px;
+  padding: 0 20px;
+}
+
+/* 음성 버튼: 132px 원(음성 대화의 voice-orb와 같은 색) 아래 굵은 글자 */
+.conversation .start-actions button.start-voice {
+  flex-direction: column;
+  gap: 14px;
+  padding: 0;
+  background: none;
+  color: var(--text);
+  font-size: 1.0625rem;
+  font-weight: 700;
+}
+
+.start-orb {
+  display: grid;
+  place-items: center;
+  width: 132px;
+  height: 132px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 30% 28%, #8ee3c0 0%, transparent 50%),
+    radial-gradient(circle at 74% 74%, #6fa8f5 0%, transparent 55%),
+    radial-gradient(circle at 50% 50%, #2f7d4f 0%, #0f3d26 100%);
+  box-shadow:
+    0 12px 32px rgb(47 125 79 / 35%),
+    inset 0 0 24px rgb(0 0 0 / 25%);
+  color: #fff;
+}
+
+.start-orb svg {
+  width: 40px;
+  height: 40px;
+}
+
+.conversation .start-actions .start-voice:focus-visible {
+  outline: none;
+}
+
+.conversation .start-actions .start-voice:focus-visible .start-orb {
+  outline: 3px solid var(--accent);
+  outline-offset: 4px;
+}
+
+/* 끝난 화면은 말풍선 아래에 바로 붙는다(화면 높이를 채우면 버튼이 한 화면 아래로 밀린다) */
+.conversation-start.ended {
+  min-height: 0;
+}
+
+/* 끝난 화면의 안내는 큰 제목 대신 작은 글로 */
+.conversation-start .conversation-note {
+  margin: 0;
 }
 
 .conversation button.small {
-  min-height: 36px;
-  padding: 6px 14px;
-  border-radius: 999px;
-  font-size: 0.9rem;
+  min-height: 44px;
+  padding: 0 16px;
+  font-size: 0.9375rem;
 }
 
 .messages {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
   margin: 0 0 12px;
-  padding: 0;
+  padding: 16px 0 0;
   list-style: none;
 }
 
 /* 대화 전에는 목록이 비어 있어도(스크린리더용) 자리를 차지하지 않게 */
 .messages:not(:has(.message)) {
   margin: 0;
+  padding: 0;
 }
 
 .message {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-width: 85%;
+  max-width: 86%;
 }
 
 .message.user {
@@ -177,14 +317,16 @@ body {
 }
 
 .message .speaker {
+  padding: 0 4px;
   font-size: 0.75rem;
   color: var(--muted);
 }
 
 .message .bubble {
   margin: 0;
-  padding: 8px 12px;
-  border-radius: 12px;
+  padding: 10px 14px;
+  border-radius: 18px;
+  line-height: 1.55;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -192,11 +334,12 @@ body {
 .message.assistant .bubble {
   border: 1px solid var(--border);
   border-top-left-radius: 4px;
+  background: var(--surface);
 }
 
 .message.user .bubble {
   background: var(--accent);
-  color: var(--bg);
+  color: var(--on-accent);
   border-top-right-radius: 4px;
 }
 
@@ -208,10 +351,11 @@ body {
   color: var(--muted);
 }
 
+/* 도구 알림·출처: 녹색 알약 */
 .notices {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 6px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -223,14 +367,16 @@ body {
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
-  padding: 2px 8px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  color: var(--muted);
-  font-size: 0.8rem;
+  padding: 4px 12px;
+  border-radius: 14px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: 0.8125rem;
+  font-weight: 500;
 }
 
 .notice[data-done='false'] {
+  background: var(--surface-muted);
   color: var(--text);
 }
 
@@ -245,11 +391,11 @@ body {
 
 .composer {
   position: sticky;
-  bottom: 0;
+  bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom)); /* 하단 탭 바로 위 */
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 8px 0 calc(8px + env(safe-area-inset-bottom));
+  gap: 8px;
+  padding: 8px 0 10px;
   background: var(--bg);
 }
 
@@ -269,12 +415,12 @@ body {
   box-sizing: border-box;
   flex: 1;
   min-width: 0;
-  min-height: 44px;
+  min-height: 48px;
   max-height: 140px;
-  padding: 10px 16px;
-  border: 1px solid var(--border);
-  border-radius: 22px;
-  background: var(--bg);
+  padding: 12px 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: 24px;
+  background: var(--surface);
   color: var(--text);
   font: inherit;
   font-size: 16px; /* 16px 미만이면 iOS가 입력할 때 화면을 확대한다 */
@@ -291,8 +437,8 @@ body {
   display: grid;
   flex: none;
   place-items: center;
-  width: 44px;
-  height: 44px;
+  width: 48px;
+  height: 48px;
   padding: 0;
   border-radius: 50%;
 }
@@ -306,28 +452,30 @@ body {
   white-space: nowrap;
 }
 
-/* 일지 화면 */
+/* 일지 화면: 배경 위 흰 카드(S3-32 디자인 시안) */
 .journal h2 {
   margin: 0 0 12px;
-  font-size: 1.1rem;
+  font-size: 1.25rem;
+  letter-spacing: -0.3px;
 }
 
 .journal button {
-  padding: 8px 14px;
+  min-height: 44px;
+  padding: 0 16px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 999px;
   background: var(--accent);
-  color: var(--bg);
+  color: var(--on-accent);
   font: inherit;
   font-weight: 600;
   cursor: pointer;
 }
 
 .journal button.secondary {
-  border: 1px solid var(--border);
-  background: none;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
   color: var(--text);
-  font-weight: 400;
+  font-weight: 500;
 }
 
 .journal-note {
@@ -345,20 +493,50 @@ body {
   justify-content: space-between;
   gap: 12px;
   min-height: 44px; /* 선택 모드로 바뀌어 버튼이 사라져도 목록이 튀지 않게 */
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .journal .journal-head h2 {
   margin: 0;
 }
 
-.journal .journal-head button {
-  min-height: 44px;
+/* 목록의 "선택"은 테두리 없는 글자 버튼 */
+.journal .journal-head button.secondary {
+  margin-right: -8px;
+  padding: 0 12px;
+  border: 0;
+  background: none;
+  color: var(--accent);
+}
+
+/* 상세 머리: 뒤로(목록) 버튼 + 작은 화면 이름 */
+.journal-detail-head {
+  justify-content: flex-start;
+  gap: 4px;
+  margin: -4px 0 4px -12px;
+}
+
+.journal .journal-detail-head h2 {
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.journal button.journal-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 12px 0 6px;
+  background: none;
+  color: var(--text);
+  font-weight: 500;
 }
 
 .journal-day h3 {
   margin: 20px 0 8px;
-  font-size: 0.95rem;
+  padding: 0 4px;
+  font-size: 0.8125rem;
+  font-weight: 500;
   color: var(--muted);
 }
 
@@ -377,7 +555,7 @@ body {
 .journal button.journal-item {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 6px;
   width: 100%;
   padding: 12px 14px;
   border: 1px solid var(--border);
@@ -387,10 +565,14 @@ body {
   text-align: left;
 }
 
+/* 카드 하나에 내용과 휴지통을 함께 담는다 */
 .journal-entry {
   display: grid;
   grid-template-columns: 1fr 44px;
-  gap: 6px;
+  align-items: start;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
 }
 
 /* 카드 전체를 누르면 상세가 열린다(열기 버튼의 덮개). 제목 버튼만 덮개 위에 둔다 */
@@ -398,17 +580,17 @@ body {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   min-width: 0;
-  padding: 12px 14px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  padding: 14px 0 14px 16px;
+  border-radius: var(--radius-card);
 }
 
 .journal .journal-card button.journal-item {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 8px;
+  min-height: 0;
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -418,7 +600,7 @@ body {
   content: '';
   position: absolute;
   inset: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-card);
 }
 
 .journal .journal-card button.journal-item:focus-visible {
@@ -442,15 +624,16 @@ body {
   margin: -10px 0 -6px -6px;
   padding: 0 6px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 8px;
   background: none;
   color: var(--text);
+  font-weight: 700;
   text-align: left;
   -webkit-tap-highlight-color: transparent;
 }
 
 .journal .journal-card button.journal-title:active {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  background: var(--accent-soft);
 }
 
 .journal-pencil {
@@ -466,8 +649,8 @@ body {
   margin: -10px -6px 0;
   padding: 0 8px;
   border: 1px solid var(--accent);
-  border-radius: 6px;
-  background: var(--bg);
+  border-radius: 8px;
+  background: var(--surface);
   color: var(--text);
   font: inherit;
   font-size: 16px;
@@ -479,10 +662,12 @@ body {
 .journal button.journal-trash {
   display: grid;
   min-height: 44px;
+  margin-top: 4px;
   -webkit-tap-highlight-color: transparent;
   place-items: center;
   padding: 0;
-  border: 1px solid var(--border);
+  border: 0;
+  border-radius: 12px;
   background: none;
   color: var(--muted);
 }
@@ -505,13 +690,14 @@ body {
   flex-direction: row;
   align-items: center;
   gap: 12px;
+  padding: 14px 16px;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
 
-.journal-select:has(input:checked) {
+.journal-entry.selecting:has(input:checked) {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  background: var(--accent-soft);
 }
 
 .journal-select[data-disabled='true'] {
@@ -535,23 +721,23 @@ body {
 .journal-select-body {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   min-width: 0;
 }
 
 .journal-select-title {
   min-height: 28px;
-  font-weight: 600;
+  font-weight: 700;
   overflow-wrap: anywhere;
 }
 
-/* 화면 아래에 붙는 선택 막대. 목록이 짧으면 목록 바로 아래에 놓인다 */
+/* 화면 아래(하단 탭 위)에 붙는 선택 막대. 목록이 짧으면 목록 바로 아래에 놓인다 */
 .journal-bulk {
   position: sticky;
-  bottom: 0;
+  bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
   z-index: 2;
   margin: 16px -16px 0;
-  padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+  padding: 10px 16px;
   border-top: 1px solid var(--border);
   background: var(--bg);
 }
@@ -573,17 +759,15 @@ body {
   font-weight: 600;
 }
 
-.journal .journal-bulk button {
-  min-height: 44px;
-}
-
 .journal button.danger {
   background: var(--error);
+  color: var(--surface);
 }
 
 .journal-entry .journal-error {
   grid-column: 1 / -1;
   margin: 0;
+  padding: 0 16px 12px;
 }
 
 .journal button:disabled {
@@ -600,41 +784,92 @@ body {
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2; /* 목록 미리보기(결론)는 2줄까지 */
+  color: var(--muted);
+  font-size: 0.875rem;
 }
 
-.journal-summary,
+/* 개수·정리 상태 한 줄: 녹색 알약 */
 .journal-meta {
-  color: var(--muted);
-  font-size: 0.9rem;
+  align-self: flex-start;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+/* 일지 상세 */
+.journal-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-bottom: 8px;
 }
 
 .journal-detail h3 {
-  margin: 16px 0 0;
+  margin: 8px 4px 0;
+  font-size: 1.5rem;
+  line-height: 1.35;
+  letter-spacing: -0.4px;
+}
+
+.journal-detail > .journal-date {
+  margin: -12px 4px 0;
 }
 
 .journal-date,
 .journal-tags {
-  margin: 4px 0;
+  margin: 0 4px;
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: 0.875rem;
+}
+
+/* 항목별 흰 카드(알게 된 것·확인할 것·아이디어·할 일·메모·인용·전문) */
+.journal-detail > section,
+.journal-detail > ul,
+.journal-transcript {
+  margin: 0;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--surface);
+}
+
+.journal-detail > ul.journal-summary-lines {
+  padding-left: 36px;
+}
+
+.journal-detail > .journal-note {
+  margin: 0;
+  padding: 0 4px;
 }
 
 .journal-summary-lines {
+  margin: 0;
   padding-left: 20px;
 }
 
+.journal-summary-lines li + li {
+  margin-top: 6px;
+}
+
+/* 결론: 녹색 강조 카드 */
 .journal-conclusion {
-  margin: 12px 0 4px;
-  font-size: 1.05rem;
+  margin: 0;
+  padding: 18px;
+  border-radius: 18px;
+  background: var(--accent-soft);
+  font-size: 1.0625rem;
   line-height: 1.6;
+}
+
+.journal-conclusion strong {
+  font-weight: 600;
 }
 
 .journal-checks {
   color: var(--muted); /* 아직 확인되지 않은 것은 흐리게 */
-}
-
-.journal-citations + .journal-tags {
-  margin-top: 16px;
 }
 
 .journal-cite {
@@ -674,23 +909,37 @@ body {
 }
 
 .journal-detail h4 {
-  margin: 20px 0 8px;
-  font-size: 0.95rem;
+  margin: 0 0 8px;
+  font-size: 1rem;
+  font-weight: 700;
 }
 
 .journal-notes li {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--border);
+  min-height: 44px;
+  padding: 2px 0;
+}
+
+.journal-notes li + li {
+  border-top: 1px solid var(--border);
 }
 
 .journal-notes label {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
+  min-height: 44px;
   cursor: pointer;
+}
+
+.journal-notes input[type='checkbox'] {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  accent-color: var(--accent);
 }
 
 .journal-notes li[data-done='true'] span {
@@ -699,7 +948,10 @@ body {
 }
 
 .journal button.star {
-  padding: 0 4px;
+  flex: none;
+  width: 44px;
+  margin-left: -10px;
+  padding: 0;
   background: none;
   color: var(--accent);
   font-size: 1.3rem;
@@ -707,12 +959,19 @@ body {
 }
 
 .journal-transcript {
-  margin-top: 24px;
+  padding: 0 18px;
 }
 
 .journal-transcript summary {
+  display: flex;
+  align-items: center;
+  min-height: 56px;
   cursor: pointer;
-  color: var(--accent);
+  font-weight: 700;
+}
+
+.journal-transcript[open] {
+  padding-bottom: 16px;
 }
 
 .journal-transcript li {
@@ -737,36 +996,37 @@ body {
   min-height: 44px;
 }
 
-/* 일지 상세 삭제(S3-29): 맨 아래 꽉 찬 보조 버튼(주 동작과 구분되게 빨간 테두리·글자) */
+/* 일지 상세 삭제(S3-29): 맨 아래 빨간 글자 버튼(주 동작과 구분) */
 .journal button.journal-delete {
   display: block;
-  width: 100%;
   min-height: 48px;
-  margin-top: 24px;
-  border: 1px solid var(--error);
+  margin: 8px auto 24px;
+  padding: 0 20px;
   background: none;
   color: var(--error);
+  font-weight: 500;
 }
 
 .journal button.journal-delete[aria-disabled='true'] {
   opacity: 0.5;
 }
 
-/* 이어서 대화하기(S3-26): 전문 아래 꽉 찬 두 버튼 */
+/* 이어서 대화하기(S3-26): 꽉 찬 두 버튼(음성이 주 동작) */
 .journal-continue {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
-  margin-top: 16px;
 }
 
 .journal .journal-continue button {
-  min-height: 48px;
+  min-height: 52px;
 }
 
 .journal button.idea-done {
+  flex: none;
+  min-height: 44px;
   margin-left: auto;
-  padding: 2px 10px;
+  padding: 0 12px;
   font-size: 0.85rem;
   white-space: nowrap;
 }
@@ -778,12 +1038,12 @@ body {
   --orb-c: #60a5fa;
   --orb-d: #0f3d26;
   position: sticky;
-  bottom: 0;
+  bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  padding: 30px 0 calc(10px + env(safe-area-inset-bottom)); /* 광채가 위 경계선을 넘지 않게 */
+  padding: 30px 0 10px; /* 광채가 위 경계선을 넘지 않게 */
   background: var(--bg);
   border-top: 1px solid var(--border);
 }
@@ -1024,28 +1284,29 @@ body {
   font-size: 0.9rem;
 }
 
-/* 설정 화면(SettingsScreen) */
+/* 설정 화면(SettingsScreen): 항목마다 흰 카드(S3-32 디자인 시안) */
 .settings h2 {
   margin: 0 0 12px;
-  font-size: 1.1rem;
+  font-size: 1.25rem;
+  letter-spacing: -0.3px;
 }
 
 .settings button {
-  padding: 8px 14px;
+  min-height: 48px;
+  padding: 0 16px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 12px;
   background: var(--accent);
-  color: var(--bg);
+  color: var(--on-accent);
   font: inherit;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
 }
 
 .settings button.secondary {
-  border: 1px solid var(--border);
-  background: none;
-  color: var(--text);
-  font-weight: 400;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--accent);
 }
 
 .settings button:disabled {
@@ -1056,13 +1317,14 @@ body {
 .settings-form {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
+  padding-bottom: 24px;
 }
 
 .settings-fields {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 12px;
   margin: 0;
   padding: 0;
   border: 0;
@@ -1072,20 +1334,35 @@ body {
 .settings-field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
+  min-width: 0;
   margin: 0;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--surface);
+}
+
+/* fieldset의 legend는 카드 안 첫 줄로 보이게 띄운다 */
+fieldset.settings-field > legend {
+  float: left;
+  width: 100%;
+  margin-bottom: 2px;
   padding: 0;
-  border: 0;
+}
+
+fieldset.settings-field > legend + * {
+  clear: both;
 }
 
 .settings-label {
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .settings-note {
   margin: 0;
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: 0.875rem;
 }
 
 .settings-error {
@@ -1098,12 +1375,21 @@ body {
 .settings select {
   box-sizing: border-box;
   min-width: 0;
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg);
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface);
   color: var(--text);
   font: inherit;
+  font-size: 16px; /* 16px 미만이면 iOS가 입력할 때 화면을 확대한다 */
+}
+
+.settings input[type='text']:focus,
+.settings select:focus {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent);
 }
 
 .settings-row {
@@ -1121,7 +1407,7 @@ body {
 .settings-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -1130,17 +1416,93 @@ body {
 .settings-chips li {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 4px 4px 10px;
-  border: 1px solid var(--border);
+  gap: 2px;
+  min-height: 44px;
+  padding: 0 0 0 14px;
   border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-weight: 500;
 }
 
-.settings .chip-remove {
-  padding: 0 8px;
+.settings button.chip-remove {
+  width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border-radius: 999px;
   background: none;
-  color: var(--muted);
+  color: var(--accent-text);
+  font-size: 1.2rem;
   font-weight: 400;
+}
+
+/* 말 속도: 3칸 세그먼트(라디오는 칸 안에 숨기고 고른 칸을 띄운다) */
+.settings-segment {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border-radius: 14px;
+  background: var(--surface-muted);
+}
+
+.settings-segment .settings-choice {
+  position: relative;
+  justify-content: center;
+  padding: 0;
+  border-radius: 10px;
+  color: var(--muted);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.settings-segment input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.settings-segment .settings-choice:has(input:checked) {
+  background: var(--segment-on);
+  color: var(--text);
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
+}
+
+.settings-segment .settings-choice:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+}
+
+/* 대화 모델: 2×2 카드 라디오 */
+.settings-models {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.settings-models .settings-choice {
+  gap: 10px;
+  min-height: 52px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.settings-models .settings-choice:has(input:checked) {
+  border: 2px solid var(--accent);
+  padding: 0 11px;
+  background: var(--accent-soft);
+  font-weight: 700;
+}
+
+.settings-models input {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
 }
 
 .settings-choice {
@@ -1148,22 +1510,109 @@ body {
   align-items: center;
   gap: 4px;
   min-height: 44px; /* 손가락으로 누르기 쉽게 */
-  padding-right: 12px;
+  overflow-wrap: anywhere;
 }
 
 .settings-toggle {
   flex-direction: row;
-  align-items: flex-start;
-  gap: 10px;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
 }
 
 .settings-toggle > span {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
+  min-width: 0;
 }
 
+/* 음성 원본 보관: 체크박스를 스위치 모양으로 */
+.settings-switch {
+  appearance: none;
+  position: relative;
+  flex: none;
+  width: 52px;
+  height: 32px;
+  margin: 0;
+  border-radius: 999px;
+  background: var(--border-strong);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.settings-switch::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 25%);
+  transition: transform 0.2s;
+}
+
+.settings-switch:checked {
+  background: var(--accent);
+}
+
+.settings-switch:checked::after {
+  transform: translateX(20px);
+}
+
+.settings-switch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 저장하는 동안(fieldset disabled) 스위치·세그먼트도 흐리게 */
+.settings-switch:disabled,
+.settings-choice:has(input:disabled) {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* 고대비 모드에서는 배경색이 사라지므로 테두리·윤곽선으로 상태를 보인다 */
+@media (forced-colors: active) {
+  .settings-switch {
+    border: 1px solid ButtonText;
+  }
+
+  .settings-switch::after {
+    background: ButtonText;
+  }
+
+  .settings-switch:checked {
+    background: Highlight;
+  }
+
+  .settings-segment .settings-choice:has(input:checked) {
+    outline: 2px solid Highlight;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-switch,
+  .settings-switch::after {
+    transition: none;
+  }
+}
+
+/* 저장(주 동작)은 꽉 찬 녹색 알약 */
 .settings-actions {
   display: flex;
+  flex-direction: column;
   gap: 8px;
+}
+
+.settings .settings-actions button {
+  min-height: 52px;
+  border-radius: 999px;
+}
+
+.settings .settings-actions button.secondary {
+  color: var(--text);
 }

@@ -254,7 +254,7 @@ function SettingsForm({
 
         <fieldset className="settings-field">
           <legend className="settings-label">말 속도</legend>
-          <div className="settings-row">
+          <div className="settings-segment">
             {rateChoices.map((choice) => (
               <label key={choice.label} className="settings-choice">
                 <input
@@ -271,7 +271,7 @@ function SettingsForm({
 
         <fieldset className="settings-field">
           <legend className="settings-label">대화 모델</legend>
-          <div className="settings-row">
+          <div className="settings-models">
             {MODEL_CHOICES.map((choice) => (
               <label key={choice.label} className="settings-choice">
                 <input
@@ -290,13 +290,19 @@ function SettingsForm({
         </fieldset>
 
         <label className="settings-field settings-toggle">
-          <input type="checkbox" checked={draft.keepAudio} onChange={(e) => change({ keepAudio: e.target.checked })} />
           <span>
             <span className="settings-label">음성 원본 보관</span>
             <span className="settings-note">
               켜면 음성 대화의 녹음을 서버에 30일 동안 보관했다가 지워요(본인만 읽을 수 있게 저장).
             </span>
           </span>
+          {/* 스위치 모양 체크박스(S3-32) */}
+          <input
+            type="checkbox"
+            className="settings-switch"
+            checked={draft.keepAudio}
+            onChange={(e) => change({ keepAudio: e.target.checked })}
+          />
         </label>
       </fieldset>
 

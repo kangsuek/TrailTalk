@@ -17,7 +17,7 @@ test('일지: 목록 → 상세, 별표·완료(할 일·아이디어) 표시가
 
   // 다른 spec이 같은 제목의 일지를 먼저 만들었을 수 있다. 최신순 첫 항목이 이 대화인지 상세 요청으로 확인한다
   const openLatest = async () => {
-    await page.getByRole('tab', { name: '일지 목록' }).click()
+    await page.getByRole('tab', { name: '일지' }).click()
     const detail = page.waitForResponse((r) => r.url().endsWith(`/api/journal/${closed.session.id}`))
     await page.getByRole('button', { name: /^Claude Code 최신 버전과 uv 알아보기/ }).first().click()
     await detail
@@ -29,7 +29,7 @@ test('일지: 목록 → 상세, 별표·완료(할 일·아이디어) 표시가
   await page.getByRole('button', { name: '일지 보기' }).click()
   await detail
   await expect(page.getByRole('heading', { level: 3, name: 'Claude Code 최신 버전과 uv 알아보기' })).toBeVisible()
-  await expect(page.getByRole('tab', { name: '일지 상세' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('tab', { name: '일지' })).toHaveAttribute('aria-selected', 'true')
   // 새 형식(S3-24): 결론(굵게) → 알게 된 것 → 확인할 것 → 노트 → 인용 → #태그. 출처 번호는 녹화가 인용한 1·2·9번
   const conclusion = page.getByLabel('결론')
   await expect(conclusion.locator('strong')).toHaveText('Claude Code 최신 버전 소식을 확인하고 uv 공식 문서의 핵심을 정리했다.')
@@ -68,7 +68,7 @@ test('일지: 목록 → 상세, 별표·완료(할 일·아이디어) 표시가
   await expect(todo).toBeChecked()
   await expect(ideaDone).toHaveAttribute('aria-pressed', 'true')
 
-  await page.getByRole('tab', { name: '일지 목록' }).click()
+  await page.getByRole('tab', { name: '일지' }).click()
   await expect(page.getByText(/아이디어 1 · 할 일 1 · 메모 1/).first()).toBeVisible()
   await page.screenshot({ path: 'test-results/journal-list.png', fullPage: true })
 })
@@ -86,10 +86,10 @@ test('일지 목록: 제목을 눌러 고치고(포커스가 떠나면 저장, �
   const closed = await (await ended).json()
 
   // 최신순 첫 항목이 방금 끝낸 대화다(다른 spec이 같은 제목을 먼저 만들었을 수 있다)
-  await page.getByRole('tab', { name: '일지 목록' }).click()
+  await page.getByRole('tab', { name: '일지' }).click()
   const title = `이름 바꾼 대화 ${Date.now()}`
   await page.getByRole('button', { name: '제목 수정: Claude Code 최신 버전과 uv 알아보기' }).first().click()
-  await expect(page.getByRole('tab', { name: '일지 목록' })).toHaveAttribute('aria-selected', 'true') // 상세로 가지 않는다
+  await expect(page.getByRole('heading', { level: 2, name: '일지 목록' })).toBeVisible() // 상세로 가지 않는다
   const input = page.getByRole('textbox', { name: '대화 제목' })
   await expect(input).toBeFocused()
   await input.fill(title)
@@ -103,13 +103,13 @@ test('일지 목록: 제목을 눌러 고치고(포커스가 떠나면 저장, �
   await page.screenshot({ path: 'test-results/journal-list-renamed.png', fullPage: true })
 
   await page.reload()
-  await page.getByRole('tab', { name: '일지 목록' }).click()
+  await page.getByRole('tab', { name: '일지' }).click()
   await expect(page.getByRole('button', { name: `제목 수정: ${title}` })).toBeVisible()
 
   // 카드의 제목 밖을 누르면 상세가 열린다
   await page.getByRole('button', { name: new RegExp(`^${title}`) }).click()
   await expect(page.getByRole('heading', { level: 3, name: title })).toBeVisible()
-  await page.getByRole('tab', { name: '일지 목록' }).click()
+  await page.getByRole('tab', { name: '일지' }).click()
 
   let message = ''
   page.once('dialog', (dialog) => {
@@ -122,7 +122,7 @@ test('일지 목록: 제목을 눌러 고치고(포커스가 떠나면 저장, �
   expect(message).toBe('이 대화와 노트·전문을 모두 지울까요?')
   await expect(page.getByRole('button', { name: `제목 수정: ${title}` })).toHaveCount(0)
   await page.reload()
-  await page.getByRole('tab', { name: '일지 목록' }).click()
+  await page.getByRole('tab', { name: '일지' }).click()
   await expect(page.getByText(/불러오는 중/)).toHaveCount(0)
   await expect(page.getByRole('button', { name: `제목 수정: ${title}` })).toHaveCount(0)
 })
@@ -146,7 +146,7 @@ test('일지 목록: 여러 개를 골라 한 번에 지운다', async ({ page }
     expect((await page.request.patch(`/api/journal/${closed.session.id}`, { data: { title } })).status()).toBe(200)
   }
 
-  await page.getByRole('tab', { name: '일지 목록' }).click()
+  await page.getByRole('tab', { name: '일지' }).click()
   await page.getByRole('button', { name: '선택', exact: true }).click()
   for (const title of titles) await page.getByText(title).click() // 카드를 눌러 고른다
   await expect(page.getByText('2개 선택')).toBeVisible()
@@ -162,7 +162,7 @@ test('일지 목록: 여러 개를 골라 한 번에 지운다', async ({ page }
   expect(message).toBe('선택한 2개 대화와 노트·전문을 모두 지울까요?')
   for (const title of titles) await expect(page.getByText(title)).toHaveCount(0)
   await page.reload()
-  await page.getByRole('tab', { name: '일지 목록' }).click()
+  await page.getByRole('tab', { name: '일지' }).click()
   await expect(page.getByText(/불러오는 중/)).toHaveCount(0)
   for (const title of titles) await expect(page.getByText(title)).toHaveCount(0)
 })
@@ -234,11 +234,11 @@ test('일지 상세: 맨 아래 삭제 버튼으로 지우면 목록으로 돌�
   await page.getByRole('button', { name: '이 대화 삭제' }).click()
   expect((await removed).status()).toBe(204)
   expect(message).toBe('이 대화와 노트·전문을 모두 지울까요?')
-  await expect(page.getByRole('tab', { name: '일지 목록' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('heading', { level: 2, name: '일지 목록' })).toBeVisible()
   await expect(page.getByText(/불러오는 중/)).toHaveCount(0)
   await expect(page.getByText(title)).toHaveCount(0)
   await page.reload()
-  await page.getByRole('tab', { name: '일지 목록' }).click()
+  await page.getByRole('tab', { name: '일지' }).click()
   await expect(page.getByText(/불러오는 중/)).toHaveCount(0)
   await expect(page.getByText(title)).toHaveCount(0)
 })
@@ -262,5 +262,5 @@ test('지운 대화를 대화 탭의 일지 보기로 열면 지워졌다고 안
   await expect(page.getByRole('button', { name: '다시 불러오기' })).toHaveCount(0)
   await page.screenshot({ path: 'test-results/journal-deleted.png' })
   await page.getByRole('button', { name: '일지 목록으로' }).click()
-  await expect(page.getByRole('tab', { name: '일지 목록' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('heading', { level: 2, name: '일지 목록' })).toBeVisible()
 })

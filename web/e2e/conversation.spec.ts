@@ -32,7 +32,7 @@ test('텍스트 대화: 인사말, 문장 말풍선, 도구 알림, 끝내기', 
   await expect(log.getByText('메모로 저장했어요, 다니엘님!', { exact: false })).toBeInViewport()
   // 이어지는 말풍선이 아래 입력창에 가리지 않게 바닥까지 내린다(다른 탭에 다녀와도)
   await expectLastBubbleAboveDock(page)
-  await page.getByRole('tab', { name: '일지 목록' }).click()
+  await page.getByRole('tab', { name: '일지' }).click()
   await page.getByRole('tab', { name: '대화' }).click()
   await expectLastBubbleAboveDock(page)
   await page.screenshot({ path: 'test-results/conversation.png' })

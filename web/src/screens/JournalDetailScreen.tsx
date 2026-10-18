@@ -213,10 +213,16 @@ export function JournalDetailScreen({
 
   return (
     <section className="journal">
-      <h2>일지 상세</h2>
-      <button type="button" className="secondary" onClick={onBack} aria-label="목록으로">
-        <span aria-hidden="true">←</span> 목록
-      </button>
+      <div className="journal-head journal-detail-head">
+        <button type="button" className="journal-back" onClick={onBack} aria-label="목록으로">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+            strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M15 6l-6 6 6 6" />
+          </svg>
+          목록
+        </button>
+        <h2>일지 상세</h2>
+      </div>
       {state.kind === 'loading' && <p className="journal-note">불러오는 중…</p>}
       {state.kind === 'error' && (
         <div className="journal-note">
@@ -498,7 +504,7 @@ function Detail({
       </details>
       {onContinue && session.status === 'ended' && (
         <div className="journal-continue" role="group" aria-label="이어서 대화하기">
-          <button type="button" disabled={deleting} onClick={() => onContinue('text')}>
+          <button type="button" className="secondary" disabled={deleting} onClick={() => onContinue('text')}>
             글로 이어서
           </button>
           <button type="button" disabled={deleting} onClick={() => onContinue('voice')}>

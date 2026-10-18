@@ -43,12 +43,17 @@ const JOURNAL_ITEM = {
 }
 
 describe('App', () => {
-  it('탭을 눌러 4개 화면을 전환한다', async () => {
+  it('하단 탭 3개로 대화·일지·설정 화면을 전환한다', async () => {
     stubHealth(true)
     render(<App />)
-    for (const name of ['대화', '일지 목록', '일지 상세', '설정']) {
-      fireEvent.click(screen.getByRole('tab', { name }))
-      expect(screen.getByRole('heading', { level: 2, name })).toBeInTheDocument()
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['대화', '일지', '설정'])
+    for (const [tab, heading] of [
+      ['대화', '대화'],
+      ['일지', '일지 목록'],
+      ['설정', '설정'],
+    ]) {
+      fireEvent.click(screen.getByRole('tab', { name: tab }))
+      expect(screen.getByRole('heading', { level: 2, name: heading })).toBeInTheDocument()
     }
     expect(await screen.findByText('서버 연결됨')).toBeInTheDocument()
   })
@@ -58,7 +63,7 @@ describe('App', () => {
     render(<App />)
     const tabs = screen.getAllByRole('tab')
     expect(screen.getByRole('tablist', { name: '화면' })).toBeInTheDocument()
-    expect(tabs.map((t) => t.tabIndex)).toEqual([0, -1, -1, -1])
+    expect(tabs.map((t) => t.tabIndex)).toEqual([0, -1, -1])
     const panel = screen.getByRole('tabpanel', { name: '대화' })
     expect(tabs[0]).toHaveAttribute('aria-controls', panel.id)
 
@@ -67,16 +72,16 @@ describe('App', () => {
     expect(tabs[1]).toHaveFocus()
     expect(screen.getByRole('heading', { level: 2, name: '일지 목록' })).toBeInTheDocument()
     fireEvent.keyDown(tabs[1], { key: 'End' })
-    expect(tabs[3]).toHaveFocus()
-    fireEvent.keyDown(tabs[3], { key: 'ArrowRight' })
+    expect(tabs[2]).toHaveFocus()
+    fireEvent.keyDown(tabs[2], { key: 'ArrowRight' })
     expect(tabs[0]).toHaveFocus() // 끝에서 처음으로 돈다
     fireEvent.keyDown(tabs[0], { key: 'ArrowLeft' })
-    expect(tabs[3]).toHaveFocus()
-    fireEvent.keyDown(tabs[3], { key: 'Home' })
+    expect(tabs[2]).toHaveFocus()
+    fireEvent.keyDown(tabs[2], { key: 'Home' })
     expect(tabs[0]).toHaveAttribute('aria-selected', 'true')
   })
 
-  it('일지 목록에서 항목을 누르면 일지 상세 탭에서 연다', async () => {
+  it('일지 목록에서 항목을 누르면 일지 탭 안에서 상세를 연다', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
@@ -90,12 +95,21 @@ describe('App', () => {
       }),
     )
     render(<App />)
-    fireEvent.click(screen.getByRole('tab', { name: '일지 목록' }))
+    fireEvent.click(screen.getByRole('tab', { name: '일지' }))
     fireEvent.click(await screen.findByRole('button', { name: /^산책 앱 아이디어/ }))
-    expect(screen.getByRole('tab', { name: '일지 상세' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: '일지' })).toHaveAttribute('aria-selected', 'true')
     expect(await screen.findByRole('heading', { level: 3, name: '산책 앱 아이디어' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '목록으로' }))
-    expect(screen.getByRole('tab', { name: '일지 목록' })).toHaveAttribute('aria-selected', 'true')
+    expect(await screen.findByRole('heading', { level: 2, name: '일지 목록' })).toBeInTheDocument()
+
+    // 다른 탭에 갔다 오면 보던 상세 그대로, 일지 탭에서 일지 탭을 다시 누르면 목록으로
+    fireEvent.click(await screen.findByRole('button', { name: /^산책 앱 아이디어/ }))
+    expect(await screen.findByRole('heading', { level: 3, name: '산책 앱 아이디어' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: '설정' }))
+    fireEvent.click(screen.getByRole('tab', { name: '일지' }))
+    expect(await screen.findByRole('heading', { level: 3, name: '산책 앱 아이디어' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: '일지' }))
+    expect(await screen.findByRole('heading', { level: 2, name: '일지 목록' })).toBeInTheDocument()
   })
 
   it('탭을 옮겼다 돌아와도 대화가 남아 있다', async () => {

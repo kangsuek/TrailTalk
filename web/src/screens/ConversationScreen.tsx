@@ -62,6 +62,21 @@ function MicIcon() {
   )
 }
 
+function KeyboardIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="6" width="20" height="12" rx="2" />
+      <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10" />
+    </svg>
+  )
+}
+
+/** 시작 화면 위쪽의 오늘 날짜(예: 10월 18일 일요일) */
+function today(): string {
+  return new Date().toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'long' })
+}
+
 function SendIcon() {
   return (
     <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor"
@@ -453,10 +468,15 @@ export function ConversationScreen({
 
   return (
     <section className="conversation">
-      <h2>대화</h2>
+      <h2 className="sr-only">대화</h2>
       {(state.status === 'idle' || state.status === 'starting') && !voiceActive && (
         <div className="conversation-start">
-          <p className="conversation-lead">걸으면서 떠오르는 생각을 같이 이야기해 봐요.</p>
+          <p className="conversation-date">{today()}</p>
+          <p className="conversation-lead">
+            걸으면서 떠오른 생각,
+            <br />
+            같이 이야기해 봐요.
+          </p>
           <div className="start-actions">
             <button
               type="button"
@@ -464,7 +484,9 @@ export function ConversationScreen({
               onClick={startVoice}
               disabled={state.status === 'starting' || voice.ready !== true}
             >
-              <MicIcon />
+              <span className="start-orb" aria-hidden="true">
+                <MicIcon />
+              </span>
               {voice.ready === null ? '음성 준비 중…' : '음성으로 대화'}
             </button>
             <button
@@ -473,6 +495,7 @@ export function ConversationScreen({
               onClick={start}
               disabled={state.status === 'starting'}
             >
+              <KeyboardIcon />
               {state.status === 'starting' ? '연결하는 중…' : '글로 대화'}
             </button>
           </div>
@@ -539,17 +562,20 @@ export function ConversationScreen({
       )}
 
       {state.status === 'ended' && !state.ending && !voiceActive && (
-        <div className="conversation-start">
+        <div className="conversation-start ended">
           <p className="conversation-note">대화가 끝났어요.</p>
           {state.journalPending && (
             <p className="conversation-note">일지는 아직 정리 중이에요. 잠시 뒤 일지에서 볼 수 있어요.</p>
           )}
           <div className="start-actions">
             <button type="button" className="start-voice" onClick={startVoice} disabled={voice.ready !== true}>
-              <MicIcon />
+              <span className="start-orb" aria-hidden="true">
+                <MicIcon />
+              </span>
               음성으로 새 대화
             </button>
             <button type="button" className="secondary" onClick={start}>
+              <KeyboardIcon />
               글로 새 대화
             </button>
             {onOpenJournal && state.sessionId && (
