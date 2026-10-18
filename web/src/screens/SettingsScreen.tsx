@@ -1,5 +1,5 @@
-// 설정 화면(계획서 S3-18, 설계서 FR-17): 호칭, 관심사, 보이스(미리 듣기), 말 속도, 음성 원본 보관.
-// 바뀐 필드만 저장한다(core/settings). 호칭·관심사는 다음 대화의 프롬프트에, 보이스·말 속도는 다음 답변부터 쓴다.
+// 설정 화면(계획서 S3-18, 설계서 FR-17): 호칭, 관심사, 보이스(미리 듣기), 말 속도, 대화 모델(S3-31), 음성 원본 보관.
+// 바뀐 필드만 저장한다(core/settings). 호칭·관심사는 다음 대화의 프롬프트에, 보이스·말 속도·모델은 다음 답변부터 쓴다.
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { ApiError } from '../api/http'
 import { getProfile, getVoices, updateProfile, voiceSampleUrl, type Profile, type Voices } from '../api/profile'
@@ -8,6 +8,7 @@ import {
   changedFields,
   draftOf,
   MAX_INTEREST_LENGTH,
+  MODEL_CHOICES,
   MAX_INTERESTS,
   MAX_NICKNAME_LENGTH,
   RATE_CHOICES,
@@ -155,7 +156,7 @@ function SettingsForm({
         setDraft(draftOf(saved))
         setResult({
           ok: true,
-          message: '저장했어요. 호칭·관심사는 다음 대화부터, 보이스·말 속도는 다음 답변부터 적용돼요.',
+          message: '저장했어요. 호칭·관심사는 다음 대화부터, 보이스·말 속도·대화 모델은 다음 답변부터 적용돼요.',
         })
       })
       .catch((error) => setResult({ ok: false, message: errorMessage(error, '저장하지 못했어요. 다시 해 주세요.') }))
@@ -266,6 +267,26 @@ function SettingsForm({
               </label>
             ))}
           </div>
+        </fieldset>
+
+        <fieldset className="settings-field">
+          <legend className="settings-label">대화 모델</legend>
+          <div className="settings-row">
+            {MODEL_CHOICES.map((choice) => (
+              <label key={choice.label} className="settings-choice">
+                <input
+                  type="radio"
+                  name="chat-model"
+                  checked={draft.chatModel === choice.value}
+                  onChange={() => change({ chatModel: choice.value })}
+                />
+                {choice.value === null ? `기본(${profile.default_chat_model})` : choice.label}
+              </label>
+            ))}
+          </div>
+          <p className="settings-note">
+            대화 중에 "빠른 모델로 바꿔 줘"처럼 말해도 바뀌어요. 똑똑할수록 답이 느려질 수 있어요.
+          </p>
         </fieldset>
 
         <label className="settings-field settings-toggle">

@@ -1147,6 +1147,7 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
+  min-height: 44px; /* 손가락으로 누르기 쉽게 */
   padding-right: 12px;
 }
 

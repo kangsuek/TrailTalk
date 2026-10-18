@@ -864,3 +864,60 @@ def test_user_turn_save_error_sends_error_event(api, monkeypatch):
     events = turn(api, session_id, "안녕")
     assert [e.type for e in events] == ["error"] and events[0].code == "internal_error"
     assert turn(api, session_id, "다시 안녕")[-1].type == "done"
+
+
+def model_of(record: dict) -> str:
+    args = record["args"]
+    return args[args.index("--model") + 1]
+
+
+def test_chat_model_from_profile_switches_on_next_turn_keeping_context(api):
+    """설정·말로 바꾼 대화 모델(S3-31)은 다음 답변부터 쓰고, 같은 CLI 대화 기록을 잇는다."""
+    session_id = start(api)["session"]["id"]
+    assert model_of(api.fake_cli.records()[-1]) == "sonnet"  # 고르지 않으면 서버 기본값
+    turn(api, session_id, "바나나는?")
+    count = len(api.fake_cli.records())
+    assert api.put("/api/profile", json={"chat_model": "opus"}).status_code == 200
+    turn(api, session_id, "이어서")
+    records = api.fake_cli.records()
+    assert len(records) == count + 1  # 새 모델로 다시 띄웠다
+    assert model_of(records[-1]) == "opus"
+    args = records[-1]["args"]
+    assert args[args.index("--resume") + 1] == FAKE_CLI_SESSION_ID  # 맥락을 잇는다
+    turn(api, session_id, "또")
+    assert len(api.fake_cli.records()) == count + 1  # 같은 모델이면 그대로 쓴다
+
+
+def test_prepared_cli_is_dropped_when_chat_model_changes(api):
+    api.post("/api/sessions/prepare", json={"mode": "text"})
+    old = api.app.state.prepared
+    wait_for_records(api.fake_cli, 1)
+    api.put("/api/profile", json={"chat_model": "haiku"})
+    body = start(api)
+    assert body["session"]["id"] != old.id
+    records = wait_for_records(api.fake_cli, 2)
+    assert model_of(records[-1]) == "haiku"
+    assert api.app.state.runtimes.get(old.id) is None
+
+
+def test_set_model_during_turn_applies_from_next_turn(api):
+    """말로 바꾼 모델(set_model)은 그 턴은 옛 모델로 끝내고 다음 턴부터 새 모델로 다시 띄운다."""
+    session_id = start(api)["session"]["id"]
+
+    async def save_model(event):  # set_model 도구가 프로필을 바꾸는 것을 흉내
+        if isinstance(event, TurnStarted):
+            async with api.app.state.session_factory() as db:
+                from app.services.profile import get_profile
+
+                (await get_profile(db)).chat_model = "haiku"
+                await db.commit()
+
+    hook_llm(api, save_model)
+    count = len(api.fake_cli.records())
+    assert turn(api, session_id, "빠른 모델로 바꿔 줘")[-1].type == "done"
+    assert len(api.fake_cli.records()) == count  # 이번 턴은 그대로
+    turn(api, session_id, "이어서")
+    records = api.fake_cli.records()
+    assert model_of(records[-1]) == "haiku"
+    args = records[-1]["args"]
+    assert args[args.index("--resume") + 1] == FAKE_CLI_SESSION_ID

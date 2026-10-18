@@ -35,6 +35,7 @@ class TurnInProgressError(AppError):
 class LlmSession(Protocol):
     last_used: float  # 마지막 사용 시각(time.monotonic), 유휴 정리 기준
     busy_since: float | None  # 턴 진행 시작 시각, 멈춘 턴 정리 기준
+    model: str  # 띄울 때 쓴 모델(바뀌면 매니저가 다시 띄운다)
 
     @property
     def cli_session_id(self) -> str | None: ...

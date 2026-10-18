@@ -1,6 +1,6 @@
 """본인 프로필(단일 행)과 페르소나 테이블 동기화(계획서 S1-08)."""
 
-from typing import Annotated
+from typing import Annotated, Literal, get_args
 
 from pydantic import AfterValidator
 from sqlalchemy.exc import IntegrityError
@@ -33,6 +33,15 @@ def line_field(limit: int) -> AfterValidator:
 
 # 프로필 API와 MCP set_nickname이 같은 규칙을 쓴다
 Nickname = Annotated[str, line_field(20)]
+
+# 대화 모델(S3-31). 프로필 API와 MCP set_model이 같은 목록을 쓴다(CLI --model 별칭)
+ChatModel = Literal["haiku", "sonnet", "opus"]
+CHAT_MODELS: tuple[str, ...] = get_args(ChatModel)
+
+
+def profile_chat_model(profile: UserProfile, settings: Settings) -> str:
+    """이 프로필로 대화할 모델. 고르지 않았거나 목록 밖 값이면 서버 기본값(LLM_CHAT_MODEL)."""
+    return profile.chat_model if profile.chat_model in CHAT_MODELS else settings.llm_chat_model
 
 
 def voice_style(base: VoiceStyle, voice: str | None, rate: float | None) -> VoiceStyle:

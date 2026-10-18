@@ -1,4 +1,5 @@
-"""GET/PUT /api/profile: 호칭·관심사·보이스·말 속도·페르소나 설정(설계서 4.6, 설정 화면 S3-18).
+"""GET/PUT /api/profile: 호칭·관심사·보이스·말 속도·페르소나·대화 모델 설정
+(설계서 4.6, 설정 화면 S3-18·S3-31).
 
 GET /api/voices·/api/voices/{voice}/sample: 설정 화면의 보이스 목록과 미리 듣기.
 """
@@ -14,6 +15,8 @@ from app.db.session import DbSession
 from app.errors import AppError
 from app.persona.rules import VOICE_SAMPLE_TEXT
 from app.services.profile import (
+    CHAT_MODELS,
+    ChatModel,
     Nickname,
     line_field,
     persona_id_of,
@@ -38,12 +41,18 @@ class ProfileOut(BaseModel):
     voice: str | None  # null이면 캐릭터 기본 보이스
     speaking_rate: float | None  # null이면 캐릭터 기본 말 속도
     keep_audio: bool
+    chat_model: ChatModel | None  # 대화 모델(S3-31). null이면 서버 기본값
+    default_chat_model: str  # 서버 기본 대화 모델(설정 화면의 "기본(…)" 표시용)
     # 클라이언트 설정값(읽기 전용, 규약 5절)
     client: ClientConfig
 
 
 class ProfileUpdate(BaseModel):
-    """보낸 필드만 바꾼다. nickname·voice·speaking_rate를 null로 보내면 기본값으로 돌아간다."""
+    """보낸 필드만 바꾼다. nickname·voice·speaking_rate·chat_model을 null로 보내면
+    기본값으로 돌아간다.
+
+    chat_model은 진행 중인 대화에도 다음 답변부터 쓴다.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -53,6 +62,7 @@ class ProfileUpdate(BaseModel):
     voice: Voice | None = None
     speaking_rate: SpeakingRate | None = None
     keep_audio: bool = False
+    chat_model: ChatModel | None = None
 
 
 def _out(profile, request: Request) -> ProfileOut:
@@ -64,6 +74,8 @@ def _out(profile, request: Request) -> ProfileOut:
         voice=profile.voice if profile.voice in OPENAI_VOICES else None,  # 목록 밖 옛 값은 기본으로
         speaking_rate=profile.speaking_rate,
         keep_audio=profile.keep_audio,
+        chat_model=profile.chat_model if profile.chat_model in CHAT_MODELS else None,
+        default_chat_model=settings.llm_chat_model,
         client=request.app.state.client_config,
     )
 

@@ -14,6 +14,8 @@ const PROFILE = {
   voice: null,
   speaking_rate: null,
   keep_audio: false,
+  chat_model: null,
+  default_chat_model: 'sonnet',
   client: {},
 }
 const VOICES = { voices: ['coral', 'nova', 'sage'], default_voice: 'nova', default_rate: 1.05, min_rate: 0.75, max_rate: 1.5 }
@@ -45,10 +47,12 @@ describe('SettingsScreen', () => {
     fireEvent.change(screen.getByRole('combobox', { name: '보이스' }), { target: { value: 'coral' } })
     fireEvent.click(screen.getByRole('radio', { name: '느리게' }))
     fireEvent.click(screen.getByRole('checkbox', { name: /음성 원본 보관/ }))
+    expect(screen.getByRole('radio', { name: '기본(sonnet)' })).toBeChecked() // 서버 기본 모델
+    fireEvent.click(screen.getByRole('radio', { name: '똑똑함(opus)' }))
     fireEvent.click(screen.getByRole('button', { name: '저장' }))
 
     expect(await screen.findByRole('status')).toHaveTextContent('저장했어요')
-    expect(putBodies(fetchMock)).toEqual([{ voice: 'coral', speaking_rate: 0.85, keep_audio: true }])
+    expect(putBodies(fetchMock)).toEqual([{ voice: 'coral', speaking_rate: 0.85, keep_audio: true, chat_model: 'opus' }])
     expect(screen.getByRole('button', { name: '저장' })).toBeDisabled() // 저장한 값이 새 기준
   })
 

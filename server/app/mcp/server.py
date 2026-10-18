@@ -34,13 +34,20 @@ from app.db.models import (
 from app.db.types import utcnow
 from app.errors import error_response
 from app.persona.loader import load_persona
-from app.services.profile import PROFILE_ID, Nickname, get_profile
+from app.services.profile import PROFILE_ID, ChatModel, Nickname, get_profile
 from app.services.runtime import ConversationRuntime, RuntimeRegistry
 
 SERVER_NAME = "trailtalk"  # CLI 도구 이름 접두사 mcp__trailtalk__ 와 같다
 MOUNT_PATH = "/internal/mcp"
 SESSION_HEADER = "x-trailtalk-session"
 _SEARCH_LIMIT = 10
+# set_model(S3-31): 이번 사용자 발화(공백 없이 소문자)에 모델 이름이 있으면 그 모델로만, 이름 없이
+# "모델"만 있으면("빠른 모델로") 고른 모델로 바꾼다. 둘 다 없으면 바꾸지 않는다
+_MODEL_NAMES = {
+    "haiku": ("하이쿠", "haiku"),
+    "sonnet": ("소넷", "sonnet"),
+    "opus": ("오푸스", "오퍼스", "opus"),
+}
 # 지난 대화 전문 검색(search_conversations, S3-28)
 _CONVO_HITS = 8  # 찾은 말 최대 건수(최신순)
 _CONVO_TERMS = 3  # 검색어를 공백으로 나눈 낱말 중 쓰는 개수(모두 들어간 말을 찾는다)
@@ -327,6 +334,38 @@ def build_mcp_server(app) -> MCPServer:
             logger.exception("set_nickname failed session=%s", runtime.session_id)
             raise ToolError("호칭을 바꾸지 못했습니다.") from None
         return f"호칭을 '{nickname}'(으)로 바꿨습니다. 이제부터 이 호칭으로 부르세요."
+
+    @mcp.tool()
+    async def set_model(
+        model: Annotated[
+            ChatModel,
+            Field(description="haiku: 빠름, sonnet: 기본(균형), opus: 가장 똑똑하지만 느림"),
+        ],
+        ctx: Context,
+    ) -> str:
+        """사용자가 대화 모델을 바꿔 달라고 하면 부른다(예: 빠른 모델로, 똑똑한 모델로).
+
+        프로필에 저장하므로 다음 답변부터, 다음 대화에도 이 모델을 쓴다.
+        """
+        runtime = runtime_of(ctx)
+        try:
+            async with app.state.session_factory() as db:
+                # 검색 결과 속 지시로 바뀌지 않게, 이번 사용자 발화에서 모델을 말했을 때만 받는다
+                turn_id = runtime.current_user_turn_id
+                turn = await db.get(Turn, turn_id) if turn_id else None
+                said = "".join(turn.text.split()).lower() if turn is not None else ""
+                named = {m for m, words in _MODEL_NAMES.items() if any(w in said for w in words)}
+                if named and model not in named:
+                    raise ToolError("사용자가 말한 모델로만 바꿀 수 있습니다.")
+                if not named and "모델" not in said:
+                    raise ToolError("사용자가 이번에 모델을 말했을 때만 바꿀 수 있습니다.")
+                profile = await get_profile(db)
+                profile.chat_model = model
+                await db.commit()
+        except SQLAlchemyError:
+            logger.exception("set_model failed session=%s", runtime.session_id)
+            raise ToolError("모델을 바꾸지 못했습니다.") from None
+        return f"다음 답변부터 {model} 모델로 바뀝니다. 바꿨다고 한 문장으로 알려 주세요."
 
     @mcp.tool()
     async def end_session(ctx: Context) -> str:

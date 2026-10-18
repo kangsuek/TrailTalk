@@ -89,6 +89,7 @@ def test_lists_app_tools(mcp):
         "summarize_session",
         "pause_session",
         "set_nickname",
+        "set_model",
         "end_session",
     ]
 
@@ -355,6 +356,41 @@ def test_set_nickname_schema_has_length_limit(mcp):
     [tool] = [t for t in tools if t["name"] == "set_nickname"]
     prop = tool["inputSchema"]["properties"]["nickname"]
     assert prop["maxLength"] == 20 and prop["minLength"] == 1
+
+
+def chat_model(client) -> str | None:
+    return client.get("/api/profile").json()["chat_model"]
+
+
+def test_set_model_saves_profile(mcp, client):
+    set_user_text(mcp, client, "빠른 모델로 바꿔줘")
+    result = mcp.call("set_model", model="haiku")
+    assert not result["isError"] and "다음 답변부터 haiku" in text_of(result)
+    assert chat_model(client) == "haiku"
+    set_user_text(mcp, client, "오푸스로 해 줘")
+    assert not mcp.call("set_model", model="opus")["isError"]
+    assert chat_model(client) == "opus"
+    assert mcp.call("set_model", model="gpt-4")["isError"]  # 목록 밖
+    assert chat_model(client) == "opus"
+
+
+def test_set_model_must_match_the_named_model(mcp, client):
+    """사용자가 모델 이름을 말했으면 그 모델로만 바꾼다(다른 지시로 다른 모델이 되지 않게)."""
+    set_user_text(mcp, client, "하이쿠로 바꿔 줘")
+    result = mcp.call("set_model", model="opus")
+    assert result["isError"] and "말한 모델로만" in text_of(result)
+    assert not mcp.call("set_model", model="haiku")["isError"]
+    assert chat_model(client) == "haiku"
+
+
+def test_set_model_requires_user_to_mention_model(mcp, client):
+    """검색 결과 속 지시처럼 사용자가 모델을 말하지 않았으면 바꾸지 않는다."""
+    set_user_text(mcp, client, "uv 최신 버전 찾아줘")
+    result = mcp.call("set_model", model="opus")
+    assert result["isError"] and "모델을 말했을 때만" in text_of(result)
+    mcp.runtime_.current_user_turn_id = None  # 인사말처럼 사용자 턴 밖
+    assert mcp.call("set_model", model="opus")["isError"]
+    assert chat_model(client) is None
 
 
 def test_client_config_shape(mcp):

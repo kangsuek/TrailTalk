@@ -91,7 +91,7 @@ from app.persona.rules import (
     REOPEN_GREETING_INSTRUCTION,
 )
 from app.persona.schema import VoiceStyle
-from app.services.profile import profile_voice, profile_with_persona
+from app.services.profile import profile_chat_model, profile_voice, profile_with_persona
 from app.services.runtime import ConversationRuntime
 from app.voice.audio import AudioFile
 from app.voice.sentences import SentenceSplitter
@@ -247,14 +247,15 @@ async def _profile(app: FastAPI, db: AsyncSession) -> tuple[UserProfile, LoadedP
 
 
 async def _get_cli(
-    app: FastAPI, session_id: str, prompt: str, resume_id: str | None = None
+    app: FastAPI, session_id: str, prompt: str, model: str, resume_id: str | None = None
 ) -> LlmSession:
+    """model: 대화 모델(프로필, S3-31). 살아 있는 CLI와 다르면 매니저가 --resume으로 다시 띄운다."""
     settings = app.state.settings
     runtime = app.state.runtimes.ensure(session_id)
     return await app.state.llm.get(
         session_id,
         system_prompt=prompt,
-        model=settings.llm_chat_model,
+        model=model,
         resume_id=resume_id,
         mcp_config=mcp_client_config(settings.internal_base_url, runtime),
     )
@@ -265,8 +266,8 @@ async def open_llm(
 ) -> tuple[LlmSession, LoadedPersona, VoiceStyle]:
     """대화의 CLI 세션, 프롬프트에 쓴 페르소나, 합성할 보이스(설정 화면 값, S3-18).
 
-    CLI가 살아 있으면 재사용하고 없으면 --resume. 보이스는 부를 때마다 프로필에서 읽으므로
-    대화 중에 바꿔도 다음 답변부터 쓴다.
+    CLI가 살아 있으면 재사용하고 없으면 --resume. 보이스·대화 모델은 부를 때마다 프로필에서 읽으므로
+    대화 중에 바꿔도 다음 답변부터 쓴다(모델이 바뀌면 CLI를 같은 맥락으로 다시 띄운다).
 
     프롬프트는 세션을 처음 열 때 만들어 세션 행에 고정한다. 그 뒤 프로필을 바꿔도 CLI를 다시 띄울
     때(유휴 정리·크래시·서버 재시작 후 --resume) 같은 프롬프트를 쓴다. 다음 커밋 때 함께 저장된다.
@@ -278,7 +279,8 @@ async def open_llm(
             app.state.settings, profile, loaded, convo.mode, convo.started_at, memory
         )
         await db.commit()  # 이 턴이 오류로 끝나도 고정한 프롬프트는 남긴다
-    session = await _get_cli(app, convo.id, convo.system_prompt, convo.cli_session_id)
+    model = profile_chat_model(profile, app.state.settings)
+    session = await _get_cli(app, convo.id, convo.system_prompt, model, convo.cli_session_id)
     return session, loaded, profile_voice(profile, loaded)
 
 
@@ -290,6 +292,7 @@ class PreparedSession:
     mode: ConversationMode
     started_at: datetime
     prompt: str
+    model: str  # 띄울 때 쓴 대화 모델(프로필에서 바뀌면 쓰지 않는다)
     expiry: asyncio.Task | None = None
 
     def matches(
@@ -303,7 +306,7 @@ class PreparedSession:
         """재사용 조건: 지금 프로필로 다시 만든 프롬프트가 글자까지 같다(호칭·페르소나 등 프롬프트에
         들어가는 값이 늘어나도 그대로 맞는다). 시작 시각은 준비 시각을 쓰므로, 준비된 지 TTL이
         지났거나 그 사이 현지 날짜·오전/오후가 바뀌었으면 쓰지 않는다(일지 날짜·인사 톤 보호)."""
-        if self.mode is not mode:
+        if self.mode is not mode or self.model != profile_chat_model(profile, settings):
             return False
         now_utc = utcnow()
         # 너무 오래된 준비분은 새 시각으로 갈아 끼운다(시작 시각 오차를 TTL 안으로 묶는다)
@@ -366,9 +369,10 @@ async def _prepare_session(app: FastAPI, db: AsyncSession, mode: ConversationMod
         started_at = utcnow()
         memory = await _memory(app, db, profile, started_at)
         prompt = _session_prompt(settings, profile, loaded, mode, started_at, memory)
-        prepared = PreparedSession(new_id(), mode, started_at, prompt)
+        model = profile_chat_model(profile, settings)
+        prepared = PreparedSession(new_id(), mode, started_at, prompt, model)
         try:
-            await _get_cli(app, prepared.id, prompt)
+            await _get_cli(app, prepared.id, prompt, model)
         except BaseException:
             app.state.runtimes.discard(prepared.id)
             raise

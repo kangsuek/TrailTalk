@@ -1,7 +1,9 @@
 """세션별 LLM 프로세스를 관리한다(재사용, 죽은 프로세스 --resume 복구, 유휴·멈춘 세션 정리).
 
 DB는 모른다. 호출하는 쪽이 TurnStarted.cli_session_id를 DB에 저장하고 resume_id로 넘긴다.
-살아 있는 세션은 system_prompt·model이 바뀌어도 그대로 재사용한다(바꾸려면 close 후 get).
+살아 있는 세션은 system_prompt가 바뀌어도 그대로 재사용한다(바꾸려면 close 후 get).
+model이 바뀌면(대화 모델 선택, S3-31) 답변 중이 아닐 때 닫고 같은 CLI 대화 기록으로
+--resume해 새 모델로 다시 띄운다.
 """
 
 import asyncio
@@ -43,9 +45,15 @@ class LlmSessionManager:
         async with self._key_lock(key):
             session = self._sessions.get(key)
             if session is not None and session.alive:
-                session.last_used = time.monotonic()  # 돌려준 직후 유휴 정리되지 않게
-                return session
-            if session is not None:
+                if session.model == model or session.busy:
+                    session.last_used = time.monotonic()  # 돌려준 직후 유휴 정리되지 않게
+                    return session
+                # 모델이 바뀌었다: 지금까지의 맥락을 이어 새 모델로 다시 띄운다
+                resume_id = session.cli_session_id or resume_id
+                self._sessions.pop(key, None)
+                await session.close()
+                logger.info("모델 변경으로 CLI 재기동(session=%s, model=%s)", key, model)
+            elif session is not None:
                 # 죽은 프로세스: 방금까지 쓰던 CLI 세션 ID(메모리 값 우선)로 맥락을 이어 다시 띄운다
                 if resume_id and session.cli_session_id and resume_id != session.cli_session_id:
                     logger.warning("resume ID 불일치(session=%s), 메모리 값을 사용", key)

@@ -31,6 +31,8 @@ def _check_default_profile(client):
         "voice": None,
         "speaking_rate": None,
         "keep_audio": False,
+        "chat_model": None,
+        "default_chat_model": "sonnet",
         "client": _repo_client_defaults(),
     }
 
@@ -72,6 +74,8 @@ def test_put_updates_only_sent_fields(client):
         {"voice": "robot"},
         {"speaking_rate": 0.5},
         {"speaking_rate": 2},
+        {"chat_model": "gpt-4"},
+        {"chat_model": "claude-opus"},
     ],
 )
 def test_put_validation(client, body):
@@ -163,6 +167,13 @@ def test_put_voice_and_rate_and_reset(client):
     assert (body["voice"], body["speaking_rate"]) == ("coral", 0.85)
     body = client.put("/api/profile", json={"voice": None, "speaking_rate": None}).json()
     assert (body["voice"], body["speaking_rate"]) == (None, None)  # 캐릭터 기본으로
+
+
+def test_put_chat_model_and_reset(client):
+    body = client.get("/api/profile").json()
+    assert body["chat_model"] is None and body["default_chat_model"] == "sonnet"  # 서버 기본값
+    assert client.put("/api/profile", json={"chat_model": "opus"}).json()["chat_model"] == "opus"
+    assert client.put("/api/profile", json={"chat_model": None}).json()["chat_model"] is None
 
 
 def test_voices_lists_openai_voices_and_persona_defaults(client):

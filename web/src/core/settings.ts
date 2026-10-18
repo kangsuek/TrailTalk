@@ -1,12 +1,16 @@
 // 설정 화면 규칙(계획서 S3-18, S5-01 안드로이드 포팅 대상). UI·브라우저 API에 의존하지 않는다.
 // 서버 프로필(GET /api/profile)과 화면에서 고친 값을 비교해 바뀐 필드만 PUT으로 보낸다.
 
+/** 대화 모델(S3-31, 서버 CLI --model 별칭) */
+export type ChatModel = 'haiku' | 'sonnet' | 'opus'
+
 export interface SettingsDraft {
   nickname: string // 빈 문자열이면 기본 호칭(null)
   interests: string[]
   voice: string | null // null이면 캐릭터 기본 보이스
   speakingRate: number | null // null이면 캐릭터 기본 말 속도
   keepAudio: boolean
+  chatModel: ChatModel | null // null이면 서버 기본 모델
 }
 
 export interface ProfileFields {
@@ -15,6 +19,7 @@ export interface ProfileFields {
   voice: string | null
   speaking_rate: number | null
   keep_audio: boolean
+  chat_model: ChatModel | null
 }
 
 export type ProfilePatch = Partial<ProfileFields>
@@ -30,6 +35,14 @@ export const RATE_CHOICES: { label: string; value: number | null }[] = [
   { label: '빠르게', value: 1.35 },
 ]
 
+/** 대화 모델 선택지. null은 서버 기본값(화면에 "기본(sonnet)"처럼 보인다) */
+export const MODEL_CHOICES: { label: string; value: ChatModel | null }[] = [
+  { label: '기본', value: null },
+  { label: '빠름(haiku)', value: 'haiku' },
+  { label: '균형(sonnet)', value: 'sonnet' },
+  { label: '똑똑함(opus)', value: 'opus' },
+]
+
 export function draftOf(profile: ProfileFields): SettingsDraft {
   return {
     nickname: profile.nickname ?? '',
@@ -37,6 +50,7 @@ export function draftOf(profile: ProfileFields): SettingsDraft {
     voice: profile.voice,
     speakingRate: profile.speaking_rate,
     keepAudio: profile.keep_audio,
+    chatModel: profile.chat_model,
   }
 }
 
@@ -49,6 +63,7 @@ export function changedFields(saved: ProfileFields, draft: SettingsDraft): Profi
   if (draft.voice !== saved.voice) patch.voice = draft.voice
   if (draft.speakingRate !== saved.speaking_rate) patch.speaking_rate = draft.speakingRate
   if (draft.keepAudio !== saved.keep_audio) patch.keep_audio = draft.keepAudio
+  if (draft.chatModel !== saved.chat_model) patch.chat_model = draft.chatModel
   return patch
 }
 

@@ -353,6 +353,12 @@ export function toolNotice(tool: ToolState): string | null {
     }
     case 'summarize_session':
       return finished ? '대화 정리 완료' : '대화 정리 중…'
+    case 'set_model': {
+      if (!finished) return '모델 바꾸는 중…'
+      if (tool.isError) return '모델을 바꾸지 못했어요'
+      const model = text(tool.input?.model)
+      return model ? `모델 변경: ${model}` : '모델 변경 완료'
+    }
     case 'set_nickname': {
       if (!finished) return '호칭 바꾸는 중…'
       if (tool.isError) return '호칭을 바꾸지 못했어요'

@@ -128,6 +128,58 @@ async def test_process_crash_raises_and_manager_resumes(fake_cli):
         await manager.shutdown()
 
 
+async def test_manager_restarts_with_new_model_and_same_context(fake_cli, monkeypatch):
+    """대화 모델이 바뀌면(S3-31) 같은 CLI 대화 기록으로 --resume해 새 모델로 다시 띄운다."""
+    manager = LlmSessionManager(ClaudeCliBackend(fake_cli.settings), idle_timeout_s=600)
+    try:
+        session = await manager.get("s1", system_prompt="P", model="sonnet")
+        await run_turn(session, "안녕")
+        cli_id = session.cli_session_id
+        assert await manager.get("s1", system_prompt="P", model="sonnet") is session  # 그대로
+        switched = await manager.get("s1", system_prompt="P", model="opus")
+        assert switched is not session and not session.alive and switched.model == "opus"
+        await run_turn(switched, "이어서")
+        args = fake_cli.records()[-1]["args"]
+        assert args[args.index("--model") + 1] == "opus"
+        assert args[args.index("--resume") + 1] == cli_id
+    finally:
+        await manager.shutdown()
+
+
+async def test_model_change_after_crash_resumes_with_new_model(fake_cli):
+    manager = LlmSessionManager(ClaudeCliBackend(fake_cli.settings), idle_timeout_s=600)
+    try:
+        session = await manager.get("s1", system_prompt="P", model="sonnet")
+        await run_turn(session, "안녕")
+        cli_id = session.cli_session_id
+        with pytest.raises(LlmProcessError):
+            await run_turn(session, "__crash__")
+        revived = await manager.get("s1", system_prompt="P", model="haiku")
+        await run_turn(revived, "이어서")
+        args = fake_cli.records()[-1]["args"]
+        assert args[args.index("--model") + 1] == "haiku"
+        assert args[args.index("--resume") + 1] == cli_id
+    finally:
+        await manager.shutdown()
+
+
+async def test_manager_does_not_restart_a_busy_session_for_model_change(fake_cli, monkeypatch):
+    monkeypatch.setenv("FAKE_CLAUDE_DELAY", "0.05")
+    manager = LlmSessionManager(ClaudeCliBackend(fake_cli.settings), idle_timeout_s=600)
+    try:
+        session = await manager.get("s1", system_prompt="P", model="sonnet")
+        async with contextlib.aclosing(session.send("길게")) as stream:
+            await stream.__anext__()
+            assert session.busy
+            # 답변 중(도구 실행 중 등)에는 닫지 않는다: 다음 턴 시작 때 바뀐다
+            assert await manager.get("s1", system_prompt="P", model="opus") is session
+            async for _ in stream:
+                pass
+        assert (await manager.get("s1", system_prompt="P", model="opus")).model == "opus"
+    finally:
+        await manager.shutdown()
+
+
 async def test_turn_timeout_with_successful_interrupt(fake_cli):
     fake_cli.settings.cli_turn_timeout_s = 0.3
     session = await open_session(fake_cli)

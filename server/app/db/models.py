@@ -221,5 +221,7 @@ class UserProfile(Base):
     persona_id: Mapped[str | None] = mapped_column(ForeignKey("persona.id", ondelete="SET NULL"))
     voice: Mapped[str | None] = mapped_column(String(100))  # OpenAI 보이스(null이면 캐릭터 기본)
     speaking_rate: Mapped[float | None] = mapped_column(Float)  # 말 속도(null이면 캐릭터 기본)
+    # 대화 모델(S3-31, haiku·sonnet·opus). null이면 서버 기본값(LLM_CHAT_MODEL)
+    chat_model: Mapped[str | None] = mapped_column(String(20))
     keep_audio: Mapped[bool] = mapped_column(Boolean, default=False)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)

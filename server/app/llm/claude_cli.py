@@ -197,8 +197,10 @@ class ClaudeCliSession:
         *,
         turn_timeout_s: float,
         secrets: tuple[str, ...] = (),
+        model: str = "",
     ) -> None:
         self.key = key
+        self.model = model
         self._command = command
         self._env = env
         self._cwd = cwd
@@ -479,6 +481,7 @@ class ClaudeCliBackend:
                 cwd,
                 turn_timeout_s=settings.cli_turn_timeout_s,
                 secrets=tuple(secrets),
+                model=model,
             )
         except BaseException:
             shutil.rmtree(cwd, ignore_errors=True)  # 토큰이 든 mcp.json을 남기지 않는다

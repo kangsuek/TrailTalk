@@ -7,6 +7,7 @@ const PROFILE: ProfileFields = {
   voice: null,
   speaking_rate: null,
   keep_audio: false,
+  chat_model: null,
 }
 
 describe('설정 규칙', () => {
@@ -16,6 +17,9 @@ describe('설정 규칙', () => {
     expect(changedFields(PROFILE, draft)).toEqual({ nickname: null, voice: 'coral', speaking_rate: 1.2, keep_audio: true })
     expect(changedFields(PROFILE, { ...draftOf(PROFILE), interests: ['등산', '앱'] })).toEqual({ interests: ['등산', '앱'] })
     expect(changedFields(PROFILE, { ...draftOf(PROFILE), nickname: ' 다니엘님 ' })).toEqual({})
+    expect(changedFields(PROFILE, { ...draftOf(PROFILE), chatModel: 'opus' })).toEqual({ chat_model: 'opus' })
+    const opus = { ...PROFILE, chat_model: 'opus' as const }
+    expect(changedFields(opus, { ...draftOf(opus), chatModel: null })).toEqual({ chat_model: null }) // 기본으로
   })
 
   it('관심사는 빈 값·중복·길이·개수를 막는다', () => {

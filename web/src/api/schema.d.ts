@@ -597,11 +597,18 @@ export interface components {
             speaking_rate: number | null;
             /** Keep Audio */
             keep_audio: boolean;
+            /** Chat Model */
+            chat_model: ("haiku" | "sonnet" | "opus") | null;
+            /** Default Chat Model */
+            default_chat_model: string;
             client: components["schemas"]["ClientConfig"];
         };
         /**
          * ProfileUpdate
-         * @description 보낸 필드만 바꾼다. nickname·voice·speaking_rate를 null로 보내면 기본값으로 돌아간다.
+         * @description 보낸 필드만 바꾼다. nickname·voice·speaking_rate·chat_model을 null로 보내면
+         *     기본값으로 돌아간다.
+         *
+         *     chat_model은 진행 중인 대화에도 다음 답변부터 쓴다.
          */
         ProfileUpdate: {
             /** Nickname */
@@ -622,6 +629,8 @@ export interface components {
              * @default false
              */
             keep_audio: boolean;
+            /** Chat Model */
+            chat_model?: ("haiku" | "sonnet" | "opus") | null;
         };
         /** RecordedTurn */
         RecordedTurn: {
