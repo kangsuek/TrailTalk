@@ -436,9 +436,59 @@ def test_send_email_sends_to_profile_address(mcp, client, mail):
 
 
 def test_send_email_takes_no_recipient_argument(mcp):
+    """받는 주소를 정하는 인자는 없다(본문·제목·전문 포함 여부만 받는다)."""
     tools = mcp.request("tools/list").json()["result"]["tools"]
     [tool] = [t for t in tools if t["name"] == "send_email"]
-    assert tool["inputSchema"].get("properties", {}) == {}
+    assert set(tool["inputSchema"]["properties"]) == {"content", "subject", "include_transcript"}
+    assert tool["inputSchema"]["properties"]["content"]["anyOf"][0]["maxLength"] == 8000
+
+
+def test_send_email_with_requested_summary_replaces_default_format(mcp, client, mail):
+    set_user_text(mcp, client, "이 대화 세 줄로 요약해서 이메일로 보내줘")
+    result = mcp.call(
+        "send_email", content="1. 산책 앱\n2. 프로토타입\n3. 다음 주 시작", subject="산책 앱 요약"
+    )
+    assert not result["isError"]
+    [(to, subject, body)] = mail
+    assert to == "me@example.com" and subject.startswith("[TrailTalk] 산책 앱 요약")
+    assert body.startswith("1. 산책 앱") and "[대화]" not in body and "[저장한 노트]" not in body
+
+
+def test_send_email_summary_with_transcript_when_asked(mcp, client, mail):
+    set_user_text(mcp, client, "요약이랑 전체 대화도 메일로 보내줘")
+    mcp.call("send_email", content="요약 한 줄", include_transcript=True)
+    [(_, _, body)] = mail
+    assert body.startswith("요약 한 줄") and "[대화]" in body and "요약이랑 전체 대화도" in body
+
+
+@pytest.mark.parametrize("arguments", [{"content": "가" * 8001}, {"subject": "가" * 101}])
+def test_send_email_argument_limits(mcp, client, mail, arguments):
+    result = mcp.request("tools/call", {"name": "send_email", "arguments": arguments}).json()[
+        "result"
+    ]
+    assert result["isError"] and mail == []
+
+
+def test_send_email_blank_subject_and_content_fall_back(mcp, client, mail):
+    mcp.call("send_email", content="   ", subject="   ")
+    [(_, subject, body)] = mail
+    assert subject.startswith("[TrailTalk] 대화 기록 (") and "[대화]" in body
+
+
+def test_send_email_header_injection_cannot_change_recipient(mcp, client, mail):
+    result = mcp.call(
+        "send_email",
+        content="본문\r\nBcc: evil@example.com\r\nTo: evil@example.com",
+        subject="제목\r\nBcc: evil@example.com",
+    )
+    assert not result["isError"]
+    [(to, subject, body)] = mail
+    assert to == "me@example.com" and "\n" not in subject and "\r" not in subject
+    assert "evil@example.com" in body  # 본문에 있을 뿐 헤더가 아니다
+    from app.services.mail import build_message
+
+    message = build_message(client.app.state.settings, to, subject, body)
+    assert message["To"] == "me@example.com" and message["Bcc"] is None
 
 
 def test_send_email_requires_user_to_ask_this_turn(mcp, client, mail):

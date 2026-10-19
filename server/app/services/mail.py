@@ -102,6 +102,14 @@ def _local(moment: datetime, timezone: str) -> datetime:
     return moment.astimezone(ZoneInfo(timezone))
 
 
+def _transcript_text(turns: list[Turn], user_name: str | None, persona_name: str) -> str:
+    speakers = {TurnRole.USER: user_name or "나", TurnRole.ASSISTANT: persona_name}
+    text = "\n".join(f"{speakers[t.role]}: {t.text}" for t in turns if t.text.strip())
+    if len(text) > _TRANSCRIPT_MAX_CHARS:
+        text = "…" + text[-_TRANSCRIPT_MAX_CHARS:]
+    return text
+
+
 async def compose_session_mail(
     db: AsyncSession,
     settings: Settings,
@@ -109,34 +117,42 @@ async def compose_session_mail(
     *,
     user_name: str | None,
     persona_name: str,
+    content: str | None = None,
+    subject: str | None = None,
+    include_transcript: bool = False,
 ) -> tuple[str, str]:
-    """대화 한 개를 (제목, 본문)으로 만든다. 진행 중인 대화는 지금까지의 노트와 전문을 쓴다."""
+    """대화 한 개를 (제목, 본문)으로 만든다.
+
+    content가 없으면 일지 요약(있을 때)·저장한 노트·전문을 정해진 형식으로 담는다. content가 있으면
+    캐릭터가 사용자의 요청대로 쓴 글을 본문으로 하고, 전문은 include_transcript일 때만 덧붙인다.
+    subject는 한 줄로 정리해 쓴다(없으면 대화 제목)."""
     convo = await db.get(ConversationSession, session_id)
     if convo is None:
         raise MailError("대화를 찾을 수 없습니다.")
     started = _local(convo.started_at, settings.timezone)
-    heading = convo.title or "대화 기록"
-    notes = list(
-        await db.scalars(
-            select(Note).where(Note.session_id == session_id).order_by(Note.created_at, Note.id)
-        )
-    )
+    heading = " ".join((subject or "").split()) or " ".join((convo.title or "").split())
+    heading = heading or "대화 기록"
     turns = list(
         await db.scalars(select(Turn).where(Turn.session_id == session_id).order_by(Turn.seq))
     )
+    transcript = _transcript_text(turns, user_name, persona_name)
 
-    lines = [heading, started.strftime("%Y-%m-%d %H:%M")]
-    if convo.summary:
-        lines += ["", "[요약]", *(line for line in convo.summary.splitlines() if line.strip())]
-    if notes:
-        lines += ["", "[저장한 노트]"]
-        lines += [f"- ({_KIND_LABELS[n.kind]}) {n.content}" for n in notes]
-    speakers = {TurnRole.USER: user_name or "나", TurnRole.ASSISTANT: persona_name}
-    transcript = [f"{speakers[t.role]}: {t.text}" for t in turns if t.text.strip()]
-    if transcript:
-        text = "\n".join(transcript)
-        if len(text) > _TRANSCRIPT_MAX_CHARS:
-            text = "…" + text[-_TRANSCRIPT_MAX_CHARS:]
-        lines += ["", "[대화]", text]
-    subject = f"[TrailTalk] {' '.join(heading.split())} ({started.strftime('%m/%d')})"
-    return subject, "\n".join(lines) + "\n"
+    if content and content.strip():
+        lines = [content.strip()]
+        if include_transcript and transcript:
+            lines += ["", "[대화]", transcript]
+    else:
+        notes = list(
+            await db.scalars(
+                select(Note).where(Note.session_id == session_id).order_by(Note.created_at, Note.id)
+            )
+        )
+        lines = [heading, started.strftime("%Y-%m-%d %H:%M")]
+        if convo.summary:
+            lines += ["", "[요약]", *(line for line in convo.summary.splitlines() if line.strip())]
+        if notes:
+            lines += ["", "[저장한 노트]"]
+            lines += [f"- ({_KIND_LABELS[n.kind]}) {n.content}" for n in notes]
+        if transcript:
+            lines += ["", "[대화]", transcript]
+    return f"[TrailTalk] {heading} ({started.strftime('%m/%d')})", "\n".join(lines) + "\n"

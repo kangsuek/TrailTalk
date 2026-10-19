@@ -138,6 +138,29 @@ async def test_compose_session_mail(db_session, make_settings):
     assert "캐릭터: 안녕하세요!\n나: 앱 만들고 싶어" in body
 
 
+async def test_compose_with_content_uses_it_as_body(db_session, make_settings):
+    convo = ConversationSession(title="원래 제목")
+    db_session.add(convo)
+    await db_session.flush()
+    db_session.add(Turn(session_id=convo.id, seq=1, role=TurnRole.USER, text="앱 만들고 싶어"))
+    db_session.add(Note(session_id=convo.id, kind=NoteKind.IDEA, content="노트"))
+    await db_session.commit()
+    kwargs = {"user_name": None, "persona_name": "캐릭터", "content": "  세 줄 요약  "}
+    subject, body = await compose_session_mail(
+        db_session, make_settings(), convo.id, subject="새\n제목", **kwargs
+    )
+    assert subject.startswith("[TrailTalk] 새 제목") and body == "세 줄 요약\n"
+    _, with_transcript = await compose_session_mail(
+        db_session, make_settings(), convo.id, include_transcript=True, **kwargs
+    )
+    assert with_transcript == "세 줄 요약\n\n[대화]\n나: 앱 만들고 싶어\n"
+    # 내용이 비었으면 정해진 형식으로 돌아간다
+    _, fallback = await compose_session_mail(
+        db_session, make_settings(), convo.id, **{**kwargs, "content": "  "}
+    )
+    assert "[저장한 노트]" in fallback and "[대화]" in fallback
+
+
 async def test_compose_unknown_session(db_session, make_settings):
     with pytest.raises(MailError):
         await compose_session_mail(
