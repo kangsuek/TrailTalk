@@ -146,6 +146,12 @@ class TurnBusy(AppError):
         super().__init__("turn_in_progress", "이전 답변이 아직 끝나지 않았습니다.", 409)
 
 
+_END_WAIT_S = 10.0  # 끝내기: 진행 중인 턴이 정리되길 기다리는 시간
+_CANCEL_WAIT_S = 10.0  # 끼어들기: 인터럽트한 턴이 끝나길 기다리는 시간
+_DELETE_EXTRACT_WAIT_S = 5.0  # 지우기·다시 열기: 돌던 일지 정리가 멈추길 기다리는 시간
+_DELETE_LOCK_WAIT_S = 5.0  # 지우기·다시 열기: 턴 잠금을 기다리는 시간
+_HEARD_MAX_CHARS = 100  # 끼어들기 안내에 넣는 마지막으로 들은 문장의 길이
+
 _LLM_PUBLIC_MESSAGES = {
     "llm_process_exited": "답변 도중 연결이 끊겼어요. 다시 말해 주세요.",
     "llm_timeout": "답변이 너무 오래 걸려 멈췄어요. 다시 말해 주세요.",
@@ -549,9 +555,6 @@ async def end_session(
             runtime.turn_lock.release()
 
 
-_END_WAIT_S = 10.0
-
-
 def check_turn_allowed(app: FastAPI, convo: ConversationSession) -> None:
     """SSE를 열기 전 검사. 실패는 JSON 오류로 나간다."""
     if convo.status is SessionStatus.ENDED:
@@ -564,6 +567,11 @@ def check_turn_allowed(app: FastAPI, convo: ConversationSession) -> None:
 def _error(exc: AppError) -> bytes:
     exc = public_error(exc)
     return encode_sse(ErrorEvent(code=exc.code, message=exc.message))
+
+
+async def _next_seq(db: AsyncSession, session_id: str) -> int:
+    last_seq = await db.scalar(select(func.max(Turn.seq)).where(Turn.session_id == session_id))
+    return (last_seq if last_seq is not None else -1) + 1
 
 
 async def last_reply(db: AsyncSession, session_id: str, max_chars: int = 200) -> str | None:
@@ -614,8 +622,8 @@ async def stream_turn(
                 await db.close()
 
 
-# 캐릭터가 아무 말 없이 시작하면 검색 안내 음성을 대신 들려줄 도구
-_SEARCH_TOOLS = {"web_search", "web_fetch", "search_conversations"}  # 찾는 동안 안내 음성
+# 캐릭터가 아무 말 없이 시작하면 찾는 동안의 침묵을 검색 안내 음성으로 메우는 도구
+_SEARCH_TOOLS = {"web_search", "web_fetch", "search_conversations"}
 
 
 async def _run_turn(
@@ -637,10 +645,7 @@ async def _run_turn(
         with anyio.CancelScope(shield=True):
             convo = await db.get(ConversationSession, session_id)
             if convo is not None and convo.status is not SessionStatus.ENDED:
-                last_seq = await db.scalar(
-                    select(func.max(Turn.seq)).where(Turn.session_id == session_id)
-                )
-                seq = (last_seq if last_seq is not None else -1) + 1
+                seq = await _next_seq(db, session_id)
                 user_turn = Turn(session_id=session_id, seq=seq, role=TurnRole.USER, text=text)
                 db.add(user_turn)
                 await _set_status(db, session_id, SessionStatus.ACTIVE)  # 쉬기 중이면 이어 감
@@ -888,10 +893,6 @@ async def _run_turn(
                 await _apply_leftover_status(app, db, session_id, leftover)
 
 
-_CANCEL_WAIT_S = 10.0
-_HEARD_MAX_CHARS = 100  # 안내에 넣는 마지막으로 들은 문장의 길이
-
-
 async def cancel_turn(
     app: FastAPI, db: AsyncSession, session_id: str, turn_id: str, last_played: int
 ) -> None:
@@ -1049,8 +1050,7 @@ async def record_offline_turn(app: FastAPI, db: AsyncSession, session_id: str, t
     # 런타임이 없으면(끝난 대화·서버 재시작) 기록끼리만 줄을 세운다
     lock = runtime.turn_lock if runtime is not None else _record_lock(app, session_id)
     async with lock:
-        last_seq = await db.scalar(select(func.max(Turn.seq)).where(Turn.session_id == session_id))
-        seq = (last_seq if last_seq is not None else -1) + 1
+        seq = await _next_seq(db, session_id)
         db.add(Turn(session_id=session_id, seq=seq, role=TurnRole.USER, text=text))
         # 끝남 여부는 커밋 직전에 읽는다(그사이 끝내기 API가 끝냈을 수 있다)
         status = await db.scalar(
@@ -1067,10 +1067,6 @@ async def record_offline_turn(app: FastAPI, db: AsyncSession, session_id: str, t
         await db.commit()
     if ended:
         extract.ensure_extraction(app, session_id)
-
-
-_DELETE_EXTRACT_WAIT_S = 5.0
-_DELETE_LOCK_WAIT_S = 5.0
 
 
 async def delete_session(app: FastAPI, db: AsyncSession, session_id: str) -> None:
@@ -1156,9 +1152,8 @@ async def reopen_session(
         taking_over = convo.status is not SessionStatus.ENDED
         if taking_over:
             await app.state.llm.close(session_id)
-            runtime.heard_note = (
-                None  # 예전 CLI의 끼어들기 안내(잘린 답변은 전문에 그대로 들어간다)
-            )
+            # 예전 CLI의 끼어들기 안내는 버린다(잘린 답변은 전문에 그대로 들어간다)
+            runtime.heard_note = None
         else:
             stopped = True
             await extract.cancel_extraction(app, session_id, _DELETE_EXTRACT_WAIT_S)
@@ -1197,10 +1192,9 @@ async def reopen_session(
         text, cli_session_id = await _receive_greeting(
             session, now_note + REOPEN_GREETING_INSTRUCTION, session_id, seen
         )
-        last_seq = await db.scalar(select(func.max(Turn.seq)).where(Turn.session_id == session_id))
         greeting = Turn(
             session_id=session_id,
-            seq=(last_seq if last_seq is not None else -1) + 1,
+            seq=await _next_seq(db, session_id),
             role=TurnRole.ASSISTANT,
             text=text,
             greeting=True,

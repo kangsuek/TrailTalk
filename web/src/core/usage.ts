@@ -22,7 +22,7 @@ export interface UsageView {
   level: UsageLevel
 }
 
-export const LOW_REMAINING = 20 // 이 % 이하면 경고 색
+const LOW_REMAINING = 20 // 이 % 이하면 경고 색
 
 const MINUTE = 60_000
 const HOUR = 60 * MINUTE

@@ -5,6 +5,7 @@ CLI는 턴마다 rate_limit_event로 5시간·7일 한도의 사용률(0~1)과 �
 첫 응답 전에는 값이 없다. 메모리에만 두며 서버를 다시 켜면 비어 있다.
 """
 
+import contextlib
 import logging
 import math
 from dataclasses import dataclass, replace
@@ -41,10 +42,8 @@ def _window(raw: Any) -> UsageWindow | None:
     resets = raw.get("resetsAt")
     resets_at = None
     if not isinstance(resets, bool) and isinstance(resets, int | float):
-        try:
+        with contextlib.suppress(OverflowError, OSError, ValueError):
             resets_at = datetime.fromtimestamp(resets, tz=UTC)
-        except (OverflowError, OSError, ValueError):
-            pass
     return UsageWindow(utilization=min(max(float(utilization), 0.0), 1.0), resets_at=resets_at)
 
 
