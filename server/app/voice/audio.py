@@ -1,6 +1,6 @@
 """음성 인식에 보낼 업로드 오디오 준비(계획서 S3-01).
 
-OpenAI 음성 인식이 그대로 받는 형식(웹 MediaRecorder의 webm/opus 등)은 변환하지 않는다.
+OpenAI 음성 인식이 그대로 받는 형식(웹이 WebCodecs로 만든 webm/opus 등)은 변환하지 않는다.
 그 밖의 형식(ogg/opus 등)은 ffmpeg로 16kHz 모노 webm/opus로 바꾼다.
 WAV(약 32KB/s)보다 10배쯤 작아 OpenAI로 올리는 시간이 응답 지연(NFR-01)에 덜 더해진다.
 """
