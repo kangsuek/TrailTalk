@@ -41,6 +41,9 @@ class ConversationRuntime:
     )
     # 다음 턴 CLI 입력 앞에 붙일 안내(직전 답변을 사용자가 어디까지 들었는지)
     heard_note: str | None = None
+    # send_email(FR-21)로 메일을 보낸 사용자 턴 ID와 이 대화에서 보낸 횟수(되풀이 방지)
+    mailed_turn_ids: set[str] = field(default_factory=set, repr=False, compare=False)
+    mail_count: int = 0
 
     def remember_sentences(self, turn_id: str, sentences: list[str]) -> None:
         """답변 턴의 문장 목록(진행 중에는 같은 리스트가 계속 늘어난다)을 기억한다."""

@@ -14,9 +14,11 @@ from app.client_config import ClientConfig
 from app.db.session import DbSession
 from app.errors import AppError
 from app.persona.rules import VOICE_SAMPLE_TEXT
+from app.services.mail import mail_configured
 from app.services.profile import (
     CHAT_MODELS,
     ChatModel,
+    Email,
     Nickname,
     line_field,
     persona_id_of,
@@ -40,6 +42,8 @@ class ProfileOut(BaseModel):
     persona_id: str
     voice: str | None  # null이면 캐릭터 기본 보이스
     speaking_rate: float | None  # null이면 캐릭터 기본 말 속도
+    email: str | None  # 대화 내용을 보낼 주소. null이면 설정 안 함
+    mail_ready: bool  # 서버에 메일 발송(SMTP) 설정이 있는가(없으면 주소를 넣어도 보내지 못한다)
     keep_audio: bool
     chat_model: ChatModel | None  # 대화 모델(S3-31). null이면 서버 기본값
     default_chat_model: str  # 서버 기본 대화 모델(설정 화면의 "기본(…)" 표시용)
@@ -48,7 +52,7 @@ class ProfileOut(BaseModel):
 
 
 class ProfileUpdate(BaseModel):
-    """보낸 필드만 바꾼다. nickname·voice·speaking_rate·chat_model을 null로 보내면
+    """보낸 필드만 바꾼다. nickname·email·voice·speaking_rate·chat_model을 null로 보내면
     기본값으로 돌아간다.
 
     chat_model은 진행 중인 대화에도 다음 답변부터 쓴다.
@@ -57,6 +61,7 @@ class ProfileUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     nickname: Nickname | None = None
+    email: Email | None = None
     interests: Annotated[list[Interest], Field(max_length=10)] = []
     persona_id: Annotated[str, Field(pattern=r"^[a-z0-9_-]{1,64}$")] | None = None
     voice: Voice | None = None
@@ -73,6 +78,8 @@ def _out(profile, request: Request) -> ProfileOut:
         persona_id=persona_id_of(profile, settings),
         voice=profile.voice if profile.voice in OPENAI_VOICES else None,  # 목록 밖 옛 값은 기본으로
         speaking_rate=profile.speaking_rate,
+        email=profile.email,
+        mail_ready=mail_configured(settings),
         keep_audio=profile.keep_audio,
         chat_model=profile.chat_model if profile.chat_model in CHAT_MODELS else None,
         default_chat_model=settings.llm_chat_model,

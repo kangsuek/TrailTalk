@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { addInterest, changedFields, draftOf, MAX_INTERESTS, type ProfileFields } from './settings'
+import { addInterest, changedFields, draftOf, isValidEmail, MAX_INTERESTS, type ProfileFields } from './settings'
 
 const PROFILE: ProfileFields = {
   nickname: '다니엘님',
+  email: null,
   interests: ['등산'],
   voice: null,
   speaking_rate: null,
@@ -20,6 +21,20 @@ describe('설정 규칙', () => {
     expect(changedFields(PROFILE, { ...draftOf(PROFILE), chatModel: 'opus' })).toEqual({ chat_model: 'opus' })
     const opus = { ...PROFILE, chat_model: 'opus' as const }
     expect(changedFields(opus, { ...draftOf(opus), chatModel: null })).toEqual({ chat_model: null }) // 기본으로
+  })
+
+  it('이메일은 앞뒤 공백을 빼고 비우면 null로 보낸다', () => {
+    expect(changedFields(PROFILE, { ...draftOf(PROFILE), email: ' me@example.com ' })).toEqual({ email: 'me@example.com' })
+    const saved = { ...PROFILE, email: 'me@example.com' }
+    expect(changedFields(saved, draftOf(saved))).toEqual({})
+    expect(changedFields(saved, { ...draftOf(saved), email: '  ' })).toEqual({ email: null })
+  })
+
+  it('이메일 모양을 확인한다(빈 값은 설정 안 함이라 통과)', () => {
+    for (const ok of ['', '  ', 'me@example.com', 'a.b+c@mail.example.co.kr']) expect(isValidEmail(ok)).toBe(true)
+    for (const bad of ['plain', 'a@b', 'a b@example.com', '@example.com', 'a@example.com,b@example.com', '한글@example.com']) {
+      expect(isValidEmail(bad)).toBe(false)
+    }
   })
 
   it('관심사는 빈 값·중복·길이·개수를 막는다', () => {

@@ -62,6 +62,7 @@ MVP는 P1(핸즈프리 대화, 제니 페르소나, 브레인스토밍, 대화 �
 | FR-18 | 확장 | 주간 트렌드·행사 브리핑을 미리 만들어 세션 시작 때 들려 준다 | P2 |
 | FR-19 | 확장 | Claude Code에서 대화 일지를 조회하는 MCP 서버를 제공한다 | P2 |
 | FR-20 | 대화 | 최신 정보나 사실 확인이 필요한 질문은 웹 검색 후 답하고, 출처를 짧게 밝힌다 | P1 |
+| FR-21 | 대화 기록 | "이메일로 보내줘"라고 하면 설정에 저장한 본인 이메일 주소로 대화의 요약·노트·전문을 보낸다 | P2 |
 
 **비기능 요구사항**
 
@@ -72,7 +73,7 @@ MVP는 P1(핸즈프리 대화, 제니 페르소나, 브레인스토밍, 대화 �
 | NFR-03 | 인식 품질 | 바람·숨소리 속에서도 발화 인식률 90% 이상(실제 등산로 테스트 기준) |
 | NFR-04 | 통신 불안정 | 음영지에서는 발화를 기기에 보관하고, 연결 회복 시 전송·기록한다. 기록 유실 0건 |
 | NFR-05 | 배터리 | 1시간 대화 세션 중 소모 배터리 10% 이내(화면을 켠 웹 앱 기준 참고 지표, 측정값 기록) |
-| NFR-06 | 개인정보 | 대화·음성은 본인 서버에만 저장, 전송 구간 HTTPS, Whisper·TTS 키와 Claude CLI 로그인 토큰은 서버에만 보관 |
+| NFR-06 | 개인정보 | 대화·음성은 본인 서버에만 저장, 전송 구간 HTTPS, Whisper·TTS 키와 Claude CLI 로그인 토큰, 메일 서버(SMTP) 비밀번호는 서버에만 보관. 예외는 FR-21: 사용자가 요청하면 본인 이메일 주소로만 대화 내용이 나간다 |
 | NFR-07 | 페르소나 일관성 | 제니 답변 샘플 20개 중 18개 이상이 톤 체크리스트를 통과한다 |
 | NFR-08 | 설정 분리 | 캐릭터 이름·성격·말투·보이스는 코드가 아닌 설정 파일로 바꾼다 |
 
@@ -208,6 +209,7 @@ voice:
 | summarize_session | 없음 | 지금까지 나온 아이디어 정리 |
 | pause_session / end_session | 없음 | 음성 명령으로 쉬기·종료 |
 | set_nickname | 호칭 | "앞으로 OO라고 불러줘"처럼 요청하면 프로필 호칭을 바꾼다. 이번 대화 나머지와 다음 대화 모두 새 호칭을 쓴다 |
+| send_email | 없음 | "이메일로 보내줘"라고 하면 설정에 저장한 본인 주소로 지금까지의 대화(요약·노트·전문)를 서버가 직접 보낸다(FR-21). 받는 주소를 인자로 받지 않아 다른 곳으로 보낼 수 없고, 이번 사용자 발화에 메일이 언급됐을 때만·사용자 턴당 1회(실패해도 그 턴에는 다시 보내지 않아 이중 발송을 막는다)·대화당 5회까지 보낸다. 한계: 발화에 "메일"이 있기만 하면 통과하므로, 그 턴의 검색 결과가 지시해도 본인 주소로 한 통은 나갈 수 있다. 주소·메일 서버 설정이 없으면 보내지 않고 안내한다 |
 | WebSearch / WebFetch (CLI 내장) | 검색어 / URL | 최신 정보·사실 확인이 필요할 때 검색하거나 페이지를 읽고 출처와 함께 답한다(FR-20) |
 
 ### 4.4 대화 기록과 일지
@@ -230,7 +232,7 @@ voice:
 | note | id, session_id, turn_id, kind(idea/todo/memo), content, cites, starred, done, created_at |
 | pending_upload (기기 로컬) | id, session_id, audio_file, recorded_at, retry_count |
 | persona | id(예: jenny), yaml 경로, version(YAML 내용 해시), updated_at |
-| user_profile | id(본인용 단일 행), nickname, interests[], persona_id, voice, speaking_rate, chat_model, keep_audio, updated_at |
+| user_profile | id(본인용 단일 행), nickname, email, interests[], persona_id, voice, speaking_rate, chat_model, keep_audio, updated_at |
 | briefing (확장) | id, week_start, script_text, audio_path, sources_json |
 
 ID는 UUID 문자열(`persona`는 이름 키, `user_profile`은 단일 행 1), 시각은 UTC로 저장한다. 열거값은 DB CHECK 제약으로 막고, 스키마 변경은 Alembic 마이그레이션(`server/migrations/`)으로 한다. `pending_upload`는 기기 로컬, `briefing`은 5단계에서 만든다.
@@ -258,7 +260,7 @@ ID는 UUID 문자열(`persona`는 이름 키, `user_profile`은 단일 행 1), �
 | PATCH | /notes/{id} | 별표·완료·내용 수정 |
 | GET | /notes/latest-idea | 대화 시작 화면 "지난 아이디어 이어 가기" 카드용 완료하지 않은 아이디어 1개(별표 먼저, 최신순, 없으면 null) |
 | GET | /journal/{session_id}/export.md | Markdown 내보내기(5단계 S5-03 예정, 아직 없음) |
-| GET/PUT | /profile | 호칭·관심사·보이스·말 속도·대화 모델·음성 원본 보관·페르소나 설정, 클라이언트 설정값(`client`, 읽기 전용) |
+| GET/PUT | /profile | 호칭·이메일 주소·관심사·보이스·말 속도·대화 모델·음성 원본 보관·페르소나 설정, 클라이언트 설정값(`client`, 읽기 전용) |
 | GET | /voices, /voices/{voice}/sample | 선택 가능한 보이스 목록, 보이스 미리 듣기 MP3 |
 | GET | /latency | 음성 턴 지연 측정 요약(NFR-01) |
 | GET | /health | 서버 상태 확인 |

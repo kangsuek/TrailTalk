@@ -1,4 +1,4 @@
-// 설정 화면(계획서 S3-18, 설계서 FR-17): 호칭, 관심사, 보이스(미리 듣기), 말 속도, 대화 모델(S3-31), 음성 원본 보관.
+// 설정 화면(계획서 S3-18, 설계서 FR-17): 호칭, 이메일(FR-21), 관심사, 보이스(미리 듣기), 말 속도, 대화 모델(S3-31), 음성 원본 보관.
 // 바뀐 필드만 저장한다(core/settings). 호칭·관심사는 다음 대화의 프롬프트에, 보이스·말 속도·모델은 다음 답변부터 쓴다.
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { ApiError } from '../api/http'
@@ -7,6 +7,8 @@ import {
   addInterest,
   changedFields,
   draftOf,
+  isValidEmail,
+  MAX_EMAIL_LENGTH,
   MAX_INTEREST_LENGTH,
   MODEL_CHOICES,
   MAX_INTERESTS,
@@ -143,6 +145,7 @@ function SettingsForm({
   const save = (event: FormEvent) => {
     event.preventDefault()
     if (!dirty || saving) return
+    if (!isValidEmail(draft.email)) return setResult({ ok: false, message: '이메일 주소 형식이 아니에요.' })
     if (interest.trim()) {
       // 입력만 하고 "추가"를 누르지 않은 관심사를 말없이 버리지 않는다
       setInterestError('입력한 관심사를 "추가"로 넣거나 지운 뒤 저장해 주세요.')
@@ -169,7 +172,7 @@ function SettingsForm({
     : [...RATE_CHOICES, { label: `${draft.speakingRate}배`, value: draft.speakingRate }]
 
   return (
-    <form className="settings-form" onSubmit={save}>
+    <form className="settings-form" onSubmit={save} noValidate>
       {/* 저장하는 동안 고친 값이 저장 결과에 덮어써지지 않게 입력을 막는다 */}
       <fieldset className="settings-fields" disabled={saving}>
         <label className="settings-field">
@@ -181,6 +184,23 @@ function SettingsForm({
             placeholder="비워 두면 기본 호칭"
             onChange={(e) => change({ nickname: e.target.value })}
           />
+        </label>
+
+        <label className="settings-field">
+          <span className="settings-label">이메일</span>
+          <input
+            type="email"
+            aria-label="이메일"
+            value={draft.email}
+            maxLength={MAX_EMAIL_LENGTH}
+            placeholder="대화를 받아 볼 내 주소"
+            autoComplete="email"
+            onChange={(e) => change({ email: e.target.value })}
+          />
+          <span className="settings-note">
+            대화 중 "이메일로 보내줘"라고 하면 이 주소로 요약·노트·대화 내용을 보내요.
+            {!profile.mail_ready && ' 서버에 메일 보내기 설정(SMTP)이 없어 아직 보낼 수 없어요.'}
+          </span>
         </label>
 
         <fieldset className="settings-field">

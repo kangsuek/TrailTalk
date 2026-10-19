@@ -223,5 +223,7 @@ class UserProfile(Base):
     speaking_rate: Mapped[float | None] = mapped_column(Float)  # 말 속도(null이면 캐릭터 기본)
     # 대화 모델(S3-31, haiku·sonnet·opus). null이면 서버 기본값(LLM_CHAT_MODEL)
     chat_model: Mapped[str | None] = mapped_column(String(20))
+    # 대화 내용을 보낼 본인 이메일 주소(캐릭터의 send_email 도구). null이면 설정 안 함
+    email: Mapped[str | None] = mapped_column(String(254))
     keep_audio: Mapped[bool] = mapped_column(Boolean, default=False)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)

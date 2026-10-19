@@ -99,6 +99,16 @@ class Settings(BaseSettings):
         self.openai_api_key = next((SecretStr(v) for v in values if v), None)
         return self
 
+    # 대화 내용 이메일 발송(캐릭터의 send_email 도구). 호스트가 없으면 도구가 보내지 못한다고 알린다
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_user: str | None = None
+    smtp_password: SecretStr | None = None
+    smtp_from: str | None = None  # 보내는 주소. 없으면 smtp_user
+    # starttls: 587 포트에서 암호화로 올림, ssl: 465 포트, none: 암호화 없음(로컬 시험용)
+    smtp_security: Literal["starttls", "ssl", "none"] = "starttls"
+    smtp_timeout_s: float = 15
+
     persona_dir: Path = SERVER_DIR / "personas"
     default_persona: str = "jenny"
     timezone: str = "Asia/Seoul"

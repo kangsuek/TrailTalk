@@ -645,6 +645,10 @@ export interface components {
             voice: string | null;
             /** Speaking Rate */
             speaking_rate: number | null;
+            /** Email */
+            email: string | null;
+            /** Mail Ready */
+            mail_ready: boolean;
             /** Keep Audio */
             keep_audio: boolean;
             /** Chat Model */
@@ -655,7 +659,7 @@ export interface components {
         };
         /**
          * ProfileUpdate
-         * @description 보낸 필드만 바꾼다. nickname·voice·speaking_rate·chat_model을 null로 보내면
+         * @description 보낸 필드만 바꾼다. nickname·email·voice·speaking_rate·chat_model을 null로 보내면
          *     기본값으로 돌아간다.
          *
          *     chat_model은 진행 중인 대화에도 다음 답변부터 쓴다.
@@ -663,6 +667,8 @@ export interface components {
         ProfileUpdate: {
             /** Nickname */
             nickname?: string | null;
+            /** Email */
+            email?: string | null;
             /**
              * Interests
              * @default []

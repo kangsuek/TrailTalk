@@ -30,6 +30,8 @@ def _check_default_profile(client):
         "persona_id": "jenny",
         "voice": None,
         "speaking_rate": None,
+        "email": None,
+        "mail_ready": False,
         "keep_audio": False,
         "chat_model": None,
         "default_chat_model": "sonnet",
@@ -269,3 +271,33 @@ async def test_speech_cache_keeps_recent_items_only():
     await cache.cached(app, "문구0", voice)  # 가장 오래된 것은 밀려났다
     assert calls.count(f"문구{speech_module.MAX_CACHED}") == 1
     assert calls.count("문구0") == 2
+
+
+def test_put_email_and_reset(client):
+    body = client.put("/api/profile", json={"email": "  me@example.com "}).json()
+    assert body["email"] == "me@example.com"
+    assert client.put("/api/profile", json={"nickname": "민수"}).json()["email"] == "me@example.com"
+    assert client.put("/api/profile", json={"email": None}).json()["email"] is None
+
+
+@pytest.mark.parametrize(
+    "email",
+    [
+        "",
+        "plain",
+        "a@b",
+        "a b@example.com",
+        "한글@example.com",
+        "a@example.com\nBcc: x@example.com",
+        "x" * 250 + "@a.co",
+    ],
+)
+def test_put_rejects_bad_email(client, email):
+    assert client.put("/api/profile", json={"email": email}).status_code == 422
+    assert client.get("/api/profile").json()["email"] is None
+
+
+def test_mail_ready_follows_smtp_settings(make_settings):
+    settings = make_settings(smtp_host="smtp.example.com", smtp_user="bot@example.com")
+    with TestClient(create_app(settings)) as client:
+        assert client.get("/api/profile").json()["mail_ready"] is True

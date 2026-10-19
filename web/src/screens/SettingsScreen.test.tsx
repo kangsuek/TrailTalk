@@ -9,6 +9,8 @@ afterEach(() => {
 
 const PROFILE = {
   nickname: '다니엘님',
+  email: null,
+  mail_ready: true,
   interests: ['등산'],
   persona_id: 'jenny',
   voice: null,
@@ -54,6 +56,38 @@ describe('SettingsScreen', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('저장했어요')
     expect(putBodies(fetchMock)).toEqual([{ voice: 'coral', speaking_rate: 0.85, keep_audio: true, chat_model: 'opus' }])
     expect(screen.getByRole('button', { name: '저장' })).toBeDisabled() // 저장한 값이 새 기준
+  })
+
+  it('이메일을 저장하고 비우면 null로 보낸다', async () => {
+    const fetchMock = stubServer()
+    render(<SettingsScreen />)
+    const email = await screen.findByRole('textbox', { name: '이메일' })
+    expect(email).toHaveValue('')
+    fireEvent.change(email, { target: { value: ' me@example.com ' } })
+    fireEvent.click(screen.getByRole('button', { name: '저장' }))
+    expect(await screen.findByRole('status')).toHaveTextContent('저장했어요')
+    expect(putBodies(fetchMock)).toEqual([{ email: 'me@example.com' }])
+  })
+
+  it('이메일 모양이 아니면 보내지 않고 알린다', async () => {
+    const fetchMock = stubServer()
+    render(<SettingsScreen />)
+    fireEvent.change(await screen.findByRole('textbox', { name: '이메일' }), { target: { value: 'plain' } })
+    fireEvent.click(screen.getByRole('button', { name: '저장' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('이메일 주소 형식')
+    expect(putBodies(fetchMock)).toEqual([])
+  })
+
+  it('서버에 메일 설정이 없으면 안내한다', async () => {
+    const original = PROFILE.mail_ready
+    PROFILE.mail_ready = false
+    try {
+      stubServer()
+      render(<SettingsScreen />)
+      expect(await screen.findByText(/SMTP/)).toBeInTheDocument()
+    } finally {
+      PROFILE.mail_ready = original
+    }
   })
 
   it('관심사를 추가·삭제하고 중복은 알린다', async () => {

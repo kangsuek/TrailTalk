@@ -1,5 +1,6 @@
 """본인 프로필(단일 행)과 페르소나 테이블 동기화(계획서 S1-08)."""
 
+import re
 from typing import Annotated, Literal, get_args
 
 from pydantic import AfterValidator
@@ -33,6 +34,19 @@ def line_field(limit: int) -> AfterValidator:
 
 # 프로필 API와 MCP set_nickname이 같은 규칙을 쓴다
 Nickname = Annotated[str, line_field(20)]
+
+_EMAIL = re.compile(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+")
+
+
+def _email(value: str) -> str:
+    value = value.strip()
+    if len(value) > 254 or not _EMAIL.fullmatch(value):
+        raise ValueError("이메일 주소 형식이 아닙니다")
+    return value
+
+
+# 이메일 주소(대화 내용을 보낼 곳). 프로필 API가 검증한다. 도구는 이 값을 인자로 받지 않는다
+Email = Annotated[str, AfterValidator(_email)]
 
 # 대화 모델(S3-31). 프로필 API와 MCP set_model이 같은 목록을 쓴다(CLI --model 별칭)
 ChatModel = Literal["haiku", "sonnet", "opus"]

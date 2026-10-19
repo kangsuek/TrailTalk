@@ -10,6 +10,7 @@ Authorization 헤더로, 세션 ID를 X-TrailTalk-Session 헤더로 보낸다(--
 """
 
 import logging
+import re
 from datetime import timedelta
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
@@ -34,6 +35,12 @@ from app.db.models import (
 from app.db.types import utcnow
 from app.errors import error_response
 from app.persona.loader import load_persona
+from app.services.mail import (
+    MailError,
+    compose_session_mail,
+    mail_configured,
+    send_mail,
+)
 from app.services.profile import PROFILE_ID, ChatModel, Nickname, get_profile
 from app.services.runtime import ConversationRuntime, RuntimeRegistry
 
@@ -48,6 +55,9 @@ _MODEL_NAMES = {
     "sonnet": ("소넷", "sonnet"),
     "opus": ("오푸스", "오퍼스", "opus"),
 }
+# send_email(FR-21): 사용자 발화에 이 낱말이 있을 때만 보낸다. 한 대화에서 보내는 최대 횟수
+_MAIL_WORDS = re.compile(r"메일|(?<![a-z])e-?mail", re.IGNORECASE)
+_MAIL_MAX_PER_SESSION = 5
 # 지난 대화 전문 검색(search_conversations, S3-28)
 _CONVO_HITS = 8  # 찾은 말 최대 건수(최신순)
 _CONVO_TERMS = 3  # 검색어를 공백으로 나눈 낱말 중 쓰는 개수(모두 들어간 말을 찾는다)
@@ -366,6 +376,72 @@ def build_mcp_server(app) -> MCPServer:
             logger.exception("set_model failed session=%s", runtime.session_id)
             raise ToolError("모델을 바꾸지 못했습니다.") from None
         return f"다음 답변부터 {model} 모델로 바뀝니다. 바꿨다고 한 문장으로 알려 주세요."
+
+    @mcp.tool()
+    async def send_email(ctx: Context) -> str:
+        """사용자가 '이메일로 보내줘'처럼 이 대화를 메일로 받겠다고 하면 부른다.
+
+        사용자가 설정에 저장한 본인 이메일 주소로 지금까지의 대화(요약·노트·전문)를 보낸다.
+        받는 사람은 정할 수 없고 주소를 물어볼 필요도 없다.
+        """
+        runtime = runtime_of(ctx)
+        settings = app.state.settings
+        # 검색 결과 속 지시로 보내지 않게, 이번 사용자 발화에 메일을 말했을 때만 보낸다
+        turn_id = runtime.current_user_turn_id
+        try:
+            async with app.state.session_factory() as db:
+                turn = await db.get(Turn, turn_id) if turn_id else None
+                if turn is None or not _MAIL_WORDS.search("".join(turn.text.split())):
+                    raise ToolError(
+                        "사용자가 이번에 메일로 보내 달라고 했을 때만 보낼 수 있습니다."
+                    )
+                if turn_id in runtime.mailed_turn_ids:
+                    raise ToolError(
+                        "이번 요청으로는 이미 보내 봤습니다. 다시 보내려면 사용자가 다시 "
+                        "요청해야 한다고 안내하세요."
+                    )
+                if runtime.mail_count >= _MAIL_MAX_PER_SESSION:
+                    raise ToolError("이 대화에서 보낼 수 있는 메일 횟수를 넘었습니다.")
+                profile = await get_profile(db)
+                if not profile.email:
+                    raise ToolError(
+                        "이메일 주소가 설정되어 있지 않아 보내지 못했습니다. "
+                        "설정 화면에서 이메일 주소를 넣으면 보낼 수 있다고 안내하세요."
+                    )
+                if not mail_configured(settings):
+                    raise ToolError(
+                        "서버에 메일 보내기 설정이 없어 보내지 못했습니다. "
+                        "서버 설정이 필요하다고 안내하세요."
+                    )
+                persona_id = profile.persona_id or settings.default_persona
+                subject, body = await compose_session_mail(
+                    db,
+                    settings,
+                    runtime.session_id,
+                    user_name=profile.nickname,
+                    persona_name=load_persona(settings.persona_dir, persona_id).persona.name,
+                )
+                to = profile.email
+        except SQLAlchemyError:
+            logger.exception("send_email failed session=%s", runtime.session_id)
+            raise ToolError("메일을 보내지 못했습니다.") from None
+        except MailError as exc:
+            raise ToolError(exc.message) from None
+        # 발송은 DB 세션을 닫은 뒤에 한다. 서버가 받은 뒤 응답이 늦어 실패로 보일 수 있으니 실패해도
+        # 이 요청에서는 다시 보내지 않고(이중 발송 방지) 시도 횟수에 센다
+        runtime.mailed_turn_ids.add(turn_id)
+        runtime.mail_count += 1
+        try:
+            await send_mail(settings, to, subject, body)
+        except MailError:
+            raise ToolError(
+                "메일을 보내지 못했습니다. 보내지 못했다고 말하고, "
+                "원하면 다시 요청해 달라고 하세요."
+            ) from None
+        return (
+            "설정한 이메일 주소로 보냈습니다. 보냈다고 한 문장으로 알려 주세요"
+            "(주소는 말하지 않는다)."
+        )
 
     @mcp.tool()
     async def end_session(ctx: Context) -> str:

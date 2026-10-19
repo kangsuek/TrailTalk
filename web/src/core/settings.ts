@@ -6,6 +6,7 @@ export type ChatModel = 'haiku' | 'sonnet' | 'opus'
 
 export interface SettingsDraft {
   nickname: string // 빈 문자열이면 기본 호칭(null)
+  email: string // 빈 문자열이면 설정 안 함(null)
   interests: string[]
   voice: string | null // null이면 캐릭터 기본 보이스
   speakingRate: number | null // null이면 캐릭터 기본 말 속도
@@ -15,6 +16,7 @@ export interface SettingsDraft {
 
 export interface ProfileFields {
   nickname: string | null
+  email: string | null
   interests: string[]
   voice: string | null
   speaking_rate: number | null
@@ -27,6 +29,16 @@ export type ProfilePatch = Partial<ProfileFields>
 export const MAX_INTERESTS = 10
 export const MAX_INTEREST_LENGTH = 30
 export const MAX_NICKNAME_LENGTH = 20
+export const MAX_EMAIL_LENGTH = 254
+
+// 서버(services/profile.py)와 같은 모양만 본다. 실제 주소인지는 확인하지 않는다
+const EMAIL_PATTERN = /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/
+
+/** 빈 값(설정 안 함)이거나 이메일 주소 모양이면 true */
+export function isValidEmail(value: string): boolean {
+  const email = value.trim()
+  return email === '' || (email.length <= MAX_EMAIL_LENGTH && EMAIL_PATTERN.test(email))
+}
 
 /** 말 속도 선택지. null은 캐릭터 기본(보통). 실제 TTS 측정(2026-10-17): 느리게 +34%, 빠르게 -21% 길이 */
 export const RATE_CHOICES: { label: string; value: number | null }[] = [
@@ -46,6 +58,7 @@ export const MODEL_CHOICES: { label: string; value: ChatModel | null }[] = [
 export function draftOf(profile: ProfileFields): SettingsDraft {
   return {
     nickname: profile.nickname ?? '',
+    email: profile.email ?? '',
     interests: [...profile.interests],
     voice: profile.voice,
     speakingRate: profile.speaking_rate,
@@ -59,6 +72,8 @@ export function changedFields(saved: ProfileFields, draft: SettingsDraft): Profi
   const patch: ProfilePatch = {}
   const nickname = draft.nickname.trim() || null
   if (nickname !== saved.nickname) patch.nickname = nickname
+  const email = draft.email.trim() || null
+  if (email !== saved.email) patch.email = email
   if (draft.interests.join('\n') !== saved.interests.join('\n')) patch.interests = [...draft.interests]
   if (draft.voice !== saved.voice) patch.voice = draft.voice
   if (draft.speakingRate !== saved.speaking_rate) patch.speaking_rate = draft.speakingRate

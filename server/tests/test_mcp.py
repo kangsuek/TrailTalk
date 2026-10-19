@@ -90,6 +90,7 @@ def test_lists_app_tools(mcp):
         "pause_session",
         "set_nickname",
         "set_model",
+        "send_email",
         "end_session",
     ]
 
@@ -400,3 +401,107 @@ def test_client_config_shape(mcp):
     assert server["url"] == "http://127.0.0.1:8000/internal/mcp/"
     assert server["headers"]["Authorization"] == f"Bearer {mcp.runtime_.token}"
     assert server["headers"]["X-TrailTalk-Session"] == mcp.session_id
+
+
+@pytest.fixture
+def mail(mcp, client, monkeypatch):
+    """send_email 시험 준비: 메일 서버 설정과 본인 주소를 두고 발송을 가로챈다."""
+    sent: list[tuple[str, str, str]] = []
+
+    async def fake_send(settings, to, subject, body):
+        sent.append((to, subject, body))
+
+    monkeypatch.setattr("app.mcp.server.send_mail", fake_send)
+    settings = client.app.state.settings
+    monkeypatch.setattr(settings, "smtp_host", "smtp.test")
+    monkeypatch.setattr(settings, "smtp_from", "bot@test")
+    client.put("/api/profile", json={"email": "me@example.com", "nickname": "길동님"})
+    set_user_text(mcp, client, "이 대화 이메일로 보내줘")
+    return sent
+
+
+def test_send_email_sends_to_profile_address(mcp, client, mail):
+    async def add_note():
+        async with client.app.state.session_factory() as db:
+            db.add(Note(session_id=mcp.session_id, kind="idea", content="산책 앱 아이디어"))
+            await db.commit()
+
+    client.portal.call(add_note)
+    result = mcp.call("send_email")
+    assert not result["isError"] and "주소는 말하지 않는다" in text_of(result)
+    [(to, subject, body)] = mail
+    assert to == "me@example.com"
+    assert subject.startswith("[TrailTalk]")
+    assert "산책 앱 아이디어" in body and "길동님: 이 대화 이메일로 보내줘" in body
+
+
+def test_send_email_takes_no_recipient_argument(mcp):
+    tools = mcp.request("tools/list").json()["result"]["tools"]
+    [tool] = [t for t in tools if t["name"] == "send_email"]
+    assert tool["inputSchema"].get("properties", {}) == {}
+
+
+def test_send_email_requires_user_to_ask_this_turn(mcp, client, mail):
+    """검색 결과 속 지시처럼 사용자가 메일을 말하지 않은 턴에는 보내지 않는다."""
+    set_user_text(mcp, client, "uv 최신 버전 찾아줘")
+    result = mcp.call("send_email")
+    assert result["isError"] and "메일로 보내 달라고" in text_of(result)
+    mcp.runtime_.current_user_turn_id = None
+    assert mcp.call("send_email")["isError"]
+    assert mail == []
+
+
+def test_send_email_once_per_user_turn_and_session_limit(mcp, client, mail):
+    assert not mcp.call("send_email")["isError"]
+    again = mcp.call("send_email")
+    assert again["isError"] and "이미 보내 봤습니다" in text_of(again)
+    assert len(mail) == 1
+    mcp.runtime_.mail_count = 5
+    mcp.runtime_.mailed_turn_ids.clear()
+    limited = mcp.call("send_email")
+    assert limited["isError"] and "횟수" in text_of(limited)
+    assert len(mail) == 1
+
+
+def test_send_email_without_address(mcp, client, mail):
+    client.put("/api/profile", json={"email": None})
+    result = mcp.call("send_email")
+    assert result["isError"] and "설정 화면" in text_of(result)
+    assert mail == []
+
+
+def test_send_email_without_smtp_settings(mcp, client, mail, monkeypatch):
+    monkeypatch.setattr(client.app.state.settings, "smtp_host", None)
+    result = mcp.call("send_email")
+    assert result["isError"] and "서버에 메일" in text_of(result)
+    assert mail == []
+
+
+def test_send_email_failure_is_not_resent_in_same_turn(mcp, client, mail, monkeypatch):
+    """서버가 받은 뒤 응답만 늦어 실패로 보일 수 있어, 실패해도 같은 요청에서 다시 보내지 않는다."""
+    from app.services.mail import MailError
+
+    async def broken(settings, to, subject, body):
+        raise MailError()
+
+    monkeypatch.setattr("app.mcp.server.send_mail", broken)
+    result = mcp.call("send_email")
+    assert result["isError"] and "보내지 못했습니다" in text_of(result)
+    assert mcp.runtime_.mail_count == 1 and mcp.runtime_.mailed_turn_ids == {mcp.turn_id}
+    assert "이미 보내 봤습니다" in text_of(mcp.call("send_email"))
+
+
+@pytest.mark.parametrize("text", ["gmail 주소 알려줘", "uv 최신 버전 찾아줘"])
+def test_send_email_ignores_words_that_only_contain_mail(mcp, client, mail, text):
+    set_user_text(mcp, client, text)
+    assert mcp.call("send_email")["isError"]
+    assert mail == []
+
+
+@pytest.mark.parametrize(
+    "text", ["이 대화 메일로 보내줘", "Email 보내줘", "e-mail로 줘", "이메일로"]
+)
+def test_send_email_accepts_mail_words(mcp, client, mail, text):
+    set_user_text(mcp, client, text)
+    assert not mcp.call("send_email")["isError"]
+    assert len(mail) == 1
