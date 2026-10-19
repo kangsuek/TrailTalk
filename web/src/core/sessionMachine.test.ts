@@ -11,7 +11,7 @@ import {
   type SessionStateName,
 } from './sessionMachine'
 
-// 전이 표(shared/fixtures/transitions.json)는 안드로이드 테스트와 함께 쓰는 기준이다
+// 전이 표(shared/fixtures/transitions.json)는 상태 전이의 기준이다
 interface Step {
   event: SessionEvent
   expect: { state: SessionStateName; commands: unknown[]; context?: Partial<SessionState> }

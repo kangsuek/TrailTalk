@@ -163,7 +163,7 @@ def sse_response_doc(description: str) -> dict[int | str, dict[str, Any]]:
 
 
 def register_event_schemas(app: FastAPI) -> None:
-    """OpenAPI components에 이벤트 스키마를 넣는다(웹·안드로이드 타입 생성용)."""
+    """OpenAPI components에 이벤트 스키마를 넣는다(웹 타입 생성용)."""
     original = app.openapi
 
     def openapi() -> dict[str, Any]:

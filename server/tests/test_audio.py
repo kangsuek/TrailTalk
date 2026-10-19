@@ -17,7 +17,7 @@ def opts(**overrides):
 
 
 def sine_ogg_opus() -> bytes:
-    """0.5초 사인파를 48kHz 스테레오 ogg/opus로(안드로이드 업로드 흉내)."""
+    """0.5초 사인파를 48kHz 스테레오 ogg/opus로(webm 아닌 형식 업로드 흉내)."""
     return subprocess.run(
         [FFMPEG, "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i",
          "sine=frequency=440:duration=0.5:sample_rate=48000", "-ac", "2",

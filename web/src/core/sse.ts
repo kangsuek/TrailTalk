@@ -1,5 +1,5 @@
 // SSE(text/event-stream) 파서. 턴 요청이 POST라 EventSource 대신 fetch 스트림을 직접 읽는다.
-// UI·브라우저 API에 의존하지 않는다(안드로이드 Kotlin 포팅 대상). 바이트 디코딩은 호출하는 쪽이 한다.
+// UI·브라우저 API에 의존하지 않는다. 바이트 디코딩은 호출하는 쪽이 한다.
 // 줄 끝은 표준대로 \r\n, \r, \n만 본다. U+2028 같은 문자는 데이터 안에 그대로 둔다.
 
 export interface SseMessage {
@@ -16,7 +16,7 @@ export class SseParser {
   /** 받은 텍스트 조각을 넣고, 빈 줄로 끝난 메시지들을 돌려준다. */
   feed(chunk: string): SseMessage[] {
     if (!this.started && chunk) {
-      // 스트림 맨 앞의 BOM은 버린다(표준). 웹은 TextDecoder가 이미 지우지만 포팅 대상에서도 같게
+      // 스트림 맨 앞의 BOM은 버린다(표준). 웹은 TextDecoder가 이미 지우지만 디코더와 상관없이 같게 동작하도록
       this.started = true
       if (chunk.startsWith('\uFEFF')) chunk = chunk.slice(1)
     }

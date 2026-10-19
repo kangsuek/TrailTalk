@@ -11,7 +11,7 @@
 - 자동 커밋/푸시 허용(커밋 전 서브에이전트 diff 리뷰는 전역 규칙대로). 다른 세션이 동시에 고칠 수 있으니 내 파일만 경로를 지정해 커밋한다.
 - 페르소나 분리(NFR-08): 캐릭터 이름·성격·말투·보이스는 `server/personas/*.yaml`에만 두고 코드에 넣지 않는다(`test_no_character_name_hardcoded_in_app_code`가 확인). 시스템 프롬프트는 `server/app/persona/prompt.py`의 `build_system_prompt`로만 만들고, 캐릭터와 무관한 앱 동작 규칙은 `server/app/persona/rules.py`에 둔다. 프롬프트를 바꾸면 `UPDATE_SNAPSHOTS=1`로 스냅샷을 갱신하고 차이를 검토한다.
 - 클라이언트는 얇게: 문장 분할·요약·중복 제거처럼 서버가 할 수 있는 일은 클라이언트에 넣지 않는다.
-- `web/src/core/`는 UI·브라우저 API에 의존하지 않는 순수 TypeScript로 작성한다(안드로이드 Kotlin 포팅 대상).
+- `web/src/core/`는 UI·브라우저 API에 의존하지 않는 순수 TypeScript로 작성한다(화면 없이 단위 테스트하기 위해서).
 - 서버 API는 모두 `/api` 아래에 둔다. 엔드포인트 목록은 설계서 4.6 표를 따른다.
 - 서버 오류는 `AppError(code, message, status)`로 던진다. 응답 형식은 `server/app/errors.py`와 `docs/client-contract.md` 7절을 따른다.
 - DB는 비동기 SQLAlchemy다. 엔드포인트는 `db: DbSession`(`server/app/db/session.py`)으로 세션을 받고, commit은 명시적으로 한다. 앱은 `create_app(settings)`로 만들며 테스트는 `server/tests/conftest.py`의 `client` 픽스처(임시 SQLite)를 쓴다. 라우터는 `create_app` 안에서 웹 정적 마운트보다 먼저 등록한다(뒤에 붙이면 가려진다).
@@ -40,7 +40,6 @@ web/               React + TypeScript + Vite
   src/screens/     ConversationScreen, JournalListScreen, JournalDetailScreen, SettingsScreen
   src/api/         서버 API 클라이언트
   e2e/             Playwright
-android/           4단계에서 구현(지금은 README만)
 shared/            효과음, 상태 전이 표, 클라이언트 설정 기본값
 docs/              설계서, 계획서, 규약, 인계(handoff.md), 검증 기록(spikes/), 톤·추출 평가 리포트(eval/)
 ```

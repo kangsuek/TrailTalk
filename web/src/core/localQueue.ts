@@ -1,6 +1,6 @@
 // 오프라인 큐(LocalQueue) 약속과 메모리 구현(설계서 4.1·4.8, 계획서 S3-12, 클라이언트 규약 4절).
 // 연결이 끊긴 동안 한 말을 보관했다가 연결되면 순서대로 보낸다. 브라우저 구현은 src/platform/localQueue.ts
-// (IndexedDB), 안드로이드는 파일 큐로 같은 인터페이스를 구현한다. UI·브라우저 API에 의존하지 않는다.
+// (IndexedDB). UI·브라우저 API에 의존하지 않는다.
 
 export interface QueuedUtterance {
   id: string

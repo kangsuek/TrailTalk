@@ -1,6 +1,6 @@
 // 텍스트 대화 화면 상태(리듀서)와 도구 알림 문구.
 // 서버 SSE 이벤트(docs/client-contract.md 2절)를 말풍선 목록으로 바꾼다. 문장 분할·요약은 서버가 하고
-// 여기서는 받은 그대로 쌓기만 한다. UI·브라우저 API에 의존하지 않는다(안드로이드 포팅 대상).
+// 여기서는 받은 그대로 쌓기만 한다. UI·브라우저 API에 의존하지 않는다.
 import type { components } from '../api/schema'
 
 export type StreamEvent = components['schemas']['StreamEvent']

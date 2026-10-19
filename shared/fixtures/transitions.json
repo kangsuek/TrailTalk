@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "세션 상태 머신 전이 표(계획서 S3-08·S3-09, 규약 4절). 각 사례는 대기(idle) 첫 상태에서 시작해 단계마다 이벤트를 넣고, 바뀐 상태 이름·명령 목록(순서 포함)·지정한 context 값을 확인한다. null은 값 없음이다. 웹 web/src/core/sessionMachine.test.ts와 안드로이드 테스트가 이 파일을 함께 읽는다.",
+  "description": "세션 상태 머신 전이 표(계획서 S3-08·S3-09, 규약 4절). 각 사례는 대기(idle) 첫 상태에서 시작해 단계마다 이벤트를 넣고, 바뀐 상태 이름·명령 목록(순서 포함)·지정한 context 값을 확인한다. null은 값 없음이다. 웹 web/src/core/sessionMachine.test.ts가 이 파일을 읽는다.",
   "config": {
     "idleTimeoutMinutes": 30
   },

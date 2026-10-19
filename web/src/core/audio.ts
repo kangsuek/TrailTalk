@@ -1,5 +1,5 @@
 // 마이크 입력(AudioInput) 약속과 VAD 설정값(설계서 4.8, 계획서 S3-10, 클라이언트 규약 5절).
-// 브라우저 구현은 src/platform/audioInput.ts, 안드로이드는 같은 인터페이스를 네이티브로 구현한다.
+// 브라우저 구현은 src/platform/audioInput.ts. 테스트에서는 가짜 구현을 끼운다.
 import clientDefaults from '../../../shared/client-defaults.json'
 
 /** VAD 설정(서버 /api/profile의 client.vad). 확률 임계값은 Silero VAD 출력 기준이다. */

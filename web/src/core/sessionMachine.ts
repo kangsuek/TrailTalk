@@ -1,7 +1,7 @@
 // 음성 대화 세션 상태 머신(설계서 4.1, 계획서 S3-08, 클라이언트 규약 4절).
 // 이벤트를 받아 다음 상태와 "명령"을 돌려주는 순수 함수다. 마이크·재생·서버 호출·타이머는 직접 하지 않고
 // 명령으로 내보내며, 화면·플랫폼 계층(AudioInput·AudioOutput·LocalQueue)이 실행한다.
-// UI·브라우저 API에 의존하지 않는다(안드로이드 Kotlin 포팅 대상). 전이 표는 shared/fixtures/transitions.json.
+// UI·브라우저 API에 의존하지 않는다. 전이 표는 shared/fixtures/transitions.json.
 
 import clientDefaults from '../../../shared/client-defaults.json'
 

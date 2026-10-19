@@ -2,7 +2,7 @@
 
 (cd server && RUN_REAL_OPENAI=1 uv run pytest tests/test_voice_real.py -q)
 
-TTS로 문장 하나를 만들고, 웹(webm/opus)·안드로이드(ogg/opus) 업로드 형식으로 바꿔
+TTS로 문장 하나를 만들고, 웹(webm/opus)·ogg/opus 업로드 형식으로 바꿔
 각각 음성 인식에 넣는다. 호출 수: TTS 1회, STT 2회.
 """
 

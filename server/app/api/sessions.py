@@ -202,7 +202,7 @@ async def cancel_turn(
     return Response(status_code=204)
 
 
-# 음성 업로드 본문(오디오 바이트 그대로). 웹 MediaRecorder는 audio/webm, 안드로이드는 audio/ogg
+# 음성 업로드 본문(오디오 바이트 그대로). 웹은 audio/webm
 _AUDIO_BODY = {"type": "string", "format": "binary"}
 _AUDIO_REQUEST = {
     "requestBody": {
