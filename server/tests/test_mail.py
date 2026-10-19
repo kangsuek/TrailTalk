@@ -78,9 +78,36 @@ async def test_send_mail_starttls(make_settings):
 
 async def test_send_mail_failure_hides_details(settings, caplog):
     FakeSmtp.fail = True
-    with pytest.raises(MailError) as info:
+    with caplog.at_level("WARNING", logger="trailtalk.mail"), pytest.raises(MailError) as info:
         await send_mail(settings, "me@example.com", "제목", "본문")
     assert "secret" not in info.value.message and info.value.status_code == 502
+    assert "단계=전송" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("fail_at", "stage", "hint"),
+    [("starttls", "암호화", "SMTP_SECURITY"), ("login", "로그인", "앱 비밀번호")],
+)
+async def test_send_mail_failure_log_names_the_stage(
+    make_settings, monkeypatch, caplog, fail_at, stage, hint
+):
+    class Broken(FakeSmtp):
+        def starttls(self, context=None):
+            if fail_at == "starttls":
+                raise smtplib.SMTPServerDisconnected("Connection unexpectedly closed")
+
+        def login(self, user, password):
+            if fail_at == "login":
+                raise smtplib.SMTPServerDisconnected("Connection unexpectedly closed")
+
+    monkeypatch.setattr(smtplib, "SMTP", Broken)
+    settings = make_settings(
+        smtp_host="smtp.test", smtp_user="bot@test", smtp_password="hunter2-pass"
+    )
+    with caplog.at_level("WARNING", logger="trailtalk.mail"), pytest.raises(MailError):
+        await send_mail(settings, "me@example.com", "제목", "본문")
+    assert f"단계={stage}" in caplog.text and hint in caplog.text
+    assert "hunter2-pass" not in caplog.text  # 비밀번호 값은 로그에 남지 않는다
 
 
 async def test_send_mail_without_server_settings(make_settings):

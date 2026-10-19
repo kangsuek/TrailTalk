@@ -48,9 +48,20 @@ def build_message(settings: Settings, to: str, subject: str, body: str) -> Email
     return message
 
 
-def _deliver(settings: Settings, message: EmailMessage) -> None:
+# 실패한 단계별 확인할 것(로그에만 남긴다. 접속 직후 끊기는 오류만으로는 원인을 알기 어렵다)
+_STAGE_HINTS = {
+    "연결": "SMTP_HOST·SMTP_PORT를 확인하세요(방화벽·네트워크, ssl이면 SMTP_SECURITY 포함).",
+    "암호화": "SMTP_PORT와 SMTP_SECURITY가 맞는지 확인하세요(587=starttls, 465=ssl).",
+    "로그인": "SMTP_USER(Gmail은 전체 주소)와 SMTP_PASSWORD(Gmail은 앱 비밀번호)를 확인하세요.",
+    "전송": "SMTP_FROM과 받는 주소가 메일 서버에서 허용되는지 확인하세요.",
+}
+
+
+def _deliver(settings: Settings, message: EmailMessage, stage: list[str]) -> None:
+    """메일 서버에 접속해 보낸다. stage[0]에 지금 단계를 적어, 실패했을 때 어디서 막혔는지 안다."""
     host, port = settings.smtp_host or "", settings.smtp_port
     timeout = settings.smtp_timeout_s
+    stage[0] = "연결"
     if settings.smtp_security == "ssl":
         smtp: smtplib.SMTP = smtplib.SMTP_SSL(
             host, port, timeout=timeout, context=ssl.create_default_context()
@@ -59,9 +70,12 @@ def _deliver(settings: Settings, message: EmailMessage) -> None:
         smtp = smtplib.SMTP(host, port, timeout=timeout)
     with smtp:
         if settings.smtp_security == "starttls":
+            stage[0] = "암호화"
             smtp.starttls(context=ssl.create_default_context())
         if settings.smtp_user and settings.smtp_password:
+            stage[0] = "로그인"
             smtp.login(settings.smtp_user, settings.smtp_password.get_secret_value())
+        stage[0] = "전송"
         smtp.send_message(message)
 
 
@@ -70,10 +84,17 @@ async def send_mail(settings: Settings, to: str, subject: str, body: str) -> Non
     if not mail_configured(settings):
         raise MailError("서버에 메일 보내기 설정이 없습니다.")
     message = build_message(settings, to, subject, body)
+    stage = ["연결"]
     try:
-        await asyncio.to_thread(_deliver, settings, message)
+        await asyncio.to_thread(_deliver, settings, message, stage)
     except (OSError, smtplib.SMTPException, ssl.SSLError, UnicodeError) as exc:
-        logger.warning("메일 발송 실패(%s): %s", type(exc).__name__, exc)
+        logger.warning(
+            "메일 발송 실패(단계=%s, %s): %s. %s",
+            stage[0],
+            type(exc).__name__,
+            exc,
+            _STAGE_HINTS.get(stage[0], ""),
+        )
         raise MailError() from exc
 
 
