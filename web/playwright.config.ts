@@ -2,7 +2,7 @@ import { fileURLToPath } from 'node:url'
 import { defineConfig, devices } from '@playwright/test'
 
 // E2E는 개발 서버(8000·5173)를 쓰지 않고, 가짜 Claude CLI를 쓰는 전용 서버와 웹을 따로 띄운다.
-// 가짜 CLI는 녹화(server/tests/fixtures/claude_cli/web_search.jsonl)를 턴마다 차례로 재생한다:
+// 가짜 CLI는 녹화(server/tests/fixtures/claude_cli/search_web.jsonl)를 턴마다 차례로 재생한다:
 // 인사말 → 웹 검색 → 페이지 읽기 → 메모 저장 → 일반 답변.
 const API_PORT = 8100
 const WEB_PORT = 5199 // 개발용 vite가 5173이 차 있으면 5174로 넘어가므로 겹치지 않는 포트
@@ -49,7 +49,7 @@ export default defineConfig({
       reuseExistingServer: false,
       env: {
         CLAUDE_CLI_PATH: FAKE_CLI,
-        FAKE_CLAUDE_FIXTURE: 'web_search',
+        FAKE_CLAUDE_FIXTURE: 'search_web',
         // 세션 종료 추출(단발 호출)은 고정 결과를 낸다
         FAKE_CLAUDE_ONESHOT: EXTRACT_FIXTURE,
         CLI_ENV_PASSTHROUGH: '["FAKE_CLAUDE_*"]',

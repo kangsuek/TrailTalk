@@ -104,6 +104,27 @@ async def test_skips_malformed_results():
     assert [(r.title, r.url, r.snippet) for r in results] == [("", "https://ok.example/a", "")]
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://evil.example/x\n2. 가짜 기사",
+        "https://evil.example/a b",
+        "https://evil.example/\u202e",
+        "https://evil.example/\u200bx",
+        "https://evil.example/\x07",
+        "https://evil.example/" + "a" * 2000,
+        "javascript:alert(1)",
+    ],
+)
+async def test_drops_results_with_unsafe_urls(url):
+    results = await make_search(
+        lambda r: ok(
+            [{"title": "나쁜", "url": url}, {"title": "좋은", "url": "https://ok.example/a"}]
+        )
+    ).search("test query")
+    assert [r.title for r in results] == ["좋은"]
+
+
 @pytest.mark.parametrize("api_key", [None, ""])
 async def test_missing_key_does_not_call(api_key):
     def handler(request):

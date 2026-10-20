@@ -279,6 +279,28 @@ def test_web_search_tool_event(api, monkeypatch):
     assert reply.sources == [{"title": link.title, "url": link.url} for link in summary.links]
 
 
+def test_search_web_tool_event_looks_like_web_search(api, monkeypatch):
+    """검색 API 도구(MCP search_web)는 내장 검색과 같은 이름·요약으로 나가 출처가 저장된다.
+
+    녹화 search_web은 web_search 녹화를 MCP 결과 모양(structuredContent)으로 바꾼 것이다."""
+    monkeypatch.setenv("FAKE_CLAUDE_FIXTURE", "search_web")
+    session_id = start(api)["session"]["id"]
+    events = turn(api, session_id, "Claude Code 최신 소식 알려줘")
+    tools = [e for e in events if e.type == "tool"]
+    assert [t.phase for t in tools] == ["start", "call", "end"]
+    assert tools[0].name == "web_search"
+    assert tools[1].input == {
+        "query": "Claude Code latest version release",
+        "topic": "news",
+        "recency": "week",
+    }
+    summary = tools[2].summary
+    assert summary.kind == "web_search" and summary.query and summary.sources
+    assert len(summary.links) == 10 and summary.sources[0] == "newreleases.io"
+    reply = [t for t in turns_of(api, session_id) if t.role is TurnRole.ASSISTANT][-1]
+    assert reply.sources == [{"title": link.title, "url": link.url} for link in summary.links]
+
+
 def test_turn_errors_before_stream_are_json(api):
     response = api.post("/api/sessions/nope/turns", json={"text": "안녕"})
     assert response.status_code == 404

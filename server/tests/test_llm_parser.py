@@ -107,6 +107,47 @@ def test_unknown_tool_result_has_no_summary():
     assert _tool_summary("text") is None
 
 
+def test_search_api_tool_result_becomes_web_search_summary():
+    """검색 API 도구(search_web) 결과는 내장 WebSearch와 같은 요약(링크·출처)이 된다."""
+    raw = {
+        "content": [{"type": "text", "text": "..."}],
+        "structuredContent": {
+            "query": "엔비디아 뉴스",
+            "results": [
+                {"title": "기사", "url": "https://www.cnbc.com/a"},
+                {"title": 7, "url": "https://www.reuters.com/b"},
+                {"title": "중복 호스트", "url": "https://cnbc.com/c"},
+                {"title": "주소 없음"},
+                "x",
+            ],
+        },
+    }
+    assert _tool_summary(raw) == {
+        "kind": "web_search",
+        "query": "엔비디아 뉴스",
+        "links": [
+            {"title": "기사", "url": "https://www.cnbc.com/a"},
+            {"title": None, "url": "https://www.reuters.com/b"},
+            {"title": "중복 호스트", "url": "https://cnbc.com/c"},
+        ],
+        "sources": ["cnbc.com", "reuters.com"],
+    }
+    assert _tool_summary({"structuredContent": {"query": "q", "results": []}}) == {
+        "kind": "web_search",
+        "query": "q",
+        "links": [],
+        "sources": [],
+    }
+
+
+def test_other_mcp_results_keep_result_kind():
+    assert _tool_summary({"structuredContent": {"result": "저장 완료"}}) == {
+        "kind": "result",
+        "result": "저장 완료",
+    }
+    assert _tool_summary({"structuredContent": {"query": "q", "results": "x"}})["kind"] == "result"
+
+
 def test_interrupted_turn():
     turns = split_turns(parse("interrupt"))
     first = turns[0][-1]

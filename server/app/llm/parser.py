@@ -43,6 +43,18 @@ def host_of(url: Any) -> str | None:
     return host.removeprefix("www.") or None  # "www." 뿐이면 None
 
 
+def _web_search_summary(query: Any, links: list[dict[str, Any]]) -> dict[str, Any]:
+    links = links[:_MAX_LINKS]
+    hosts = (host_of(link["url"]) for link in links)
+    sources = list(dict.fromkeys(h for h in hosts if h))[:_MAX_SOURCES]
+    return {
+        "kind": "web_search",
+        "query": query if isinstance(query, str) else None,
+        "links": links,
+        "sources": sources,
+    }
+
+
 def _tool_summary(raw: Any) -> dict[str, Any] | None:
     """도구 결과에서 SSE에 필요한 부분만 남긴다(본문 전체는 싣지 않는다). 종류는 kind로 구분한다
     (클라이언트 규약 2절, app/api/events.py의 *Summary). 알 수 없는 결과면 None."""
@@ -59,16 +71,7 @@ def _tool_summary(raw: Any) -> dict[str, Any] | None:
                     links.append(
                         {"title": title if isinstance(title, str) else None, "url": item["url"]}
                     )
-        links = links[:_MAX_LINKS]
-        hosts = (host_of(link["url"]) for link in links)
-        sources = list(dict.fromkeys(h for h in hosts if h))[:_MAX_SOURCES]
-        query = raw.get("query")
-        return {
-            "kind": "web_search",
-            "query": query if isinstance(query, str) else None,
-            "links": links,
-            "sources": sources,
-        }
+        return _web_search_summary(raw.get("query"), links)
     if "code" in raw and "bytes" in raw:  # WebFetch
         url = raw.get("url")
         return {
@@ -83,6 +86,21 @@ def _tool_summary(raw: Any) -> dict[str, Any] | None:
         # 문자열을 돌려주는 도구는 SDK가 {"result": 문자열}로 감싼다. 클라이언트에는 그 값만 준다
         if isinstance(content, dict) and set(content) == {"result"}:
             content = content["result"]
+        if (
+            isinstance(content, dict)
+            and "query" in content
+            and isinstance(content.get("results"), list)
+        ):
+            # 검색 API 도구(search_web): 내장 WebSearch와 같은 요약으로 바꾼다
+            links = [
+                {
+                    "title": r.get("title") if isinstance(r.get("title"), str) else None,
+                    "url": r["url"],
+                }
+                for r in content["results"]
+                if isinstance(r, dict) and isinstance(r.get("url"), str)
+            ]
+            return _web_search_summary(content.get("query"), links)
         return {"kind": "result", "result": content}
     return None
 

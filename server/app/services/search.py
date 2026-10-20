@@ -6,6 +6,7 @@
 import asyncio
 import logging
 import time
+import unicodedata
 from dataclasses import dataclass
 from datetime import date
 from email.utils import parsedate_to_datetime
@@ -69,8 +70,24 @@ def _error_text(response: httpx2.Response) -> str:
         return "-"
 
 
+_URL_MAX = 2000
+
+
+def _safe_url(url: str) -> bool:
+    """http(s) 주소이고 공백·제어·서식 문자가 없다. 아니면 그 결과를 버린다(목록 형식 위조 방지)."""
+    return (
+        url.startswith(("http://", "https://"))
+        and len(url) <= _URL_MAX
+        and not any(c.isspace() or unicodedata.category(c) in {"Cc", "Cf"} for c in url)
+    )
+
+
 def _text(value: Any) -> str:
-    return " ".join(value.split()) if isinstance(value, str) else ""
+    """한 줄로 정리한다: 제어·서식 문자(줄바꿈 위조, 방향 전환 문자 등)를 지우고 공백을 접는다."""
+    if not isinstance(value, str):
+        return ""
+    kept = (c for c in value if c.isspace() or unicodedata.category(c) not in {"Cc", "Cf"})
+    return " ".join("".join(kept).split())
 
 
 class TavilySearch:
@@ -183,7 +200,7 @@ class TavilySearch:
             if not isinstance(item, dict):
                 continue
             url = item.get("url")
-            if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+            if not isinstance(url, str) or not _safe_url(url):
                 continue
             results.append(
                 SearchResult(
