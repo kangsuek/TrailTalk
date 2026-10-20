@@ -178,6 +178,7 @@ def test_summary_is_empty_without_measurements(api):
                 "first_synth_ms": None,
                 "synth_wait_ms": None,
                 "cancel_wait_ms": None,
+                "ack_ms": None,
             },
             "search_count": 0,
             "total_ms_search": {"median": None, "p90": None},
@@ -222,3 +223,65 @@ def test_latency_api_exposes_detail_and_search_summary(api):
     assert body["summary"]["total_ms_no_search"]["median"] == 3000.0
     assert body["summary"]["total_ms_search"]["median"] is None
     assert body["summary"]["stages"]["first_synth_ms"] is not None
+
+
+def test_web_reports_ack_ms_and_api_exposes_it(api):
+    session_id = start(api, "voice")["session"]["id"]
+    events = events_of(upload(api, session_id, f"__say__:{THREE}"))
+    turn_id = next(e.turn_id for e in events if e.type == "turn")
+    assert rows(api)[0].ack_ms is None
+    body = {"speech_to_request_ms": 1900, "request_to_playback_ms": 4100, "ack_ms": 320}
+    assert (
+        api.post(f"/api/sessions/{session_id}/turns/{turn_id}/latency", json=body).status_code
+        == 204
+    )
+    assert rows(api)[0].ack_ms == 320
+    body = api.get("/api/latency").json()
+    assert body["turns"][0]["ack_ms"] == 320
+    assert body["summary"]["stages"]["ack_ms"] == 320.0
+    # 생략한 재보고는 다른 필드처럼 덮어쓴다
+    again = {"speech_to_request_ms": 1900, "request_to_playback_ms": 4100}
+    assert (
+        api.post(f"/api/sessions/{session_id}/turns/{turn_id}/latency", json=again).status_code
+        == 204
+    )
+    assert rows(api)[0].ack_ms is None
+    # 음수는 거부한다
+    bad = {"speech_to_request_ms": 1, "request_to_playback_ms": 1, "ack_ms": -1}
+    assert (
+        api.post(f"/api/sessions/{session_id}/turns/{turn_id}/latency", json=bad).status_code == 422
+    )
+
+
+def test_turn_after_cancel_records_cancelled_turn_id_once(api):
+    session_id = start(api, "voice")["session"]["id"]
+    events = events_of(upload(api, session_id, f"__say__:{THREE}"))
+    first = next(e.turn_id for e in events if e.type == "turn")
+    cancel_url = f"/api/sessions/{session_id}/turns/{first}/cancel"
+    assert api.post(cancel_url, json={"last_played": 0}).status_code == 204
+    events = events_of(upload(api, session_id, f"__say__:{THREE}"))
+    second = next(e.turn_id for e in events if e.type == "turn")
+    events = events_of(upload(api, session_id, f"__say__:{THREE}"))
+    third = next(e.turn_id for e in events if e.type == "turn")
+    by_id = {row.turn_id: row for row in rows(api)}
+    assert by_id[first].cancelled_turn_id is None
+    assert by_id[second].cancelled_turn_id == first  # 취소 직후 턴에 연결
+    assert by_id[third].cancelled_turn_id is None  # 한 번만 남긴다
+    assert by_id[first].cancel_outcome == "trimmed"
+    items = {t["turn_id"]: t for t in api.get("/api/latency").json()["turns"]}
+    assert items[second]["cancelled_turn_id"] == first
+
+
+def test_late_cancel_of_older_turn_is_not_linked_to_next_turn(api):
+    session_id = start(api, "voice")["session"]["id"]
+    ids = []
+    for _ in range(2):
+        events = events_of(upload(api, session_id, f"__say__:{THREE}"))
+        ids.append(next(e.turn_id for e in events if e.type == "turn"))
+    # 두 번째 답변이 나온 뒤 첫 답변의 취소가 늦게(재시도로) 도착한다
+    url = f"/api/sessions/{session_id}/turns/{ids[0]}/cancel"
+    assert api.post(url, json={"last_played": 0}).status_code == 204
+    events = events_of(upload(api, session_id, f"__say__:{THREE}"))
+    third = next(e.turn_id for e in events if e.type == "turn")
+    by_id = {row.turn_id: row for row in rows(api)}
+    assert by_id[third].cancelled_turn_id is None

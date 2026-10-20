@@ -195,6 +195,10 @@ class TurnLatency(Base):
     # (trimmed·timeout_running·timeout_idle·no_runtime)
     cancel_wait_ms: Mapped[int | None] = mapped_column(Integer)
     cancel_outcome: Mapped[str | None] = mapped_column(String(16))
+    # 맞장구가 재생되기 시작한 시각(요청을 보낸 시각 대비 ms, 웹이 보고한다)
+    ack_ms: Mapped[int | None] = mapped_column(Integer)
+    # 이 턴 직전에 끼어들기로 취소된 답변 턴 ID(취소 대기 cancel_wait_ms는 그 턴 행에 남는다)
+    cancelled_turn_id: Mapped[str | None] = mapped_column(String(36))
 
 
 class Note(Base):

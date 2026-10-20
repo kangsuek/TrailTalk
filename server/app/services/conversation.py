@@ -684,8 +684,9 @@ async def _run_turn(
         await _keep_audio(app, db, session_id, user_turn_id, audio)
 
     assistant_id = new_id()
+    cancelled_turn_id, runtime.last_cancelled_turn_id = runtime.last_cancelled_turn_id, None
     if timing is not None:
-        await _start_latency(db, session_id, assistant_id, timing)
+        await _start_latency(db, session_id, assistant_id, timing, cancelled_turn_id)
     if from_voice:
         yield encode_sse(TranscriptEvent(text=text))
     yield encode_sse(TurnEvent(turn_id=assistant_id))
@@ -976,6 +977,7 @@ async def cancel_turn(
         # 다른(다음) 턴이 진행 중이다: 끝난 이 답변만 자르고 안내는 붙이지 않는다
         await _trim_reply(db, session_id, turn_id, last_played, None)
         await _record_cancel(db, turn_id, waited, "timeout_idle")
+        _note_cancelled(runtime, turn_id)
         return
     waited = round((time.monotonic() - wait_start) * 1000)
     try:
@@ -983,6 +985,16 @@ async def cancel_turn(
     finally:
         runtime.turn_lock.release()
     await _record_cancel(db, turn_id, waited, "trimmed")
+    _note_cancelled(runtime, turn_id)
+
+
+def _note_cancelled(runtime: ConversationRuntime, turn_id: str) -> None:
+    """다음 턴의 지연 행에 연결할 취소된 턴을 기억한다(지연 계측). 가장 최근 답변일 때만 남긴다.
+
+    늦게 도착한 옛 턴의 취소·재시도가 그다음 턴에 잘못 붙지 않게 하려는 근사다(알려진 한계:
+    새 턴이 첫 문장을 만들기 전에 옛 턴의 취소가 겹치면 붙을 수 있다)."""
+    if next(reversed(runtime.reply_sentences), None) == turn_id:
+        runtime.last_cancelled_turn_id = turn_id
 
 
 async def _record_cancel(db: AsyncSession, turn_id: str, waited_ms: int, outcome: str) -> None:
@@ -1058,7 +1070,11 @@ def _heard_note(heard: list[str]) -> str:
 
 
 async def _start_latency(
-    db: AsyncSession, session_id: str, turn_id: str, timing: VoiceTiming
+    db: AsyncSession,
+    session_id: str,
+    turn_id: str,
+    timing: VoiceTiming,
+    cancelled_turn_id: str | None = None,
 ) -> None:
     """측정 행을 턴 시작 때 만든다(웹 보고가 턴이 끝나기 전에 올 수 있다). 실패해도 계속한다."""
     try:
@@ -1070,6 +1086,7 @@ async def _start_latency(
                     audio_bytes=timing.audio_bytes,
                     upload_ms=timing.upload_ms,
                     stt_ms=timing.stt_ms,
+                    cancelled_turn_id=cancelled_turn_id,
                 )
             )
             await db.commit()
@@ -1408,8 +1425,9 @@ async def report_latency(
     speech_to_request_ms: int,
     request_to_playback_ms: int,
     first_sound_notice: bool = False,
+    ack_ms: int | None = None,
 ) -> None:
-    """웹이 잰 말 끝 → 요청, 요청 → 첫 소리를 남긴다(다시 보내면 덮어쓴다)."""
+    """웹이 잰 말 끝 → 요청, 요청 → 첫 소리, 맞장구 시작 시각을 남긴다(다시 보내면 덮어쓴다)."""
     await get_session(db, session_id)
     row = await db.get(TurnLatency, turn_id)
     if row is None or row.session_id != session_id:
@@ -1417,6 +1435,7 @@ async def report_latency(
     row.speech_to_request_ms = speech_to_request_ms
     row.request_to_playback_ms = request_to_playback_ms
     row.first_sound_notice = first_sound_notice
+    row.ack_ms = ack_ms
     await db.commit()
 
 

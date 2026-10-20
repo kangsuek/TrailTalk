@@ -29,6 +29,7 @@ STAGES = (
     "first_synth_ms",
     "synth_wait_ms",
     "cancel_wait_ms",
+    "ack_ms",
 )
 
 
@@ -51,6 +52,8 @@ class LatencyTurn(BaseModel):
     synth_wait_ms: int | None  # 합성을 기다리며 막힌 시간 합계
     cancel_wait_ms: int | None  # 끼어들기가 이 턴 정리를 기다린 시간
     cancel_outcome: str | None  # trimmed·timeout_running·timeout_idle·no_runtime
+    ack_ms: int | None  # 맞장구 재생 시작(요청 시작 대비, 웹 보고)
+    cancelled_turn_id: str | None  # 이 턴 직전에 끼어들기로 취소된 답변 턴(그 행에 cancel_wait_ms)
     cli_resumed: bool | None  # CLI가 --resume으로 다시 뜬 프로세스
     cli_age_ms: int | None  # 턴 시작 때 CLI 프로세스 나이(음수: 이 턴이 새로 띄움)
     cli_abort: str | None  # 끊긴 턴의 CLI 정리 방식(clean·terminated·killed)
@@ -120,6 +123,7 @@ async def latency(db: DbSession, limit: Annotated[int, Query(ge=1, le=500)] = 10
             audio_bytes=row.audio_bytes,
             first_sound_notice=row.first_sound_notice,
             cancel_outcome=row.cancel_outcome,
+            cancelled_turn_id=row.cancelled_turn_id,
             cli_resumed=row.cli_resumed,
             cli_age_ms=row.cli_age_ms,
             cli_abort=row.cli_abort,

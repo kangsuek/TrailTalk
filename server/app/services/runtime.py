@@ -41,6 +41,8 @@ class ConversationRuntime:
     )
     # 다음 턴 CLI 입력 앞에 붙일 안내(직전 답변을 사용자가 어디까지 들었는지)
     heard_note: str | None = None
+    # 직전에 끼어들기로 취소된 답변 턴 ID(다음 턴의 지연 행에 연결해 남기고 비운다, 지연 계측)
+    last_cancelled_turn_id: str | None = None
     # send_email(FR-21)로 메일을 보낸 사용자 턴 ID와 이 대화에서 보낸 횟수(되풀이 방지)
     mailed_turn_ids: set[str] = field(default_factory=set, repr=False, compare=False)
     mail_count: int = 0

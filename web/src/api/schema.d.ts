@@ -513,6 +513,7 @@ export interface components {
          * LatencyReport
          * @description 웹이 잰 지연(ms, S3-07): 말 끝 → 요청 시작, 요청 시작 → 첫 소리.
          *     first_sound_notice: 첫 소리가 검색 안내 음성이었다.
+         *     ack_ms: 맞장구가 재생되기 시작한 시각(요청 시작 대비, V2 첫 반응 지연). 없으면 생략.
          */
         LatencyReport: {
             /** Speech To Request Ms */
@@ -524,6 +525,8 @@ export interface components {
              * @default false
              */
             first_sound_notice: boolean;
+            /** Ack Ms */
+            ack_ms?: number | null;
         };
         /** LatencySummary */
         LatencySummary: {
@@ -581,6 +584,10 @@ export interface components {
             cancel_wait_ms: number | null;
             /** Cancel Outcome */
             cancel_outcome: string | null;
+            /** Ack Ms */
+            ack_ms: number | null;
+            /** Cancelled Turn Id */
+            cancelled_turn_id: string | null;
             /** Cli Resumed */
             cli_resumed: boolean | null;
             /** Cli Age Ms */

@@ -320,13 +320,15 @@ async def record_audio_turn(session_id: str, request: Request, db: DbSession) ->
 
 class LatencyReport(BaseModel):
     """웹이 잰 지연(ms, S3-07): 말 끝 → 요청 시작, 요청 시작 → 첫 소리.
-    first_sound_notice: 첫 소리가 검색 안내 음성이었다."""
+    first_sound_notice: 첫 소리가 검색 안내 음성이었다.
+    ack_ms: 맞장구가 재생되기 시작한 시각(요청 시작 대비, V2 첫 반응 지연). 없으면 생략."""
 
     model_config = ConfigDict(extra="forbid")
 
     speech_to_request_ms: Annotated[int, Field(ge=0, le=_LATENCY_MAX_MS)]
     request_to_playback_ms: Annotated[int, Field(ge=0, le=_LATENCY_MAX_MS)]
     first_sound_notice: bool = False
+    ack_ms: Annotated[int, Field(ge=0, le=_LATENCY_MAX_MS)] | None = None
 
 
 @router.post("/sessions/{session_id}/turns/{turn_id}/latency", status_code=204)
@@ -341,6 +343,7 @@ async def report_latency(
         body.speech_to_request_ms,
         body.request_to_playback_ms,
         body.first_sound_notice,
+        body.ack_ms,
     )
     return Response(status_code=204)
 
