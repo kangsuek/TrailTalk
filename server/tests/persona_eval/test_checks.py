@@ -65,3 +65,12 @@ def test_question_set_shape():
     assert len(questions) == 20
     assert len({q["id"] for q in questions}) == 20
     assert all(q["text"].strip() and q["category"] for q in questions)
+
+
+def test_nickname_check_flags_calling_the_user_by_name():
+    ok = code_checks("오, 그거 좋은데요?!", max_sentences=5, nickname="민수")
+    assert all(c.passed for c in ok)
+    bad = code_checks("민수님, 그거 좋은데요?!", max_sentences=5, nickname="민수")
+    assert {c.name for c in bad if not c.passed} == {"호칭 없음"}
+    # 호칭을 주지 않으면 검사하지 않는다
+    assert "호칭 없음" not in {c.name for c in code_checks("민수님!", max_sentences=5)}

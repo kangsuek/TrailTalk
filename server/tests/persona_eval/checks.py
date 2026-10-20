@@ -36,7 +36,8 @@ def count_sentences(text: str) -> int:
     return len(splitter.feed(text)) + len(splitter.flush())
 
 
-def code_checks(answer: str, *, max_sentences: int) -> list[Check]:
+def code_checks(answer: str, *, max_sentences: int, nickname: str | None = None) -> list[Check]:
+    """nickname이 있으면 첫인사 이후 답변에 호칭이 없어야 한다(호칭 규칙)."""
     answer = answer.strip()
     sentences = count_sentences(answer)
     emojis = _EMOJI.findall(answer)
@@ -48,4 +49,5 @@ def code_checks(answer: str, *, max_sentences: int) -> list[Check]:
         Check("이모지 없음", not emojis, "".join(emojis)),
         Check("마크다운·목록 없음", not markdown, ", ".join(repr(m) for m in markdown)),
         Check("개인정보·환경 비노출", not private, ", ".join(private)),
+        *([Check("호칭 없음", nickname not in answer, f"'{nickname}' 포함")] if nickname else []),
     ]

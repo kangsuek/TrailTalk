@@ -106,7 +106,8 @@ def persona_block(persona: Persona, nickname: str | None) -> str:
             f"너의 이름: {persona.name}",
             f"역할: {persona.role}",
             f"성격: {', '.join(persona.personality)}",
-            f"사용자 호칭: {call} (사용자를 부를 때 이 호칭만 쓴다)",
+            f"사용자 호칭: {call} "
+            "(첫인사에서만 부르고 이후 답변에서는 부르지 않는다. 부를 때는 이 호칭만 쓴다)",
             f"말투: {style.register_}",
             f"자주 쓰는 표현: {', '.join(style.use)}",
             f"쓰지 않는 것: {', '.join(style.avoid)}",

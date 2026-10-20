@@ -30,6 +30,7 @@ from app.llm.claude_cli import ClaudeCliBackend, build_env, delete_cli_session_f
 from app.llm.events import TextDelta, TurnFinished
 from app.persona.loader import load_persona
 from app.persona.prompt import build_system_prompt, current_time_note
+from app.persona.rules import GREETING_INSTRUCTION
 from app.persona.schema import Persona
 from tests.persona_eval.checks import Check, code_checks
 
@@ -125,8 +126,13 @@ async def generate(backend: ClaudeCliBackend, settings: Settings, prompt: str, r
         parts: list[str] = []
         finished = None
         # 운영처럼 지금 시각 안내를 앞에 붙인다(S3-34, 시스템 프롬프트가 이 안내를 가리킨다)
-        text = current_time_note(datetime.now(UTC), settings.timezone) + r.question
-        async with aclosing(session.send(text)) as stream:
+        note = current_time_note(datetime.now(UTC), settings.timezone)
+        # 운영에서는 질문 전에 첫인사가 먼저 나간다. 인사 없이 질문만 보내면 그 답을 첫인사로
+        # 여겨 호칭을 부르므로, 같은 세션에서 첫인사를 먼저 받아 둔다(호칭 규칙 평가에 필요)
+        async with aclosing(session.send(note + GREETING_INSTRUCTION)) as stream:
+            async for _ in stream:
+                pass
+        async with aclosing(session.send(note + r.question)) as stream:
             async for event in stream:
                 if isinstance(event, TextDelta):
                     parts.append(event.text)
@@ -278,7 +284,7 @@ async def evaluate(args: argparse.Namespace, work_dir: Path) -> int:
         async with limit:
             try:
                 await generate(backend, settings, prompt, r)
-                r.checks = code_checks(r.answer, max_sentences=max_sentences)
+                r.checks = code_checks(r.answer, max_sentences=max_sentences, nickname=NICKNAME)
                 await judge(settings, loaded.persona, work_dir, r)
             except Exception as exc:  # 한 문항이 실패해도 나머지는 계속 평가한다
                 r.error = f"{type(exc).__name__}: {exc}"[:300]
