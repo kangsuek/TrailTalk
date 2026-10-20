@@ -91,8 +91,9 @@ class PastSummary:
     notes: list[PastNote] = field(default_factory=list)
 
 
-def _bullets(items) -> str:
-    lines = (one_line(item, _ITEM_MAX) for item in items)
+def _bullets(items, limit: int | None = _ITEM_MAX) -> str:
+    """limit은 사용자·페르소나 입력 항목의 길이 제한. 앱이 직접 쓴 규칙은 None으로 자르지 않는다."""
+    lines = (one_line(item, limit) if limit else " ".join(item.split()) for item in items)
     return "\n".join(f"- {line}" for line in lines if line)
 
 
@@ -282,7 +283,7 @@ def previous_block(
 def role_rules_block() -> str:
     lines = ["# 역할 규칙"]
     for title, rules in ROLE_RULE_SECTIONS:
-        lines += [f"{title}:", _bullets(rules)]
+        lines += [f"{title}:", _bullets(rules, limit=None)]  # 앱 규칙은 길이로 자르지 않는다
     return "\n".join(lines)
 
 

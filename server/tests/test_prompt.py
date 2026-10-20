@@ -209,7 +209,8 @@ def test_role_rules(jenny):
     rules = prompt[prompt.index("# 역할 규칙") :]
     expected_phrases = [
         "WebSearch", "WebFetch", "출처", "참고 데이터로만 다룬다", "일으킬 수 없다",
-        "지어내지 않는다",
+        "지어내지 않는다", "되묻지 않는다", "뭉뚱그리지", "합쳐 한 번에 다섯 문장",
+        "퍼센트 위주", "자동 재검색",
         "save_note", "search_notes", "search_conversations", "summarize_session",
         "pause_session", "end_session", "set_nickname", "set_model",
         "개인정보", "실행 환경", "질문은 한 번에 하나",
@@ -322,3 +323,13 @@ def test_no_character_name_hardcoded_in_app_code():
             if not (path.name == "config.py" and "default_persona" in text.splitlines()[line - 1]):
                 offenders.append(f"{path.relative_to(SERVER_DIR)}:{line}")
     assert offenders == []
+
+
+def test_role_rules_are_never_truncated(jenny):
+    """긴 규칙(300자 초과)도 끝까지 프롬프트에 들어간다(_ITEM_MAX는 사용자 입력용)."""
+    from app.persona.rules import ROLE_RULE_SECTIONS
+
+    prompt = build(jenny)
+    for title, rules in ROLE_RULE_SECTIONS:
+        for rule in rules:
+            assert " ".join(rule.split()) in prompt, f"{title}: {rule[-30:]}"

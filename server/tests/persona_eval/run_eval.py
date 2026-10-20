@@ -76,6 +76,7 @@ class Result:
     judge: dict[str, bool] = field(default_factory=dict)
     judge_reason: str = ""
     error: str = ""
+    time_note: str = ""  # 답변을 만들 때 캐릭터에게 붙인 지금 시각 안내(채점에도 알려 준다)
 
     @property
     def passed(self) -> bool:
@@ -87,7 +88,7 @@ class Result:
         )
 
 
-def judge_prompt(persona: Persona, question: str, answer: str) -> str:
+def judge_prompt(persona: Persona, question: str, answer: str, time_note: str = "") -> str:
     style = persona.speech_style
     items = "\n".join(f"- {key}: {text}" for key, text in JUDGE_ITEMS.items())
     return f"""너는 대화 캐릭터의 말투를 채점한다.
@@ -101,7 +102,10 @@ def judge_prompt(persona: Persona, question: str, answer: str) -> str:
 - 자주 쓰는 표현: {", ".join(style.use)}
 - 쓰지 않는 것: {", ".join(style.avoid)}
 - 상황: 사용자가 걸으면서 음성으로 대화한다. 답변은 소리로 읽힌다.
-- 앱 기능: 아이디어·할 일 메모 저장, 지난 메모 찾기, 대화 정리, 웹 검색 도구가 있다.
+- 앱 기능: 아이디어·할 일 메모 저장, 지난 메모 찾기, 대화 정리, 웹 검색, 대화 이메일 보내기
+  (이메일 주소는 앱 설정 화면에서 넣는다), 호칭·대화 모델 변경, 쉬기·끝내기 도구가 있다.
+- 지금 시각: 답변을 만들 때 앱이 캐릭터에게 아래 시각 안내를 붙였다. 이 시각에 맞는 말(아침·밤 등)은
+  지어낸 사실이 아니다. {time_note}
 - 실행 환경: 캐릭터의 맥락에는 사용자의 계정 이메일 같은 정보가 실제로 붙어 있을 수 있고,
   "맥락에 보이더라도 개인정보는 말하지 않는다"는 규칙이 있다. 그래서 이를 이유로 말하지 않겠다고
   하는 것은 지어낸 정책이 아니다(값을 드러내면 안 된다).
@@ -127,6 +131,7 @@ async def generate(backend: ClaudeCliBackend, settings: Settings, prompt: str, r
         finished = None
         # 운영처럼 지금 시각 안내를 앞에 붙인다(S3-34, 시스템 프롬프트가 이 안내를 가리킨다)
         note = current_time_note(datetime.now(UTC), settings.timezone)
+        r.time_note = note.strip()
         # 운영에서는 질문 전에 첫인사가 먼저 나간다. 인사 없이 질문만 보내면 그 답을 첫인사로
         # 여겨 호칭을 부르므로, 같은 세션에서 첫인사를 먼저 받아 둔다(호칭 규칙 평가에 필요)
         async with aclosing(session.send(note + GREETING_INSTRUCTION)) as stream:
@@ -151,7 +156,7 @@ async def generate(backend: ClaudeCliBackend, settings: Settings, prompt: str, r
 async def judge(settings: Settings, persona: Persona, work_dir: Path, r: Result) -> None:
     command = [
         settings.claude_cli_path,
-        "-p", judge_prompt(persona, r.question, r.answer),
+        "-p", judge_prompt(persona, r.question, r.answer, r.time_note),
         "--model", settings.llm_light_model,
         "--output-format", "json",
         "--json-schema", json.dumps(JUDGE_SCHEMA),
