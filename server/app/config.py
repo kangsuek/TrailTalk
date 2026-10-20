@@ -63,7 +63,10 @@ class Settings(BaseSettings):
     stt_timeout_s: float = 15
     stt_max_bytes: int = 10 * 1024 * 1024
     tts_model: str = "gpt-4o-mini-tts"
-    tts_timeout_s: float = 15
+    # 합성 요청이 응답 없이 멈추는 일이 있다(정상은 대개 3초, 가끔 7초). 시도당 제한을 짧게 두고
+    # 멈추면 새로 보낸다(최악 tts_timeout_s × tts_attempts)
+    tts_timeout_s: float = 8
+    tts_attempts: int = Field(default=3, ge=1, le=5)
     # openai: 실제 API, fake: 가짜(app/voice/fake.py, run.sh --fake·E2E용, 과금 없음)
     voice_backend: Literal["openai", "fake"] = "openai"
     # 가짜 음성 인식이 돌려줄 문장(업로드가 b"FAKE_STT:"로 시작하면 그 뒤 글을 쓴다)

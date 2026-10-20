@@ -90,12 +90,14 @@ class OpenAiTts:
         base_url: str,
         model: str,
         timeout_s: float,
+        attempts: int = 1,
     ) -> None:
         self._client = client
         self._api_key = api_key
         self._base_url = base_url
         self._model = model
         self._timeout_s = timeout_s
+        self._attempts = attempts
 
     @classmethod
     def from_settings(cls, client: httpx2.AsyncClient, settings: Settings) -> "OpenAiTts":
@@ -105,6 +107,7 @@ class OpenAiTts:
             base_url=settings.openai_base_url,
             model=settings.tts_model,
             timeout_s=settings.tts_timeout_s,
+            attempts=settings.tts_attempts,
         )
 
     def _style(self, voice: VoiceStyle) -> dict[str, str]:
@@ -121,6 +124,7 @@ class OpenAiTts:
             api_key=self._api_key,
             path="/audio/speech",
             timeout_s=self._timeout_s,
+            attempts=self._attempts,
             error_prefix="tts",
             json={
                 "model": self._model,
