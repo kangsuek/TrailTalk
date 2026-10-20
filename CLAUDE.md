@@ -64,6 +64,7 @@ docs/              설계서, 계획서, 규약, V2 문서(V2/: intent·spec·pl
 (cd server && RUN_REAL_CLI=1 uv run pytest tests/test_llm_real.py -q)  # 실제 Claude CLI 통합 테스트(구독 사용량 소모)
 (cd server && RUN_REAL_CLI=1 uv run python -m tests.extract_eval.run_eval)  # 일지 추출 평가(haiku·sonnet 각 12회) → docs/eval/extract-<날짜>.md
 (cd server && RUN_REAL_CLI=1 uv run python -m tests.persona_eval.run_eval)  # 톤 평가(프롬프트를 바꾸면) → docs/eval/persona-<날짜>.md
+(cd server && RUN_REAL_CLI=1 uv run python -m tests.latency_eval.run_eval [--server-turns N --browser-turns N])  # 응답 지연 평가(web/dist 빌드 필요, 8200 평가 서버·임시 DB) → docs/eval/latency-<날짜>.md
 # 평가 리포트는 같은 날 여러 번 돌리면 -2, -3…으로 쌓인다. 끝나면 마지막 리포트에 회차 표로 합치고 나머지는 지운다(번호는 상관없음)
 
 # 웹
