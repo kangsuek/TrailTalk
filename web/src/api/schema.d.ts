@@ -387,6 +387,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/barge-in-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Post Barge In Events
+         * @description 멱등: 이미 있는 id는 건너뛴다(같은 id가 한 배치에 겹치거나 동시에 올라와도 한 번만).
+         */
+        post: operations["post_barge_in_events_api_barge_in_events_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/usage": {
         parameters: {
             query?: never;
@@ -412,6 +432,43 @@ export interface components {
         AudioConfig: {
             upload: components["schemas"]["UploadAudioConfig"];
             response: components["schemas"]["ResponseAudioConfig"];
+        };
+        /** BargeInEventIn */
+        BargeInEventIn: {
+            /** Id */
+            id: string;
+            /** Session Id */
+            session_id: string;
+            /** Turn Id */
+            turn_id: string;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Probe To Confirm Ms */
+            probe_to_confirm_ms?: number | null;
+            /** Stop Ms */
+            stop_ms?: number | null;
+            /** Played Ratio */
+            played_ratio?: number | null;
+            /**
+             * Result
+             * @default real
+             */
+            result: string;
+            /** Next Turn Id */
+            next_turn_id?: string | null;
+        };
+        /** BargeInEventsIn */
+        BargeInEventsIn: {
+            /** Events */
+            events: components["schemas"]["BargeInEventIn"][];
+        };
+        /** BargeInEventsOut */
+        BargeInEventsOut: {
+            /** Accepted */
+            accepted: number;
         };
         /** CitationOut */
         CitationOut: {
@@ -1808,6 +1865,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LatencyOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_barge_in_events_api_barge_in_events_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BargeInEventsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BargeInEventsOut"];
                 };
             };
             /** @description Validation Error */

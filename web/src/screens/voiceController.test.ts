@@ -83,6 +83,7 @@ function setup(overrides: Partial<VoiceDeps> = {}) {
     endSession: vi.fn(async () => CLOSED),
     cancelTurn: vi.fn(async () => {}),
     reportLatency: vi.fn(async () => {}),
+    bargeIn: { record: vi.fn(), flush: vi.fn(async () => {}) },
     now: () => clock.now,
     getProfile: vi.fn(async () => {
       throw new ApiError('network_error', '서버에 연결할 수 없어요.', 0)
@@ -1057,5 +1058,88 @@ describe('createVoiceController', () => {
     await tick()
     expect(t.deps.reopenSession).toHaveBeenCalledTimes(1)
     expect(t.deps.startSession).toHaveBeenCalledTimes(1)
+  })
+
+  describe('끼어들기 기록(V2-M0-05)', () => {
+    const NEXT: StreamEvent[] = [
+      { type: 'transcript', text: '잠깐만요' },
+      { type: 'turn', turn_id: 'a2' },
+      { type: 'done', turn_id: 'a2', text: '', interrupted: false, session_status: 'active' },
+    ]
+
+    /** 첫 답변이 나오는 중(말하기)까지. 두 번째 호출은 next로 처리한다 */
+    async function speaking(next: (onEvent: (e: StreamEvent) => void) => void | Promise<void>) {
+      let calls = 0
+      const t = setup({
+        sendAudioTurn: vi.fn(async (_id, _audio, onEvent) => {
+          if (calls++ === 0) for (const event of TURN) onEvent(event)
+          else await next(onEvent)
+        }),
+      })
+      await startListening(t)
+      t.speak()
+      await tick()
+      expect(t.state()).toBe('speaking')
+      return t
+    }
+
+    it('말하는 중 말소리가 확정되면 감지 → 확정 지연을 기록하고, 이어진 말의 답변 턴이 오면 마무리한다', async () => {
+      const t = await speaking((onEvent) => NEXT.forEach(onEvent))
+      t.clock.now = 30_000
+      t.micEvent({ type: 'speech_start', rawStartAt: 29_760 })
+      expect(t.state()).toBe('listening')
+      expect(t.deps.bargeIn?.record).not.toHaveBeenCalled() // 이어진 말이 어떻게 됐는지 모른다
+      t.speak()
+      await tick()
+      expect(t.deps.bargeIn?.record).toHaveBeenCalledTimes(1)
+      expect(t.deps.bargeIn?.record).toHaveBeenCalledWith({
+        id: expect.any(String),
+        session_id: 's1',
+        turn_id: 'a1',
+        occurred_at: expect.any(String),
+        probe_to_confirm_ms: 240,
+        stop_ms: 0,
+        next_turn_id: 'a2',
+        result: 'real',
+      })
+    })
+
+    it('이어진 말이 인식되지 않으면 오작동 의심으로 기록한다', async () => {
+      const t = await speaking(() => {
+        throw new ApiError('no_speech', '말소리를 듣지 못했어요.', 422)
+      })
+      t.micEvent({ type: 'speech_start' })
+      t.speak()
+      await tick()
+      expect(t.deps.bargeIn?.record).toHaveBeenCalledWith(
+        expect.objectContaining({ turn_id: 'a1', probe_to_confirm_ms: null, next_turn_id: null, result: 'suspected_false' }),
+      )
+    })
+
+    it('듣는 중의 말소리나 버튼 끼어들기는 기록하지 않는다', async () => {
+      const t = setup()
+      await startListening(t)
+      t.micEvent({ type: 'speech_start' }) // 듣는 중
+      t.speak()
+      await tick()
+      t.controller.tap() // 버튼으로 끼어들기
+      expect(t.deps.bargeIn?.record).not.toHaveBeenCalled()
+    })
+
+    it('답을 받기 전에 대화가 끝나면 그대로 마무리한다', async () => {
+      const t = await speaking(() => {})
+      t.micEvent({ type: 'speech_start' })
+      await t.controller.dispose()
+      expect(t.deps.bargeIn?.record).toHaveBeenCalledWith(
+        expect.objectContaining({ turn_id: 'a1', next_turn_id: null, result: 'real' }),
+      )
+    })
+
+    it('대화를 시작할 때 이전에 못 올린 기록을 올려 본다', async () => {
+      const t = setup()
+      t.controller.tap()
+      await tick()
+      expect(t.deps.bargeIn?.flush).toHaveBeenCalledTimes(1)
+    })
   })
 })

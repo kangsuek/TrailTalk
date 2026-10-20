@@ -4,6 +4,8 @@ import { DEFAULT_VAD_SETTINGS } from '../core/audio'
 
 type Options = Record<string, unknown> & {
   getStream: () => Promise<unknown>
+  onSpeechStart: () => void
+  onVADMisfire: () => void
   onSpeechRealStart: () => void
   onSpeechEnd: (samples: Float32Array) => Promise<void>
 }
@@ -157,14 +159,17 @@ describe('createAudioInput', () => {
     const { input, events } = setup()
     await input.start()
     const { options } = fake.created[0]
-    // 첫 프레임 감지(onSpeechStart)·짧은 소리(onVADMisfire)는 알리지 않는다
-    expect(options.onSpeechStart).toBeUndefined()
-    expect(options.onVADMisfire).toBeUndefined()
+    // 첫 프레임 감지(onSpeechStart)·짧은 소리(onVADMisfire)는 상태 머신에 알리지 않는다(계측만)
+    const now = vi.spyOn(performance, 'now').mockReturnValue(4760)
+    options.onSpeechStart()
+    options.onVADMisfire()
+    expect(events).toEqual([])
+    options.onSpeechStart()
     options.onSpeechRealStart()
-    vi.spyOn(performance, 'now').mockReturnValue(5000)
+    now.mockReturnValue(5000)
     await options.onSpeechEnd(new Float32Array(16000))
     expect(events).toEqual([
-      { type: 'speech_start' },
+      { type: 'speech_start', rawStartAt: 4760 },
       {
         type: 'speech_end',
         audio: { bytes: new Uint8Array(3), mimeType: 'audio/webm;codecs=opus', durationMs: 1000 },

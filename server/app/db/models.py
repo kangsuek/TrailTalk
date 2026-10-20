@@ -201,6 +201,29 @@ class TurnLatency(Base):
     cancelled_turn_id: Mapped[str | None] = mapped_column(String(36))
 
 
+class BargeInEvent(Base):
+    """끼어들기 한 번의 기록(V2-M0-05). 기기가 모아 두었다가 배치로 올린다.
+
+    id는 기기가 만든다(올리다 끊겨 다시 올려도 한 행). 기기에 모였다 늦게 올라오고 세션이 그사이
+    지워질 수 있어 session_id·turn_id에는 외래 키를 두지 않는다.
+    result는 CHECK 없는 문자열이다: real(기본), suspected_false(끼어든 말이 인식되지 않음),
+    probe_reverted(감지 후 되돌림, M2), user_marked_false(사용자가 오작동 표시, M2).
+    """
+
+    __tablename__ = "barge_in_event"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    session_id: Mapped[str] = mapped_column(String(36), index=True)
+    turn_id: Mapped[str] = mapped_column(String(36))  # 끼어들어 끊긴 답변 턴
+    occurred_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)  # 확정 시각(기기 시계)
+    probe_to_confirm_ms: Mapped[int | None] = mapped_column(Integer)  # 말 감지 시작 → 확정
+    stop_ms: Mapped[int | None] = mapped_column(Integer)  # 확정 → 소리가 멈춘 때
+    played_ratio: Mapped[float | None] = mapped_column(Float)  # 끊긴 문장을 들려준 비율(M2)
+    result: Mapped[str] = mapped_column(String(32), default="real")
+    next_turn_id: Mapped[str | None] = mapped_column(String(36))  # 끼어든 말에 대한 답변 턴
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
 class Note(Base):
     __tablename__ = "note"
     __table_args__ = (Index("ix_note_kind_done", "kind", "done"),)

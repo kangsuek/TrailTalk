@@ -50,7 +50,8 @@ export type AudioInputErrorCode = 'mic_denied' | 'mic_unavailable' | 'vad_failed
 // speech_start는 말소리가 minSpeechMs 동안 이어진 뒤에 온다(더 짧은 소리는 이벤트 없이 버린다).
 // stop·dispose 뒤에는 아무 이벤트도 오지 않는다
 export type AudioInputEvent =
-  | { type: 'speech_start' }
+  // rawStartAt: vad-web이 말소리를 처음 잡은 시각(확정 전, 단조 시계 ms). 끼어들기 기록의 감지 → 확정 지연
+  | { type: 'speech_start'; rawStartAt?: number }
   // speechEndedAt: 말소리가 실제로 끝난 시각(무음 대기 전, 단조 시계 ms). 지연 측정(S3-07)
   | { type: 'speech_end'; audio: RecordedAudio; speechEndedAt: number }
   | { type: 'error'; code: AudioInputErrorCode }

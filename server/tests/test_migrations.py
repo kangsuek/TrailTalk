@@ -10,7 +10,15 @@ from app.db.migrate import alembic_config, upgrade_to_head
 from app.db.session import create_engine_for
 from app.main import create_app
 
-TABLES = {"conversation_session", "turn", "turn_latency", "note", "persona", "user_profile"}
+TABLES = {
+    "conversation_session",
+    "turn",
+    "turn_latency",
+    "barge_in_event",
+    "note",
+    "persona",
+    "user_profile",
+}
 
 
 async def table_names(url: str) -> set[str]:

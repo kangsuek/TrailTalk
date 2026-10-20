@@ -9,6 +9,7 @@ import type {
   VadSettings,
 } from '../core/audio'
 import { encodeUtterance } from './encodeAudio'
+import { metrics } from './metrics'
 
 const SAMPLE_RATE = 16_000 // VAD가 주는 발화 오디오의 샘플레이트
 const PRE_SPEECH_PAD_MS = 300 // 말 시작 앞부분이 잘리지 않게 감지 전 소리를 붙인다
@@ -49,6 +50,7 @@ export function createAudioInput(
   let context: AudioContext | null = null // VAD가 쓰는 오디오 컨텍스트(직접 만들고 닫는다)
   let stream: MediaStream | null = null // 지금 열린 마이크(VAD 정리가 실패해도 직접 멈춘다)
   let mode: VadMode = 'normal'
+  let rawStartAt: number | undefined // 지금 발화의 vad-web 시작 시각(확정 전, 계측용)
   let active = false // 마지막 요청이 start인가(불러오는 중에 stop이 오면 열지 않는다)
   let disposed = false
   let pending: Promise<void> = Promise.resolve() // start·stop을 들어온 순서대로 한다
@@ -79,14 +81,27 @@ export function createAudioInput(
       getStream: async () => stream ?? openMic(),
       resumeStream: openMic,
       pauseStream: async (paused) => paused.getTracks().forEach((track) => track.stop()),
+      // 계측 훅(V2-M0-05): 상태 머신에는 알리지 않는다
+      onFrameProcessed: (probabilities) => metrics.frame(probabilities.isSpeech),
+      onSpeechStart: () => {
+        rawStartAt = performance.now()
+        metrics.mark('vad_raw_start', { mode })
+      },
+      onVADMisfire: () => {
+        rawStartAt = undefined
+        metrics.mark('vad_misfire', { mode })
+      },
       // 말소리가 minSpeechMs 동안 이어진 뒤에 알린다. 짧은 소음 한 번에 재생 중 답변이 끊기지 않게
       // (상태 머신은 말하기 중 speech_start를 끼어들기로 처리한다). 그보다 짧은 소리는 조용히 버린다
       onSpeechRealStart: () => {
-        if (listening()) onEvent({ type: 'speech_start' })
+        metrics.mark('vad_confirm', { mode })
+        if (listening()) onEvent({ type: 'speech_start', rawStartAt })
       },
       onSpeechEnd: async (samples) => {
         // 끝을 알아채기까지 무음을 기다렸으므로 실제로 말이 끝난 때는 그만큼 앞이다
         const speechEndedAt = performance.now() - settings.endOfSpeechSilenceMs
+        rawStartAt = undefined
+        metrics.mark('vad_end', { mode, silence_ms: settings.endOfSpeechSilenceMs })
         const audio = await encodeUtterance(samples, SAMPLE_RATE)
         if (listening()) onEvent({ type: 'speech_end', audio, speechEndedAt })
       },
@@ -156,6 +171,7 @@ export function createAudioInput(
     },
     setMode(next) {
       mode = next
+      metrics.mark('vad_mode', { mode })
       vad?.setOptions(thresholds(settings, mode))
     },
     dispose() {

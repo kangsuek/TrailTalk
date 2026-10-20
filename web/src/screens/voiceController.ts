@@ -13,6 +13,7 @@ import {
   startSession,
   type SessionReopened,
 } from '../api/conversation'
+import { uploadBargeInEvents } from '../api/bargeIn'
 import { fetchHealth } from '../api/health'
 import { getProfile } from '../api/profile'
 import {
@@ -34,6 +35,7 @@ import {
   type SessionState,
   type VadSettings,
 } from '../core'
+import { createBargeInReporter, type BargeInRecord, type BargeInReporter } from '../core/bargeInReporter'
 import type { ConversationAction, StreamEvent } from '../core/conversation'
 import { createLocalQueue } from '../platform/localQueue'
 import clientDefaults from '../../../shared/client-defaults.json'
@@ -61,6 +63,7 @@ export interface VoiceDeps {
   watchOnline: (onOnline: () => void) => () => void // 연결이 돌아오면 부른다. 해제 함수를 돌려준다
   checkHealth: () => Promise<boolean> // 서버에 닿는지(30초 재시도 전에 확인한다)
   cancelSpeech: () => void // 읽던 오프라인 안내를 멈춘다
+  bargeIn: BargeInReporter // 끼어들기 기록을 기기에 모았다 올린다(V2-M0-05)
 }
 
 const NOTICE_TIMEOUT_MS = 6000 // 기기 TTS가 끝 알림을 주지 않을 때의 상한
@@ -102,6 +105,20 @@ function watchBrowserOnline(onOnline: () => void): () => void {
   return () => window.removeEventListener('online', onOnline)
 }
 
+function localStore() {
+  try {
+    return typeof localStorage === 'undefined' ? null : localStorage // 접근만으로 던지는 브라우저가 있다
+  } catch {
+    return null
+  }
+}
+
+function newEventId(): string {
+  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`
+}
+
 const DEFAULT_DEPS: VoiceDeps = {
   createInput: lazyAudioInput,
   createOutput: (onEvent) =>
@@ -123,6 +140,7 @@ const DEFAULT_DEPS: VoiceDeps = {
   cancelSpeech: () => {
     if (typeof speechSynthesis !== 'undefined') speechSynthesis.cancel()
   },
+  bargeIn: createBargeInReporter(localStore(), uploadBargeInEvents),
 }
 
 // 서버가 보내지 않는(또는 메시지를 못 받은) 오류의 문구
@@ -206,6 +224,8 @@ export function createVoiceController({
     hasAudio: boolean // 이 턴의 소리를 대기열에 넣었다
   } | null = null
   let nextUtterance = 0
+  // 끼어들기 기록(V2-M0-05): 끊은 뒤 이어진 말이 어떻게 됐는지 알 때까지 들고 있다가 기기에 모은다
+  let barge: Omit<BargeInRecord, 'result' | 'next_turn_id'> | null = null
   const messages = new Map<string, string>() // 오류 코드 → 마지막으로 받은 문구
   // 대화가 끝난 이유(마이크 오류, 서버에서 세션이 끝남). 정리를 시작하면 오류 문구가 지워지므로
   // 정리가 끝난 뒤에 보인다
@@ -238,6 +258,7 @@ export function createVoiceController({
           // 대화가 끝났다(정상·끝내기 실패·시작 실패): 이 대화에 남은 말은 이제 대답할 수 없으므로
           // 기록만 남긴다(연결이 없으면 다음에)
           sessionId = null
+          finishBarge()
           void flushOthers(null)
         }
       }
@@ -263,6 +284,13 @@ export function createVoiceController({
       .catch(() => {})
   }
 
+  /** 끼어들기 기록을 마무리한다: 이어진 말이 답변 턴(nextTurnId)을 만들었거나, 인식되지 않았다 */
+  const finishBarge = (nextTurnId: string | null = null, result = 'real') => {
+    if (barge === null) return
+    d.bargeIn.record({ ...barge, next_turn_id: nextTurnId, result })
+    barge = null
+  }
+
   const remember = (error: unknown): string => {
     if (error instanceof ApiError) {
       messages.set(error.code, error.message)
@@ -273,9 +301,26 @@ export function createVoiceController({
 
   const onInput = (event: AudioInputEvent) => {
     switch (event.type) {
-      case 'speech_start':
+      case 'speech_start': {
+        // 답변을 들려주는 중에 말소리가 확정되면 끼어들기다: 확정 → 소리 멈춤 시간을 잰다
+        const confirmAt = d.now()
+        const barging = state.name === 'speaking' && state.turnId !== null ? state.turnId : null
+        const sid = sessionId
         send({ type: 'speech_start' })
+        if (barging !== null && sid !== null) {
+          finishBarge() // 앞 끼어들기의 말이 아직 답을 못 받았다
+          barge = {
+            id: newEventId(),
+            session_id: sid,
+            turn_id: barging,
+            occurred_at: new Date().toISOString(),
+            probe_to_confirm_ms:
+              event.rawStartAt === undefined ? null : Math.max(0, Math.round(confirmAt - event.rawStartAt)),
+            stop_ms: Math.max(0, Math.round(d.now() - confirmAt)),
+          }
+        }
         return
+      }
       case 'speech_end': {
         const id = `u${nextUtterance++}`
         utterances.set(id, { audio: event.audio, speechEndedAt: event.speechEndedAt, slot: newSlot() })
@@ -309,6 +354,7 @@ export function createVoiceController({
         profileLoaded,
       ])
       if (abort.signal.aborted || disposed) return
+      void d.bargeIn.flush() // 이전에 못 올린 끼어들기 기록
       sessionId = body.session.id
       greetingTurn = body.greeting.turn_id
       dispatch({
@@ -451,6 +497,7 @@ export function createVoiceController({
 
     /** 턴이 시작되기 전에 실패했다(서버가 말을 받지 않았다). 저장소 오류에도 이벤트는 꼭 보낸다 */
     const failedBeforeTurn = async (code: string, message: string | null) => {
+      if (code === 'no_speech') finishBarge(null, 'suspected_false') // 끼어든 말이 인식되지 않았다
       const quietly = (work: Promise<unknown>) => work.catch((error) => console.warn('보관함 오류', error))
       if (typed !== null) {
         // 끼어든 직후면 서버가 이전 답변을 아직 정리하는 중일 수 있다: 잠깐 뒤 다시 보낸다
@@ -528,6 +575,7 @@ export function createVoiceController({
               return
             case 'turn':
               turnId = event.turn_id
+              finishBarge(event.turn_id)
               if (measuring !== null) measuring.turnId = event.turn_id
               if (queued !== null) void dequeue(queued.id) // 서버가 받았다
               dispatch({ type: 'event', event })
@@ -797,6 +845,7 @@ export function createVoiceController({
       return true
     },
     async dispose() {
+      finishBarge()
       disposed = true
       startAbort?.abort()
       turnAbort?.abort()

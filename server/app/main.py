@@ -10,7 +10,7 @@ from starlette._utils import get_route_path
 from starlette.routing import Match, Mount
 from starlette.types import Scope
 
-from app.api import health, journal, latency, profile, sessions, usage
+from app.api import barge_in, health, journal, latency, profile, sessions, usage
 from app.api.events import register_event_schemas
 from app.client_config import load_client_config
 from app.config import Settings, settings
@@ -109,6 +109,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     api.include_router(profile.router)
     api.include_router(journal.router)
     api.include_router(latency.router)
+    api.include_router(barge_in.router)
     api.include_router(usage.router)
 
     app.include_router(api)

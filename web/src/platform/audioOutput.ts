@@ -3,6 +3,7 @@
 // 어떤 경우에도 대기열이 멈추지 않게 한다: 소리가 안 나는 상황(자동 재생 제한, 오디오 중단)에서도
 // 이벤트는 차례로 나가 대화가 이어진다.
 import type { AudioOutput, AudioOutputEvent, PlaybackItem, SoundName } from '../core/audio'
+import { metrics } from './metrics'
 
 interface Queued {
   index: number | null
@@ -27,7 +28,7 @@ export function createAudioOutput(
   let context: AudioContext | null = null
   let generation = 0 // stop()마다 올려서 그 전에 시작한 디코드·재생의 결과를 버린다
   let queue: Queued[] = []
-  let playing: { source: AudioBufferSourceNode; finish: () => void } | null = null
+  let playing: { source: AudioBufferSourceNode; index: number | null; finish: () => void } | null = null
   let pumping = false
   let disposed = false
   const effectBuffers = new Map<SoundName, Promise<AudioBuffer | null>>()
@@ -72,10 +73,11 @@ export function createAudioOutput(
       }
       source.buffer = buffer
       source.onended = finish
-      playing = { source, finish }
+      playing = { source, index, finish }
       try {
         source.connect(ctx.destination)
         source.start()
+        metrics.mark('playback_start', { index })
         emit({ type: 'started', index })
         // 오디오가 멈춰 끝 알림이 오지 않으면 넘어간다. 나중에 다시 켜져도 겹치지 않게 그 소리는 멈춘다
         timer = setTimeout(() => {
@@ -126,6 +128,7 @@ export function createAudioOutput(
     if (current) {
       try {
         current.source.stop()
+        metrics.mark('source_stop', { index: current.index })
       } catch {
         // 이미 끝났거나 시작 전이다
       }
