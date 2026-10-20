@@ -102,6 +102,21 @@ class Settings(BaseSettings):
         self.openai_api_key = next((SecretStr(v) for v in values if v), None)
         return self
 
+    # 웹 검색 API(Tavily, docs/tavily-search-plan.md). 키가 없으면 search_web 도구가
+    # 내장 WebSearch로 돌리라고 안내한다(서버는 시작한다).
+    # fast는 basic보다 1~3초 빠르고 크레딧이 같다
+    tavily_api_key: SecretStr | None = None
+    tavily_base_url: str = "https://api.tavily.com"
+    search_depth: Literal["fast", "ultra-fast", "basic"] = "fast"
+    search_timeout_s: float = 8
+    search_max_results: int = Field(default=5, ge=1, le=10)
+
+    @field_validator("tavily_api_key")
+    @classmethod
+    def _blank_search_key(cls, value: SecretStr | None) -> SecretStr | None:
+        """공백뿐인 키는 없는 것으로 본다."""
+        return value if value and value.get_secret_value().strip() else None
+
     # 대화 내용 이메일 발송(캐릭터의 send_email 도구). 호스트가 없으면 도구가 보내지 못한다고 알린다
     smtp_host: str | None = None
     smtp_port: int = 587
