@@ -5,7 +5,7 @@ import type { Metrics } from '../src/core/metrics.js'
 // 공통 계측 훅(window.__tt_metrics)과 끼어들기 기록(V2-M0-05): 답변을 들려주는 중에 사용자가 말하면
 // VAD 프레임·확정·소스 정지 표식이 남고, 끼어들기가 서버(barge_in_event)로 올라간다.
 // 가짜 마이크 파일은 시각을 못 정하므로(24초 주기) getUserMedia를 덮어써 원하는 때 발화를 넣는다.
-// 헤드리스에서는 에코 제거를 거치지 않는 소프트웨어 경로만 잰다(docs/V2/spec.md 6장 한계).
+// 헤드리스에서는 에코 제거를 거치지 않는 소프트웨어 경로만 잰다(삭제된 docs/V2/spec.md 6장 한계, git 이력).
 const WAV = readFileSync(new URL('./fixtures/utterance.wav', import.meta.url))
 const BYTES_PER_SECOND = 16_000 * 2
 // 파일은 무음 1초 + 문장 약 3초 + 무음 20초(make-utterance.sh): 문장 부분만 잘라 쓴다

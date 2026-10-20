@@ -1,6 +1,6 @@
 // 공통 계측 훅(V2-M0-05): VAD 프레임·확정·종료·재생 시작·소스 정지 시각을 메모리에 모은다.
 // 브라우저에서는 platform/metrics.ts가 window.__tt_metrics로 노출한다(Playwright 평가가 읽는다).
-// 정의: docs/V2/metrics-hook.md. 시계는 지연 측정과 같은 단조 시계(performance.now) ms다.
+// 정의: 삭제된 docs/V2/metrics-hook.md(git 이력). 시계는 지연 측정과 같은 단조 시계(performance.now) ms다.
 export interface MetricFrame {
   t: number // VAD가 프레임 하나(약 32ms)를 처리한 시각
   p: number // 음성 확률(0~1)

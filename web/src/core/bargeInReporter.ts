@@ -8,7 +8,7 @@ export interface BargeInRecord {
   probe_to_confirm_ms?: number | null
   stop_ms?: number | null
   played_ratio?: number | null
-  result: string // real·suspected_false·probe_reverted·user_marked_false (docs/V2/metrics-hook.md)
+  result: string // real·suspected_false·probe_reverted·user_marked_false (삭제된 docs/V2/metrics-hook.md, git 이력)
   next_turn_id?: string | null
 }
 

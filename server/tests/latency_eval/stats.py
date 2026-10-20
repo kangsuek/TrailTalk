@@ -114,7 +114,8 @@ def render_report(
         f"# 응답 지연 평가 ({date})",
         "",
         "실제 Claude CLI·OpenAI(인식·합성)를 쓰는 평가용 서버(임시 DB)로 잰다. "
-        "스크립트: `server/tests/latency_eval/run_eval.py`. 정의는 docs/V2/spec.md 3.2절.",
+        "스크립트: `server/tests/latency_eval/run_eval.py`. "
+        "정의는 삭제된 docs/V2/spec.md 3.2절(git 이력).",
         "",
         f"- 구독 사용량(5시간 창): 시작 {usage_before} → 끝 {usage_after} "
         "(새 평가 서버는 첫 응답 뒤에야 값이 생겨 시작 값은 비어 있을 수 있다. "

@@ -3,7 +3,6 @@
 - 요구사항·설계서: [docs/requirements-design.md](docs/requirements-design.md)
 - 구현 계획서: [docs/implementation-plan.md](docs/implementation-plan.md) — 작업은 계획서의 작업 ID(예: `S1-03`) 단위로 진행한다
 - 클라이언트 규약: [docs/client-contract.md](docs/client-contract.md)
-- V2(답변 시간 단축·자연스러운 끼어들기): [docs/V2/intent.md](docs/V2/intent.md) → [spec.md](docs/V2/spec.md) → [plan.md](docs/V2/plan.md) — V2 작업은 plan.md의 작업 ID(예: `V2-M0-04`) 단위로 진행한다
 
 위 문서는 자동으로 불러오지 않는다(`@` import 금지). 모두 `grep -n "^#"`으로 위치를 찾아 필요한 절만 범위를 지정해 읽는다(계획서는 2장 대시보드와 해당 단계 절). 새 세션은 [docs/handoff.md](docs/handoff.md)(현재 상태·다음 작업·검증 방법)를 먼저 읽는다.
 
@@ -42,7 +41,7 @@ web/               React + TypeScript + Vite
   src/api/         서버 API 클라이언트
   e2e/             Playwright
 shared/            효과음, 상태 전이 표, 클라이언트 설정 기본값
-docs/              설계서, 계획서, 규약, V2 문서(V2/: intent·spec·plan), 인계(handoff.md), 검증 기록(spikes/), 톤·추출 평가 리포트(eval/)
+docs/              설계서, 계획서, 규약, 인계(handoff.md), 검증 기록(spikes/), 톤·추출 평가 리포트(eval/)
 ```
 
 ## 명령
