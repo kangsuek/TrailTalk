@@ -24,7 +24,7 @@ import logging
 import os
 import time
 import weakref
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable
 from contextlib import aclosing
 from dataclasses import dataclass
 from datetime import datetime
@@ -126,9 +126,30 @@ class VoiceTiming:
     first_token_ms: int | None = None
     first_sentence_ms: int | None = None
     done_ms: int | None = None  # 마지막 이벤트를 보내기 직전(없으면 정리 때)
+    # 지연 개선용 세부 계측(동작에는 쓰지 않는다)
+    open_llm_ms: int | None = None
+    cli_resumed: bool | None = None
+    cli_age_ms: int | None = None
+    first_queued_ms: int | None = None  # 첫 문장이 분할돼 합성을 시작한 시각
+    first_synth_ms: int | None = None  # 첫 문장 합성 소요(동시 합성 대기 포함)
+    synth_wait_ms: int = 0  # 합성이 안 끝나 보내지 못하고 기다린 시간 합계
+    sentence_count: int = 0
+    reply_chars: int = 0
+    tool_count: int = 0
+    search_used: bool = False
+    cli_abort: str | None = None
 
     def elapsed_ms(self) -> int:
         return round((time.monotonic() - self.started) * 1000)
+
+
+async def _measure_first_synth(timing: VoiceTiming, synth: Awaitable[str | None]) -> str | None:
+    """첫 문장 합성 소요를 잰다(결과는 그대로 돌려준다)."""
+    start = time.monotonic()
+    try:
+        return await synth
+    finally:
+        timing.first_synth_ms = round((time.monotonic() - start) * 1000)
 
 
 class TurnNotFound(AppError):
@@ -675,12 +696,17 @@ async def _run_turn(
     pending: list[tuple[str, asyncio.Task[str | None] | None]] = []
     # 끼어들기 API가 진행 중인 턴으로 알아보게 바로 표시한다(CLI 세션은 연 뒤에 채운다)
     runtime.active_turn = (assistant_id, None)
+    used_cli: object | None = None  # 지연 계측용: 이번 턴에 쓴 CLI 세션
     try:
         with anyio.CancelScope(shield=True):
             await db.refresh(convo)  # 그사이 종료 API가 끝냈으면 CLI를 다시 띄우지 않는다
             if convo.status is SessionStatus.ENDED:
                 raise SessionEnded()
+            llm_start = time.monotonic()
             session, loaded, profile_style = await open_llm(app, db, convo)
+            used_cli = session
+            if timing is not None:
+                _note_cli(timing, session, llm_start)
         runtime.active_turn = (assistant_id, session)  # 끼어들기 API가 인터럽트를 보낸다
         # 음성 세션이면 문장마다 소리를 만든다(텍스트로 보낸 턴도 마찬가지)
         voice = profile_style if convo.mode is ConversationMode.VOICE else None
@@ -698,8 +724,12 @@ async def _run_turn(
         def queue(items: list[str], with_audio: bool = True) -> None:
             for item in items:
                 synth = voice and with_audio
-                task = asyncio.create_task(speech.synthesize(app, item, voice)) if synth else None
-                pending.append((item, task))
+                coro = speech.synthesize(app, item, voice) if synth else None
+                if timing is not None and timing.first_queued_ms is None:
+                    timing.first_queued_ms = timing.elapsed_ms()
+                    if coro is not None:
+                        coro = _measure_first_synth(timing, coro)
+                pending.append((item, asyncio.create_task(coro) if coro is not None else None))
 
         def head_ready() -> bool:
             """맨 앞 문장을 기다리지 않고 바로 보낼 수 있는가(소리가 없거나 합성이 끝남)."""
@@ -718,7 +748,10 @@ async def _run_turn(
             interrupted로 둔다."""
             nonlocal index, reply_saved, spoken
             item, task = pending[0]
+            wait_start = time.monotonic()
             audio = await task if task is not None else None
+            if timing is not None:
+                timing.synth_wait_ms += round((time.monotonic() - wait_start) * 1000)
             spoken = spoken or audio is not None
             pending.pop(0)
             sent.append(item)
@@ -737,8 +770,11 @@ async def _run_turn(
             reply_saved = True
             chunk = encode_sse(SentenceEvent(index=index, text=item, audio=audio))
             index += 1
-            if timing is not None and timing.first_sentence_ms is None:
-                timing.first_sentence_ms = timing.elapsed_ms()
+            if timing is not None:
+                timing.sentence_count = index
+                timing.reply_chars += len(item)
+                if timing.first_sentence_ms is None:
+                    timing.first_sentence_ms = timing.elapsed_ms()
             return chunk
 
         notice_sent = False
@@ -775,6 +811,9 @@ async def _run_turn(
                             parts.append("\n\n")
                         name = public_tool_name(event.name)
                         tool_names[event.tool_use_id] = name
+                        if timing is not None:
+                            timing.tool_count += 1
+                            timing.search_used = timing.search_used or name in _SEARCH_TOOLS
                         notice = None
                         if voice and name in _SEARCH_TOOLS and not spoken and not notice_sent:
                             # 아무 말 없이 검색을 시작했다: 기다리는 동안의 침묵을 안내로 메운다
@@ -884,7 +923,9 @@ async def _run_turn(
         runtime.current_user_turn_id = None
         runtime.active_turn = None
         if timing is not None:
+            timing.cli_abort = getattr(used_cli, "last_abort", None)
             await _finish_latency(db, assistant_id, timing)
+            _log_turn_latency(assistant_id, timing)
         # 도구가 쉬기·끝내기를 요청한 뒤 턴이 오류나 연결 끊김으로 끝났어도 요청은 반영한다
         # (정상 종료면 위에서 이미 꺼냈다). 끊김으로 취소된 중에도 끝까지 처리한다
         leftover = runtime.pop_requested_status()
@@ -910,6 +951,7 @@ async def cancel_turn(
         # 서버 재시작 뒤: 진행 중인 턴도 메모리 기록도 없다. 저장된 답변만 자른다(안내는 CLI가 새로
         # 열리므로 생략)
         await _trim_reply(db, session_id, turn_id, last_played, None)
+        await _record_cancel(db, turn_id, 0, "no_runtime")
         return
     running = runtime.active_turn is not None and runtime.active_turn[0] == turn_id
     if running and runtime.active_turn[1] is not None:  # CLI를 여는 중이면 인터럽트할 것이 없다
@@ -918,23 +960,46 @@ async def cancel_turn(
         except Exception:
             # 이미 끝나는 중이거나 프로세스가 없다. 턴이 끝나기를 기다린 뒤 자른다
             logger.warning("끼어들기 인터럽트 실패(session=%s)", session_id, exc_info=True)
+    wait_start = time.monotonic()
     try:
         async with asyncio.timeout(_CANCEL_WAIT_S):
             await runtime.turn_lock.acquire()
     except TimeoutError:
+        waited = round((time.monotonic() - wait_start) * 1000)
         if running:
             # 아직 끝나지 않은 턴을 지금 자르면 그 턴이 끝날 때 전체 답변으로 덮어쓴다
             logger.warning(
                 "끼어들기 중 턴 정리 대기 시간 초과, 자르지 않음(session=%s)", session_id
             )
+            await _record_cancel(db, turn_id, waited, "timeout_running")
             return
         # 다른(다음) 턴이 진행 중이다: 끝난 이 답변만 자르고 안내는 붙이지 않는다
         await _trim_reply(db, session_id, turn_id, last_played, None)
+        await _record_cancel(db, turn_id, waited, "timeout_idle")
         return
+    waited = round((time.monotonic() - wait_start) * 1000)
     try:
         await _trim_reply(db, session_id, turn_id, last_played, runtime)
     finally:
         runtime.turn_lock.release()
+    await _record_cancel(db, turn_id, waited, "trimmed")
+
+
+async def _record_cancel(db: AsyncSession, turn_id: str, waited_ms: int, outcome: str) -> None:
+    """끼어들기가 이 턴의 정리를 기다린 시간과 결과를 지연 행에 남긴다(지연 계측, 실패해도 계속)."""
+    logger.info("끼어들기 정리(turn=%s) wait=%d outcome=%s", turn_id, waited_ms, outcome)
+    try:
+        await db.execute(
+            update(TurnLatency)
+            .where(TurnLatency.turn_id == turn_id)
+            .values(cancel_wait_ms=waited_ms, cancel_outcome=outcome)
+            .execution_options(synchronize_session=False)
+        )
+        await db.commit()
+    except Exception:
+        logger.warning("취소 계측 기록 실패(turn=%s)", turn_id, exc_info=True)
+        with contextlib.suppress(Exception):
+            await db.rollback()
 
 
 async def _trim_reply(
@@ -1014,6 +1079,47 @@ async def _start_latency(
             await db.rollback()
 
 
+def _note_cli(timing: VoiceTiming, session: object, llm_start: float) -> None:
+    """CLI를 얻는 데 걸린 시간과 프로세스 상태를 기록한다(지연 계측, 동작 불변)."""
+    timing.open_llm_ms = round((time.monotonic() - llm_start) * 1000)
+    timing.cli_resumed = getattr(session, "resumed", None)
+    created_at = getattr(session, "created_at", None)
+    if created_at is not None:
+        timing.cli_age_ms = round((llm_start - created_at) * 1000)  # 음수: 이번 호출이 새로 만듦
+    if hasattr(session, "last_abort"):
+        session.last_abort = None  # 이 턴의 중단 결과만 남기려 비운다
+
+
+def _log_turn_latency(turn_id: str, timing: VoiceTiming) -> None:
+    """턴이 끝날 때 구간별 시간을 한 줄로 남긴다(지연 개선용 표본, 값 없음은 -)."""
+
+    def ms(value: int | None) -> str:
+        return "-" if value is None else str(value)
+
+    logger.info(
+        "턴 지연(turn=%s) upload=%s stt=%s open_llm=%s cli_age=%s resumed=%s first_token=%s "
+        "first_queued=%s first_synth=%s synth_wait=%s first_sentence=%s done=%s sentences=%d "
+        "chars=%d tools=%d search=%s abort=%s",
+        turn_id,
+        ms(timing.upload_ms),
+        ms(timing.stt_ms),
+        ms(timing.open_llm_ms),
+        ms(timing.cli_age_ms),
+        timing.cli_resumed,
+        ms(timing.first_token_ms),
+        ms(timing.first_queued_ms),
+        ms(timing.first_synth_ms),
+        timing.synth_wait_ms,
+        ms(timing.first_sentence_ms),
+        ms(timing.done_ms if timing.done_ms is not None else timing.elapsed_ms()),
+        timing.sentence_count,
+        timing.reply_chars,
+        timing.tool_count,
+        timing.search_used,
+        timing.cli_abort,
+    )
+
+
 async def _finish_latency(db: AsyncSession, turn_id: str, timing: VoiceTiming) -> None:
     """첫 글자·첫 문장·끝 시각을 채운다(정상·오류·끊긴 턴 모두). 실패해도 로그만 남긴다."""
     done_ms = timing.done_ms if timing.done_ms is not None else timing.elapsed_ms()
@@ -1026,6 +1132,17 @@ async def _finish_latency(db: AsyncSession, turn_id: str, timing: VoiceTiming) -
                     first_token_ms=timing.first_token_ms,
                     first_sentence_ms=timing.first_sentence_ms,
                     done_ms=done_ms,
+                    open_llm_ms=timing.open_llm_ms,
+                    cli_resumed=timing.cli_resumed,
+                    cli_age_ms=timing.cli_age_ms,
+                    first_queued_ms=timing.first_queued_ms,
+                    first_synth_ms=timing.first_synth_ms,
+                    synth_wait_ms=timing.synth_wait_ms,
+                    sentence_count=timing.sentence_count,
+                    reply_chars=timing.reply_chars,
+                    tool_count=timing.tool_count,
+                    search_used=timing.search_used,
+                    cli_abort=timing.cli_abort,
                 )
                 .execution_options(synchronize_session=False)
             )

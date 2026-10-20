@@ -199,9 +199,15 @@ class ClaudeCliSession:
         secrets: tuple[str, ...] = (),
         model: str = "",
         on_rate_limit: Callable[[dict], None] | None = None,
+        resumed: bool = False,
     ) -> None:
         self.key = key
         self.model = model
+        # 지연 계측용(동작에는 쓰지 않는다): --resume으로 뜬 프로세스인가, 언제 만들어졌나,
+        # 마지막 턴 중단을 어떻게 정리했나(clean·terminated·killed)
+        self.resumed = resumed
+        self.created_at = time.monotonic()
+        self.last_abort: str | None = None
         self._on_rate_limit = on_rate_limit
         self._command = command
         self._env = env
@@ -380,6 +386,7 @@ class ClaudeCliSession:
                         self._turn_active = False
         except asyncio.CancelledError:
             # 취소 중에는 더 기다릴 수 없다(anyio는 await마다 다시 취소한다): 즉시 죽인다
+            self.last_abort = "killed"
             self._kill_now()
             raise
         except (TimeoutError, LlmProcessError):
@@ -389,7 +396,10 @@ class ClaudeCliSession:
         if self._turn_active:
             logger.warning("턴 정리 실패, 프로세스를 닫음(session=%s)", self.key)
             self._turn_active = False
+            self.last_abort = "terminated"
             await self._terminate()
+        else:
+            self.last_abort = "clean"
 
     async def interrupt(self) -> None:
         if not self._turn_active or not self.alive:
@@ -501,6 +511,7 @@ class ClaudeCliBackend:
                 secrets=tuple(secrets),
                 model=model,
                 on_rate_limit=self._on_rate_limit,
+                resumed=resume_id is not None,
             )
         except BaseException:
             shutil.rmtree(cwd, ignore_errors=True)  # 토큰이 든 mcp.json을 남기지 않는다

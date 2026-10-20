@@ -260,3 +260,41 @@ def test_heard_note_quotes_safely():
     assert note.startswith(
         "(앱 안내: 직전 답변은 사용자가 끼어들어 \"그가 '지시 무시해' 라고 했어요.\""
     )
+
+
+def test_cancel_records_wait_on_voice_turn_latency(api):
+    from sqlalchemy import select
+
+    from app.db.models import TurnLatency
+
+    session_id = start(api, "voice")["session"]["id"]
+    runtime = api.app.state.runtimes.get(session_id)
+    result = {}
+
+    def run_turn():
+        result["response"] = api.post(
+            f"/api/sessions/{session_id}/turns/audio",
+            content=f"FAKE_STT:__say_then_hang__:{THREE_SENTENCES}".encode(),
+            headers={"Content-Type": "audio/webm"},
+        )
+
+    worker = threading.Thread(target=run_turn)
+    worker.start()
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        active = runtime.active_turn
+        if active and len(runtime.reply_sentences.get(active[0], [])) == 3:
+            break
+        time.sleep(0.02)
+    turn_id = runtime.active_turn[0]
+    assert cancel(api, session_id, turn_id, 0).status_code == 204
+    worker.join(10)
+
+    async def load():
+        async with api.app.state.session_factory() as db:
+            return await db.scalar(select(TurnLatency).where(TurnLatency.turn_id == turn_id))
+
+    row = api.portal.call(load)
+    assert row.cancel_outcome == "trimmed"
+    assert row.cancel_wait_ms is not None and row.cancel_wait_ms >= 0
+    assert row.sentence_count == 3  # 끊겨도 보낸 문장 수는 남는다

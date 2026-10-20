@@ -23,6 +23,12 @@ STAGES = (
     "done_ms",
     "speech_to_request_ms",
     "request_to_playback_ms",
+    # 세부 계측(지연 개선용)
+    "open_llm_ms",
+    "first_queued_ms",
+    "first_synth_ms",
+    "synth_wait_ms",
+    "cancel_wait_ms",
 )
 
 
@@ -39,6 +45,19 @@ class LatencyTurn(BaseModel):
     speech_to_request_ms: int | None
     request_to_playback_ms: int | None
     first_sound_notice: bool | None
+    open_llm_ms: int | None  # CLI를 얻는 데 걸린 시간
+    first_queued_ms: int | None  # 첫 문장이 분할돼 나온 시각(first_token → 이 시각이 생성 대기)
+    first_synth_ms: int | None  # 첫 문장 합성 소요
+    synth_wait_ms: int | None  # 합성을 기다리며 막힌 시간 합계
+    cancel_wait_ms: int | None  # 끼어들기가 이 턴 정리를 기다린 시간
+    cancel_outcome: str | None  # trimmed·timeout_running·timeout_idle·no_runtime
+    cli_resumed: bool | None  # CLI가 --resume으로 다시 뜬 프로세스
+    cli_age_ms: int | None  # 턴 시작 때 CLI 프로세스 나이(음수: 이 턴이 새로 띄움)
+    cli_abort: str | None  # 끊긴 턴의 CLI 정리 방식(clean·terminated·killed)
+    sentence_count: int | None
+    reply_chars: int | None
+    tool_count: int | None
+    search_used: bool | None
     # 말 끝 → 캐릭터 첫 소리(NFR-01). 웹 보고가 있을 때만
     total_ms: int | None
 
@@ -54,6 +73,10 @@ class LatencySummary(BaseModel):
     # 첫 소리가 답변 문장인 턴만(검색 안내 음성으로 시작한 턴을 뺀 값)
     total_ms_reply: Spread
     stages: dict[str, float | None]  # 단계별 중앙값
+    # 검색 턴은 따로 봐야 중앙값이 왜곡되지 않는다(전체 지연이 있는 턴만 센다)
+    search_count: int
+    total_ms_search: Spread
+    total_ms_no_search: Spread
 
 
 class LatencyOut(BaseModel):
@@ -96,6 +119,14 @@ async def latency(db: DbSession, limit: Annotated[int, Query(ge=1, le=500)] = 10
             created_at=row.created_at,
             audio_bytes=row.audio_bytes,
             first_sound_notice=row.first_sound_notice,
+            cancel_outcome=row.cancel_outcome,
+            cli_resumed=row.cli_resumed,
+            cli_age_ms=row.cli_age_ms,
+            cli_abort=row.cli_abort,
+            sentence_count=row.sentence_count,
+            reply_chars=row.reply_chars,
+            tool_count=row.tool_count,
+            search_used=row.search_used,
             **{stage: getattr(row, stage) for stage in STAGES},
             total_ms=_total(row),
         )
@@ -105,6 +136,8 @@ async def latency(db: DbSession, limit: Annotated[int, Query(ge=1, le=500)] = 10
     reply_totals = [
         t.total_ms for t in turns if t.total_ms is not None and not t.first_sound_notice
     ]
+    searched = [t.total_ms for t in turns if t.total_ms is not None and t.search_used]
+    unsearched = [t.total_ms for t in turns if t.total_ms is not None and not t.search_used]
     stages = {
         stage: _median([v for t in turns if (v := getattr(t, stage)) is not None])
         for stage in STAGES
@@ -116,5 +149,8 @@ async def latency(db: DbSession, limit: Annotated[int, Query(ge=1, le=500)] = 10
             total_ms=Spread(median=_median(totals), p90=_p90(totals)),
             total_ms_reply=Spread(median=_median(reply_totals), p90=_p90(reply_totals)),
             stages=stages,
+            search_count=len(searched),
+            total_ms_search=Spread(median=_median(searched), p90=_p90(searched)),
+            total_ms_no_search=Spread(median=_median(unsearched), p90=_p90(unsearched)),
         ),
     )

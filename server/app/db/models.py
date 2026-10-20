@@ -178,6 +178,23 @@ class TurnLatency(Base):
     request_to_playback_ms: Mapped[int | None] = mapped_column(Integer)
     # 첫 소리가 답변 문장이 아니라 검색 안내 음성이었다(검색 턴은 답변 지연이 가려진다)
     first_sound_notice: Mapped[bool | None] = mapped_column(Boolean)
+    # 지연 개선용 세부 계측(V2-M0-04 일부, 동작 불변). 시각은 위와 같은 기준이다
+    open_llm_ms: Mapped[int | None] = mapped_column(Integer)  # CLI를 얻는 데 걸린 시간
+    cli_resumed: Mapped[bool | None] = mapped_column(Boolean)  # CLI가 --resume으로 다시 뜬 프로세스
+    cli_age_ms: Mapped[int | None] = mapped_column(Integer)  # 이 턴 시작 때 CLI 프로세스 나이
+    first_queued_ms: Mapped[int | None] = mapped_column(Integer)  # 첫 문장이 분할돼 나온 시각
+    first_synth_ms: Mapped[int | None] = mapped_column(Integer)  # 첫 문장 합성 소요
+    synth_wait_ms: Mapped[int | None] = mapped_column(Integer)  # 합성을 기다리며 막힌 시간 합계
+    sentence_count: Mapped[int | None] = mapped_column(Integer)
+    reply_chars: Mapped[int | None] = mapped_column(Integer)  # 클라이언트에 보낸 문장 글자 수
+    tool_count: Mapped[int | None] = mapped_column(Integer)
+    search_used: Mapped[bool | None] = mapped_column(Boolean)
+    # 끊긴 턴: 서버가 CLI를 clean(인터럽트로 정리)·terminated(닫음)·killed(죽임) 중 어떻게 멈췄나
+    cli_abort: Mapped[str | None] = mapped_column(String(16))
+    # 끼어들기 API가 이 턴 정리를 기다린 시간과 결과
+    # (trimmed·timeout_running·timeout_idle·no_runtime)
+    cancel_wait_ms: Mapped[int | None] = mapped_column(Integer)
+    cancel_outcome: Mapped[str | None] = mapped_column(String(16))
 
 
 class Note(Base):

@@ -535,6 +535,10 @@ export interface components {
             stages: {
                 [key: string]: number | null;
             };
+            /** Search Count */
+            search_count: number;
+            total_ms_search: components["schemas"]["Spread"];
+            total_ms_no_search: components["schemas"]["Spread"];
         };
         /** LatencyTurn */
         LatencyTurn: {
@@ -565,6 +569,32 @@ export interface components {
             request_to_playback_ms: number | null;
             /** First Sound Notice */
             first_sound_notice: boolean | null;
+            /** Open Llm Ms */
+            open_llm_ms: number | null;
+            /** First Queued Ms */
+            first_queued_ms: number | null;
+            /** First Synth Ms */
+            first_synth_ms: number | null;
+            /** Synth Wait Ms */
+            synth_wait_ms: number | null;
+            /** Cancel Wait Ms */
+            cancel_wait_ms: number | null;
+            /** Cancel Outcome */
+            cancel_outcome: string | null;
+            /** Cli Resumed */
+            cli_resumed: boolean | null;
+            /** Cli Age Ms */
+            cli_age_ms: number | null;
+            /** Cli Abort */
+            cli_abort: string | null;
+            /** Sentence Count */
+            sentence_count: number | null;
+            /** Reply Chars */
+            reply_chars: number | null;
+            /** Tool Count */
+            tool_count: number | null;
+            /** Search Used */
+            search_used: boolean | null;
             /** Total Ms */
             total_ms: number | null;
         };

@@ -173,6 +173,52 @@ def test_summary_is_empty_without_measurements(api):
                 "done_ms": None,
                 "speech_to_request_ms": None,
                 "request_to_playback_ms": None,
+                "open_llm_ms": None,
+                "first_queued_ms": None,
+                "first_synth_ms": None,
+                "synth_wait_ms": None,
+                "cancel_wait_ms": None,
             },
+            "search_count": 0,
+            "total_ms_search": {"median": None, "p90": None},
+            "total_ms_no_search": {"median": None, "p90": None},
         },
     }
+
+
+def test_voice_turn_records_detail_stages(api, caplog):
+    caplog.set_level("INFO", logger="trailtalk.conversation")
+    session_id = start(api, "voice")["session"]["id"]
+    upload(api, session_id, f"__say__:{THREE}")
+    (row,) = rows(api)
+    assert row.sentence_count == 3
+    assert row.reply_chars == len("첫 문장입니다.") + len("둘째 문장이에요.") + len(
+        "셋째 문장이죠."
+    )
+    assert (row.tool_count, row.search_used) == (0, False)
+    for value in (row.open_llm_ms, row.first_queued_ms, row.first_synth_ms, row.synth_wait_ms):
+        assert value is not None and value >= 0
+    # 문장이 분할돼 나온 뒤에야 첫 문장을 보낸다
+    assert row.first_token_ms <= row.first_queued_ms <= row.first_sentence_ms
+    assert row.cli_resumed is False
+    assert row.cli_age_ms is not None
+    # 한 줄 요약 로그
+    lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith("턴 지연(")]
+    assert len(lines) == 1
+    assert f"turn={row.turn_id}" in lines[0] and "sentences=3" in lines[0]
+    assert "first_synth=" in lines[0] and "search=False" in lines[0]
+
+
+def test_latency_api_exposes_detail_and_search_summary(api):
+    session_id = start(api, "voice")["session"]["id"]
+    events = events_of(upload(api, session_id, f"__say__:{THREE}"))
+    turn_id = next(e.turn_id for e in events if e.type == "turn")
+    report(api, session_id, turn_id, 1000, 2000)
+    body = api.get("/api/latency").json()
+    (item,) = body["turns"]
+    assert item["sentence_count"] == 3 and item["search_used"] is False
+    assert item["first_queued_ms"] is not None and item["cli_resumed"] is False
+    assert body["summary"]["search_count"] == 0
+    assert body["summary"]["total_ms_no_search"]["median"] == 3000.0
+    assert body["summary"]["total_ms_search"]["median"] is None
+    assert body["summary"]["stages"]["first_synth_ms"] is not None
