@@ -1,7 +1,8 @@
 # TrailTalk V2 구현 계획서 (plan)
 
 > 상태: 초안(독립 리뷰 반영). [spec.md](spec.md)(8차 독립 리뷰 반영)의 요구사항을 마일스톤·작업 ID 단위로 나눴다. 의도는 [intent.md](intent.md)에 있다. V1 계획서([../implementation-plan.md](../implementation-plan.md))의 방식(작업 상태·체크박스·커밋 해시, 마일스톤 종료 체크리스트)을 따른다.
-> **방향 변경(2026-10-20, X13)**: 발화 끝 무음(1800ms)을 줄이지 않는다. 그래서 무음 단축(M1-09), 큐 뒷말 즉시 전송(M1-05·06), 취소 순서 변경(M1-03), `reason`(M1-04), 병합 지표(M1-14)는 **보류**하고, 첫 문장 짧게(M1-16)를 더했다. 목표는 첫 반응 약 2.2초 + 첫 답변 약 5.3초다. 근거는 spec.md 3.3·3.4절과 intent.md 3·5·7장.
+> **재개(2026-10-20, 시나리오 E, X11)**: 쉬며 이어 말한 6회 중 5회가 쪼개져 앞말에만 답하고 뒷말의 답이 13~27초 늦었다. 사용자가 **큐 뒷말 즉시 전송(병합)을 채택**해 M1-04·05·06·14를 다시 대기로 돌린다(첫 문장 도착 시점과 첫 소리 직후 `merge_window_ms` 안의 끼어들기를 `continued`로 취소). 무음 1800ms 유지(M1-09)·취소 순서 변경(M1-03)·M1b는 계속 보류다.
+> **방향 변경(2026-10-20, X13)**: 발화 끝 무음(1800ms)을 줄이지 않는다. 그래서 무음 단축(M1-09), 취소 순서 변경(M1-03)은 **보류**하고(병합 M1-04·05·06·14는 위 재개 참고), 첫 문장 짧게(M1-16)를 더했다. 목표는 첫 반응 약 2.2초 + 첫 답변 약 5.3초다. 근거는 spec.md 3.3·3.4절과 intent.md 3·5·7장.
 > 작업은 이 문서의 ID(예: `V2-M1-07`) 단위로 진행한다. 소스를 고치기 전에 Plan Mode로 계획을 세워 승인받는다. **서브에이전트 diff 리뷰는 작업별 커밋 전마다 한다.** 커밋·푸시는 리뷰 반영 뒤 자동으로 한다(저장소 `CLAUDE.md` 규칙, 2026-10-20 지시로 복원). 마일스톤 종료는 사용자 확인을 받는다.
 
 ## 1. 사용법
@@ -20,11 +21,11 @@
 | 마일스톤 | 상태 | 작업 | 선행 | 시작 | 완료 |
 |---|---|---|---|---|---|
 | [M0. 기준선](#3-m0--기준선) | 진행 중 | 4/9 | - | 2026-10-20 | |
-| [M1. 답변 시간 단축](#4-m1--답변-시간-단축) | 대기 | 0/10 (보류 6) | M0 | | |
+| [M1. 답변 시간 단축](#4-m1--답변-시간-단축) | 대기 | 0/14 (보류 2) | M0 | | |
 | [M1b. 뒷말 이어 붙이기(조건부)](#5-m1b--뒷말-이어-붙이기조건부) | 보류 | 0/1 | M1, X11 | | |
 | [M2. 자연스러운 끼어들기](#6-m2--자연스러운-끼어들기) | 대기 | 0/17 | M1 | | |
 | [M3. 보안(최소)](#7-m3--보안최소) | 대기 | 0/5 | M2 (X6에서 앞당길 수 있음) | | |
-| **전체** | | **4/41** (+ 조건부 1, 보류 6) | | | |
+| **전체** | | **4/45** (+ 조건부 1, 보류 2) | | | |
 
 - **현재 작업**: M0 진행 중(02·03·04·05 완료). 시나리오 A·C·D 측정 완료(F·E 대기)
 - **다음 작업**: 시나리오 F·E 측정(포트 8000 서버 재시작 후, 사용자 수행) → V2-M0-06 지연 평가 스크립트
@@ -39,7 +40,7 @@
 | X8 | 짧은 호응("응")으로 끼어들면 못 들은 핵심을 다시 말하지 않는 예외 | V2-M2-11 전 | 대기(예외를 두는 쪽 제안) |
 | X9 | 맞장구 문구 목록·빈도 | V2-M1-10 전 | 대기 |
 | X10 | 끝내기·쉬기 요청이 걸린 턴에서 끼어들기 | V2-M2-12 전 | 대기(`ended` 철회 미지원 제안) |
-| X11 | 뒷말 이어 붙이기(M1b) 채택 | - | **보류**(무음 유지로 병합 보류, 2026-10-20) |
+| X11 | 큐 뒷말 즉시 전송(병합) 채택, 뒷말 이어 붙이기(M1b) 채택 | - | **병합 채택(2026-10-20 사용자 결정, M1)**, M1b는 병합 효과를 잰 뒤 판단(보류) |
 | X12 | 일반 끼어들기에서 `cancel_wait_ms` 이득이 없으면 V2-M2-08·09의 범위를 CLI 재기동 회피·네트워크 불량 경로로 축소 | V2-M0-09 | 대기(2026-10-20 시나리오 D: 재생 중 취소 10회 중 8회 0ms, 최대 10ms, CLI 재기동 0회 → 축소 제안) |
 
 결정 완료: X13 무음 대기(1800ms) 유지(2026-10-20), X2 맞장구 허용, X3 이어폰 전제(스피커 미지원), X4 못 들은 핵심을 먼저 다시 말함, X7 커밋 방식(2026-10-19에 "리뷰 후 사용자 확인"으로 정했다가 2026-10-20에 자동 커밋·푸시로 복원).
@@ -86,17 +87,17 @@
 
 ## 4. M1 — 답변 시간 단축
 
-**목표**: 무음 대기(1.8초)를 유지한 채 첫 문장 합성·서버 턴 경로·맞장구로 말이 끝난 뒤 첫 소리까지의 시간을 줄인다(첫 반응 약 2.2초, 첫 답변 약 5.3초). 대상: V2-FR-04~08, 10, V2-NFR-01·02·11·12, 결정 X1·X9·X13. 보류: V2-FR-02, 03, 09(무음 단축·병합).
-**순서**: 07 → 08 → 16 → 01 → 02 → 10 → 11 → 12 → 13 → 15. 03·04·05·06·09·14는 보류(무음 유지). 서버만 고치고 시나리오 A로 바로 효과를 잴 수 있는 07·08·16을 먼저 한다. 맞장구(11·12)의 `ack_delay_ms`는 측정으로 정하고 NFR-02(2.2초)를 재확인한다.
+**목표**: 무음 대기(1.8초)를 유지한 채 첫 문장 합성·서버 턴 경로·맞장구로 말이 끝난 뒤 첫 소리까지의 시간을 줄인다(첫 반응 약 2.2초, 첫 답변 약 5.3초). 대상: V2-FR-03~08, 10, V2-NFR-01·02·11·12, 결정 X1·X9·X13. 보류: V2-FR-02, 09(무음 단축·서버 이어 붙이기). 병합 V2-FR-03은 2026-10-20 재개.
+**순서**: 07 → 08 → 16 → 01 → 02 → 04 → 05 → 06 → 10 → 11 → 12 → 13 → 14 → 15. 03·09는 보류(취소 순서 변경, 무음 단축). 병합(04·05·06)은 사용자가 고른 품질 문제라 맞장구보다 먼저 한다. 서버만 고치고 시나리오 A로 바로 효과를 잴 수 있는 07·08·16을 먼저 한다. 맞장구(11·12)의 `ack_delay_ms`는 측정으로 정하고 NFR-02(2.2초)를 재확인한다.
 
 | ID | 작업 | spec | 상태 | 산출물 | 커밋 |
 |---|---|---|---|---|---|
-| V2-M1-01 | `speech_end`에 실제 음성 길이 `speechMs` 추가(`AudioInput`가 음성 프레임 수로 계산), 전이 표 픽스처 형식. 병합은 보류하고 맞장구 `ack_min_speech_ms` 조건용으로만 유지 | 3.3, 5장 | 대기 | `audioInput.ts`, 머신 이벤트, `transitions.json` | |
-| V2-M1-02 | `client.turn` 설정 그룹과 신규 키(`ack_delay_ms`, `ack_min_speech_ms`, `ack_overlap_max_ms`. `merge_min_speech_ms`·`cancel_abort_wait_ms`는 병합·M1-03 보류로 제외): `client-defaults.json`, 서버 `ClientConfig` 검증, 웹 설정 타입, 지연 보고 `LatencyReport.ack_ms`와 `GET /api/latency` 요약 `ack_ms`(서버 스키마·`gen:api`) | 7장 | 대기 | `shared/client-defaults.json`, `client_config.py`, `schema.d.ts` | |
+| V2-M1-01 | `speech_end`에 실제 음성 길이 `speechMs` 추가(`AudioInput`가 음성 프레임 수로 계산), 전이 표 픽스처 형식. 병합 `merge_min_speech_ms`와 맞장구 `ack_min_speech_ms` 조건에 쓴다 | 3.3, 5장 | 대기 | `audioInput.ts`, 머신 이벤트, `transitions.json` | |
+| V2-M1-02 | `client.turn` 설정 그룹과 신규 키(`ack_delay_ms`, `ack_min_speech_ms`, `ack_overlap_max_ms`, 병합용 `merge_min_speech_ms`·`merge_window_ms`. `cancel_abort_wait_ms`는 M1-03 보류로 제외): `client-defaults.json`, 서버 `ClientConfig` 검증, 웹 설정 타입, 지연 보고 `LatencyReport.ack_ms`와 `GET /api/latency` 요약 `ack_ms`(서버 스키마·`gen:api`) | 7장 | 대기 | `shared/client-defaults.json`, `client_config.py`, `schema.d.ts` | |
 | V2-M1-03 | **보류(우선순위 낮음, 시나리오 D에서 CLI 재기동 0회)** 취소 순서 변경: 취소 API 먼저, 응답 또는 `cancel_abort_wait_ms` 뒤 연결 닫기. `{abort, cancelled, turnId}` 핸들, 핸들러·`catch` 맨 앞 검사, 지연 close `Set`. M1에서는 모든 턴이 취소 완료를 기다림. 해당 규약 문장 개정 | 3.3 6번, 4.4 | 보류 | `voiceController.ts`, Vitest, `client-contract.md` | |
-| V2-M1-04 | **보류(병합 보류)** 취소 API `reason`(`barge_in`·`continued`)과 `CONTINUED_UTTERANCE`: `TurnCancel` 스키마, `cancel_turn`→`_trim_reply`→안내 선택, 스냅샷 갱신, 톤 평가 | 3.3 3번 | 보류 | `sessions.py`, `conversation.py`, `persona/rules.py`, 스냅샷, `gen:api` | |
-| V2-M1-05 | **보류** 큐 뒷말 즉시 전송 (a) 데이터: 머신 `queuedSpeechMs`·`typedTurn`, `LocalQueue.speechMs?`, `queueUtterance`·`queue_sent`(`nextSpeechMs`) 갱신 규칙 | 3.3 1번, 큐 항목 음성 길이 | 보류 | `sessionMachine.ts`, `localQueue.ts`, `transitions.json`, Vitest | |
-| V2-M1-06 | **보류** 큐 뒷말 즉시 전송 (b) 동작: `processing`의 `sentence` 분기(`userSpeaking` 분기 뒤), 명령 순서(`stopPlayback`, `setVadMode normal`, `cancelTurn`, `clearIdleTimer`, `sendQueued`), 병합 직후 서버 일시 오류 짧은 재시도, `tap`·끝내기·정리·`idle_timeout` 때 V1 큐 규칙, 병합 계측(`queued_at_first_sentence`·`second_utterance_phase`·`merged`를 지연 보고에 실어 보냄), 전이 표 사례 | 3.3 2~5번 | 보류 | 머신, `voiceController.ts`, `LatencyReport`, `transitions.json` | |
+| V2-M1-04 | 취소 API `reason`(`barge_in`·`continued`)과 `CONTINUED_UTTERANCE`: `TurnCancel` 스키마, `cancel_turn`→`_trim_reply`→안내 선택(`continued`는 `played_ratio`를 무시하고 `INTERRUPTED_NOTHING`·4.6 대체 규칙보다 우선, 짧은 호응 문구 포함), 스냅샷 갱신, 톤 평가 | 3.3 3번 | 대기 | `sessions.py`, `conversation.py`, `persona/rules.py`, 스냅샷, `gen:api` | |
+| V2-M1-05 | 큐 뒷말 즉시 전송 (a) 데이터: 머신 `queuedSpeechMs`·`typedTurn`, `LocalQueue.speechMs?`, `queueUtterance`·`queue_sent`(`nextSpeechMs`) 갱신 규칙 | 3.3 1번, 큐 항목 음성 길이 | 대기 | `sessionMachine.ts`, `localQueue.ts`, `transitions.json`, Vitest | |
+| V2-M1-06 | 큐 뒷말 즉시 전송 (b) 동작(첫 `sentence` 도착 시점과, 첫 소리 직후 `merge_window_ms` 안·`lastPlayed == -1`인 말소리 끼어들기를 `continued`로 취소): `processing`의 `sentence` 분기(`userSpeaking` 분기 뒤), 명령 순서(`stopPlayback`, `setVadMode normal`, `cancelTurn`, `clearIdleTimer`, `sendQueued`), 병합 직후 서버 일시 오류 짧은 재시도, `tap`·끝내기·정리·`idle_timeout` 때 V1 큐 규칙, 병합 계측(`queued_at_first_sentence`·`second_utterance_phase`·`merged`를 지연 보고에 실어 보냄), 전이 표 사례, `turn_latency` 병합 컬럼 마이그레이션(작업 시작 때 `alembic heads`로 번호 확인, M1-08과 겹치지 않게) | 3.3 2~5번 | 대기 | 머신, `voiceController.ts`, `LatencyReport`, `transitions.json` | |
 | V2-M1-07 | 서버 턴 경로 (a): 합성 완료 문장을 다음 CLI 이벤트와 무관하게 전송(`head_ready`), 취소 시 합성 큐 비우기 | 3.5 | 대기 | `conversation.py`, 서버 테스트 | |
 | V2-M1-08 | 서버 턴 경로 (b): 첫 문장 조기 분할 옵션, `turn.spoken_sentences` 저장과 마이그레이션(기존 행 NULL → 재분할 폴백) | 3.5 | 대기 | `voice/sentences.py`, `conversation.py`, 마이그레이션 | |
 | V2-M1-09 | **보류(무음 유지, X13)** 무음 대기 단축 시험: 고정값(800~1000)과 동적 방식 비교, 이어 말하기(S3-33) 회귀 확인 | 3.3 | 보류 | `client-defaults.json`, 측정 | |
@@ -104,7 +105,7 @@
 | V2-M1-11 | 맞장구 클라이언트 (a) 출력·머신: `AudioOutput` 항목 `kind`·`item_done`·`started`의 `kind`, 머신 `ackPlaying`·`ack_done`, 재생 모드 안전장치, 전이 표 사례 | 5장 | 대기 | `audioOutput.ts`, `sessionMachine.ts`, `transitions.json` | |
 | V2-M1-12 | 맞장구 클라이언트 (b) 컨트롤러·UI: `ack_delay_ms` 타이머, 첫 문장이 먼저 큐에 있거나 `userSpeaking`·짧은 말이면 건너뜀, `ack_overlap_max_ms`, `ack_ms` 보고, 세션 시작 때 acks 수신·디코드와 실패 폴백(맞장구 생략), 설정 화면 스위치(폰 우선, 44px 터치) | 5장 | 대기 | `voiceController.ts`, `SettingsScreen`, 웹 테스트 | |
 | V2-M1-13 | 스트리밍 TTS·발화 선업로드 측정(이득 0.5초 미만이면 제외) | 3.5, FR-07·08 | 대기 | 측정 리포트 | |
-| V2-M1-14 | **보류(병합 보류)** 병합 지표 정리와 X11 판단 자료: 적중률(`merged`·`queued_at_first_sentence` 비율), 뒷말 `turn` 전/후, 뒷말 응답 지연. 현장 산책 데이터가 며칠 쌓여야 하므로 판단은 현장 데이터 확보 뒤 | 3.3 조건부 안, 6장 | 보류 | `docs/eval/` 리포트 | |
+| V2-M1-14 | 병합 지표 정리와 M1b(X11) 판단 자료: 적중률(`merged`·`queued_at_first_sentence` 비율), 뒷말 `turn` 전/후, 뒷말 응답 지연, 시나리오 E 재측정(쪼개짐 5/6 → 개선). 현장 산책 데이터가 며칠 쌓여야 하므로 M1b 판단은 현장 데이터 확보 뒤 | 3.3 조건부 안, 6장 | 대기 | `docs/eval/` 리포트 | |
 | V2-M1-15 | 재측정과 종료: 지연 평가 재실행, 톤 평가 재실행, 이어 말하기 E2E, 구독 사용량 보고, X1 결정 자료, 규약 개정 확인 | 3.4, 8장 | 대기 | `docs/eval/latency-<날짜>.md`, `persona-<날짜>.md`, `client-contract.md` | |
 | V2-M1-16 | 첫 문장 짧게(V2-FR-10): `persona/rules.py`에 앱 규칙 추가, 스냅샷 갱신, 톤 평가, 시나리오 A로 첫 문장 글자 수·합성 시간 변화 측정 | 3.5, FR-10 | 대기 | `persona/rules.py`, 스냅샷, 측정 | |
 
@@ -113,9 +114,9 @@
 - V2-M1-01: `speech_end`가 `speechMs`를 싣고 전이 표 사례가 통과
 - V2-M1-02: 서버가 신규 키를 검증하고 `LatencyReport`가 `ack_ms`를 받으며 웹 타입이 갱신됨(`gen:api -- --check` 통과)
 - V2-M1-03: (보류) 취소 응답 전 도착한 늦은 `sentence`·`done`·`tool.notice`가 재생·말풍선·VAD에 영향 없음, 취소 API 즉시 실패 때 바로 닫기, `dispose`·종료 때 `Set` 정리, `cli_restarted` 감소를 M0 기준선과 비교
-- V2-M1-04: (보류) `reason` 생략이 현행 동작, `continued`면 `INTERRUPTED_NOTHING` 대신 `CONTINUED_UTTERANCE`, 안내가 빠지는 경로를 알려진 한계로 문서화
-- V2-M1-05: (보류) `queued == 1`일 때 `queuedSpeechMs` 갱신, `queue_sent` 후 값 갱신·초기화, 값이 없는 옛 항목은 병합하지 않음
-- V2-M1-06: (보류) `queued == 1`·`!sendingQueued`·`!typedTurn`·`queuedSpeechMs ≥ merge_min_speech_ms`일 때만 병합, 병합 직후 `tap` 무시, 전이 표 사례(병합, 짧은 뒷말, `queued > 1`, `speaking` 뒤, 오프라인 큐)와 병합 계측 값이 `turn_latency`에 기록됨
+- V2-M1-04: `reason` 생략이 현행 동작, `continued`면 `INTERRUPTED_NOTHING` 대신 `CONTINUED_UTTERANCE`, 안내가 빠지는 경로를 알려진 한계로 문서화
+- V2-M1-05: `queued == 1`일 때 `queuedSpeechMs` 갱신, `queue_sent` 후 값 갱신·초기화, 값이 없는 옛 항목은 병합하지 않음
+- V2-M1-06: `queued == 1`·`!sendingQueued`·`!typedTurn`·`queuedSpeechMs ≥ merge_min_speech_ms`일 때만 병합, 병합 직후 `tap` 무시, 전이 표 사례(병합, 짧은 뒷말, `queued > 1`, `speaking` 뒤 늦은 말, 첫 소리 직후 `continued` 취소, 오프라인 큐)와 병합 계측 값이 `turn_latency`에 기록됨
 - V2-M1-07: 합성이 끝난 문장이 다음 이벤트를 기다리지 않음, 취소 후 남은 합성이 버려짐
 - V2-M1-08: 조기 분할이 톤 평가에 반영, 취소 때 `last_played` 번호가 `spoken_sentences`와 일치, 서버 재시작 폴백 동작
 - V2-M1-09: (보류) 이어 말하기 E2E 3회 연속 통과하는 값 확정
@@ -123,7 +124,7 @@
 - V2-M1-11: 맞장구 중 사용자 발화 시 즉시 정지·서버 취소 없음, `kind`가 `started`·`item_done`에 실림, `ackPlaying` 해제(모든 `enterListening` 경로 포함)
 - V2-M1-12: 첫 문장이 먼저 큐에 있으면 맞장구를 건너뜀, `request_to_playback_ms`는 맞장구 제외, 맞장구를 설정으로 끌 수 있음, acks 수신 실패 시 맞장구만 생략, `ack_ms`가 `turn` 수신 후 해당 턴 보고에 실림
 - V2-M1-13: 이득 수치와 도입 여부가 리포트에 있음
-- V2-M1-14: (보류) 지표 표와 X11 권고, 현장 데이터 수집 기간 기록
+- V2-M1-14: 지표 표와 M1b(X11) 권고, 시나리오 E 재측정 비교, 현장 데이터 수집 기간 기록
 - V2-M1-15: 아래 완료 기준 표가 채워짐
 - V2-M1-16: 첫 문장 글자 수·합성 시간이 줄고 톤 평가 20개 중 18개 이상, 스냅샷 차이 검토
 
@@ -134,8 +135,8 @@
 | 첫 답변 지연 중앙값 | 5.3초 이내(무음 1.8 유지, X1 확정값, 30턴 이상. 기준선 약 6.0) | | |
 | 첫 반응 지연 중앙값(맞장구) | 2.2초 이내 | | |
 | 이어 말하기(S3-33) E2E | 3회 연속 통과 | | |
-| (보류) 큐 뒷말 즉시 전송 | - | | |
-| (보류) 병합 지표 기록 | - | | |
+| 큐 뒷말 즉시 전송(시나리오 E 재측정) | 6회 중 쪼개짐 1회 이하(기준선 5회) | | |
+| 병합 지표 기록 | `merged` 등이 `turn_latency`에 기록 | | |
 | 톤 평가 | 20개 중 18개 이상 | | |
 | V1 테스트 | 전체 통과 | | |
 
@@ -150,7 +151,7 @@
 ## 6. M2 — 자연스러운 끼어들기
 
 **목표**: 제니가 말하는 중 말하면 즉시 멈추고, 끼어든 말을 놓치지 않고, 끊긴 뒤 못 들은 핵심을 먼저 다시 말한다. 대상: V2-FR-11~20, V2-NFR-03~10, 결정 X8·X10.
-**순서**: 01(설정 값) → 05·02 → 03 → 04 → 06 → 07(폰 스모크) → 08 → 09 → 10(M1-08 필요) → 11(X8. M1-04 보류로 `reason` 없이 진행) → 12·13(X10) → 14 → 15 → 16 → 17. 서버 취소 대기(08)와 컨트롤러 정책(09)은 같은 마일스톤에서 함께 넣는다. 임계값 조정과 평가 반복이 많아 끝을 알기 어려우므로, 실험실 오탐 0회가 안 나오면 조정 5회 뒤 멈추고 사용자에게 보고한다.
+**순서**: 01(설정 값) → 05·02 → 03 → 04 → 06 → 07(폰 스모크) → 08 → 09 → 10(M1-08 필요) → 11(X8. M1-04의 `reason: continued`와 4.6절 대체 규칙의 우선순위를 확인하며 진행) → 12·13(X10) → 14 → 15 → 16 → 17. 서버 취소 대기(08)와 컨트롤러 정책(09)은 같은 마일스톤에서 함께 넣는다. 임계값 조정과 평가 반복이 많아 끝을 알기 어려우므로, 실험실 오탐 0회가 안 나오면 조정 5회 뒤 멈추고 사용자에게 보고한다.
 
 | ID | 작업 | spec | 상태 | 산출물 | 커밋 |
 |---|---|---|---|---|---|
@@ -265,12 +266,12 @@
 |---|---|
 | V2-FR-01 | V2-M0-04, V2-M0-06, V2-M0-09, V2-M1-15 |
 | V2-FR-02 | (보류) V2-M1-09 |
-| V2-FR-03 | (보류) V2-M1-03~06 |
+| V2-FR-03 | V2-M1-01, V2-M1-04~06, V2-M1-14 (V2-M1-03은 보류) |
 | V2-FR-04 | V2-M1-07 |
 | V2-FR-05 | V2-M1-07, V2-M1-08 |
 | V2-FR-06 | V2-M1-01, V2-M1-02, V2-M1-10, V2-M1-11, V2-M1-12 |
 | V2-FR-07, 08 | V2-M1-13 |
-| V2-FR-09 | (보류) V2-M1-14, V2-M1b-01 |
+| V2-FR-09 | (보류) V2-M1-14 판단 뒤 V2-M1b-01 |
 | V2-FR-10 | V2-M1-16 |
 | V2-FR-11 | V2-M2-02, V2-M2-05, V2-M2-06 |
 | V2-FR-12 | V2-M2-01, V2-M2-02, V2-M2-03 |
@@ -299,7 +300,7 @@
 
 - **마일스톤 안의 순서**는 각 절 머리에 적었다(M0: 02 → 04·05 → 06·07·08 → 09, M1: 07 → 08 → 16 → 01 → 02 → 10 → 11 → 12 → 13 → 15, M2: 01 → 05·02 → … → 17).
 - **M1에서 서버의 취소 대기(M2) 전에는 모든 턴이 취소 완료를 기다린다**(spec 4.4절). 이를 M2에서 바꿀 때 서버 완화(V2-M2-08)와 컨트롤러 정책(V2-M2-09)을 같은 마일스톤에서 함께 넣는다.
-- **`turn_latency` 컬럼은 V2-M0-04에서 한 번에 만든다.** spec 7장은 M0·M1로 나눴지만 컬럼만 앞당기고 값을 쓰는 작업은 각 마일스톤에 둔다. 이렇게 하면 마이그레이션 충돌이 없다.
+- **`turn_latency` 컬럼**: 지연 계측 컬럼은 V2-M0-04(마이그레이션 0016·0017)에서 만들었다. 병합 컬럼(`merged` 등)은 병합 재개로 V2-M1-06에서 새 마이그레이션으로 더한다(시작 때 `alembic heads` 확인).
 - **전이 표를 바꾸는 작업**(V2-M1-01·11, V2-M2-06·12·13)은 같은 커밋에서 `transitions.json`과 Vitest를 고친다. 의도적으로 바뀌는 사례는 회귀가 아니다.
 - **스냅샷을 바꾸는 작업**(V2-M1-10·16, V2-M2-11·12)은 톤 평가를 다시 돌린다.
 - **규약 개정**은 동작을 바꾸는 작업의 커밋에서 해당 문장을 같이 고치는 것이 원칙이다(예: 보류 중인 V2-M1-03). 나머지는 V2-M1-15·V2-M2-17에서 일괄 확인한다.
@@ -315,3 +316,4 @@
 | 2026-10-19 | 독립 리뷰 반영: 작업 분할(38→46+1), 순서 제약, 측정 장치 보강, 맞장구 UI, `barge_in_event` 확장, 폰 스모크, 결정 게이트 X12, 공통 체크리스트 보강 |
 | 2026-10-20 | X5(포함)·X6(뒤) 결정, M0 시작. V2-M0-02·03 완료: 재측정 pytest 710(4 skip)·Vitest 292·E2E 15 통과, `CLAUDE.md` V2 링크·커밋 규칙·마이그레이션 위치 보강 |
 | 2026-10-20 | 폰 실측(시나리오 A·C·D) 반영, 방향 변경(X13): 무음 1800ms 유지. M1-03·04·05·06·09·14 보류, M1-16(첫 문장 짧게) 추가, M1 순서·완료 기준·추적표·X1(첫 반응 약 2.2초 + 첫 답변 약 5.3초)·X11·X12 갱신. 작업 수 46→41(+조건부 1, 보류 6) |
+| 2026-10-20 | 시나리오 E·F 실측 반영, 사용자 결정(X11): 큐 뒷말 즉시 전송(병합) 채택. M1-04·05·06·14를 보류에서 대기로, 순서 02 → 04 → 05 → 06, `merge_window_ms`(첫 소리 직후 끼어들기도 `continued`)를 더함. 작업 수 41→45(+조건부 1, 보류 2) |
