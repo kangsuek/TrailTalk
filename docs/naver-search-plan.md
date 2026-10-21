@@ -60,7 +60,7 @@
 | 마일스톤 | 내용 | 작업 | 상태 |
 |---|---|---|---|
 | M1 | 어댑터 | NV-01~03 | 완료 |
-| M2 | MCP 도구·화면 연동 | NV-04~06 | 대기 |
+| M2 | MCP 도구·화면 연동 | NV-04~06 | 완료 |
 | M3 | 규칙·평가·폰 검증 | NV-07~09 | 대기 |
 
 ### M1. 어댑터
@@ -75,9 +75,9 @@
 
 | ID | 작업 | 완료 조건 |
 |---|---|---|
-| NV-04 | **도구**: `search_naver(query, recency, site)`를 `search_USA`와 같은 틀(안내 문구, 5건, 발행일, 인젝션 방어 문구)로 추가. 오류는 `ToolError`로 내장 `WebSearch` 폴백 안내. 공개 이름 `web_search` 매핑 | `test_mcp.py` |
-| NV-05 | **대화 흐름 테스트**: 가짜 CLI 녹화 `search_naver.jsonl` 추가, 출처 저장·안내 음성·일지 인용 확인 | 서버 테스트 통과 |
-| NV-06 | **실제 CLI 확인**: 실서버로 `search_naver` 호출과 구조화 결과 변환 확인(`search_USA`와 같은 방식) | 호출·요약 확인 |
+| NV-04 | **도구**(완료): `search_naver(query, recency, site)`를 `search_USA`와 같은 틀(안내 문구, 5건, 발행일, 인젝션 방어 문구)로 추가. 오류는 `ToolError`로 내장 `WebSearch` 폴백 안내. 공개 이름 `web_search` 매핑 | `test_mcp.py` |
+| NV-05 | **대화 흐름 테스트**(완료): 가짜 CLI 녹화 `search_naver.jsonl` 추가, 출처 저장·안내 음성·일지 인용 확인 | 서버 테스트 통과 |
+| NV-06 | **실제 CLI 확인**(완료): 실서버로 `search_naver` 호출과 구조화 결과 변환 확인(`search_USA`와 같은 방식). 입력 `recency=day`, `site=ytn.co.kr`, 요약 `web_search`(출처 ytn.co.kr), 오늘 개장 소식이 답변에 반영됨 | 호출·요약 확인 |
 
 ### M3. 규칙·평가·폰 검증
 

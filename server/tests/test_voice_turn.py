@@ -437,6 +437,20 @@ def test_search_usa_without_words_gets_notice(fake_cli, home, monkeypatch):
     assert starts[0].notice is not None and starts[0].notice.audio == SILENCE_B64
 
 
+def test_search_naver_without_words_gets_notice(fake_cli, home, monkeypatch):
+    """국내 뉴스 검색 도구도 말없이 시작하면 안내 음성이 붙는다."""
+    monkeypatch.setenv("FAKE_CLAUDE_FIXTURE", "search_naver")
+    with TestClient(create_app(voice_settings(fake_cli))) as api:
+        session_id = start(api, "voice")["session"]["id"]
+        api.app.state.tts = FakeTts()
+        events = events_of(
+            api.post(f"/api/sessions/{session_id}/turns", json={"text": "국내 증시 알려줘"})
+        )
+    starts = [e for e in events if e.type == "tool" and e.phase == "start"]
+    assert starts and starts[0].name == "web_search"
+    assert starts[0].notice is not None and starts[0].notice.audio == SILENCE_B64
+
+
 def test_notice_is_cached(fake_cli, home, monkeypatch):
     monkeypatch.setenv("FAKE_CLAUDE_FIXTURE", "web_search")
     with TestClient(create_app(voice_settings(fake_cli))) as api:

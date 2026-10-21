@@ -132,8 +132,9 @@ EVENT_MODELS = (TranscriptEvent, TurnEvent, SentenceEvent, ToolEvent, DoneEvent,
 
 _MCP_PREFIX = "mcp__trailtalk__"
 _BUILTIN_TOOL_NAMES = {"WebSearch": "web_search", "WebFetch": "web_fetch"}
-# 검색 API 도구(search_USA)는 내장 검색과 같은 이름·요약으로 보낸다(클라이언트 화면·안내 음성 공용)
-_MCP_RENAMES = {"search_USA": "web_search"}
+# 검색 API 도구(search_USA, search_naver)는 내장 검색과 같은 이름·요약으로 보낸다
+# (클라이언트 화면·안내 음성 공용)
+_MCP_RENAMES = {"search_USA": "web_search", "search_naver": "web_search"}
 
 
 def public_tool_name(cli_name: str) -> str:

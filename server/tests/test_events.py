@@ -63,6 +63,7 @@ def test_multiline_text_stays_single_data_line():
         ("mcp__trailtalk__save_note", "save_note"),
         ("mcp__trailtalk__end_session", "end_session"),
         ("mcp__trailtalk__search_USA", "web_search"),  # 검색 API 도구는 내장 검색과 같은 이름
+        ("mcp__trailtalk__search_naver", "web_search"),
         ("WebSearch", "web_search"),
         ("WebFetch", "web_fetch"),
         ("SomethingElse", "SomethingElse"),

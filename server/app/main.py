@@ -24,6 +24,7 @@ from app.llm.usage import UsageTracker
 from app.mcp.server import mount_mcp
 from app.request_context import RequestContextMiddleware, configure_logging
 from app.services import conversation
+from app.services.naver import NaverNewsSearch
 from app.services.runtime import RuntimeRegistry
 from app.services.search import TavilySearch
 from app.voice.fake import FakeStt, FakeTts
@@ -73,6 +74,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
                 app.state.stt = OpenAiStt.from_settings(http, app_settings)
                 app.state.tts = OpenAiTts.from_settings(http, app_settings)
             app.state.search = TavilySearch.from_settings(http, app_settings)
+            app.state.naver = NaverNewsSearch.from_settings(http, app_settings)
             idle_watch = asyncio.create_task(idle.run(app), name="idle-watch")
             try:
                 async with mcp.session_manager.run():

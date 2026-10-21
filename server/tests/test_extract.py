@@ -754,6 +754,22 @@ def test_search_usa_sources_become_citations(api, monkeypatch):
     ]
 
 
+def test_search_naver_sources_become_citations(api, monkeypatch):
+    """국내 뉴스 검색 도구로 찾은 링크도 일지 인용이 된다."""
+    monkeypatch.setenv("FAKE_CLAUDE_FIXTURE", "search_naver")
+    session_id = start(api)["session"]["id"]
+    turn(api, session_id, "YTN 증시 소식 알려줘")
+    end(api, session_id)
+    detail = api.get(f"/api/journal/{session_id}").json()
+    links = [t for t in turns_of(api, session_id) if t.sources][0].sources
+    assert detail["summary_cites"] == [[1, 2], [2], [3]]
+    assert [c["url"] for c in detail["citations"]] == [
+        links[0]["url"],
+        links[1]["url"],
+        links[8]["url"],
+    ]
+
+
 def test_journal_without_search_has_no_citations(api):
     session_id = start(api)["session"]["id"]
     turn(api, session_id, "바나나는?")
