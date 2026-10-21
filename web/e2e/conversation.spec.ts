@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { expectLastBubbleAboveDock } from './helpers.js'
 
-// 가짜 CLI 녹화(search_web.jsonl, web_search.jsonl을 검색 API 도구 모양으로 바꾼 것) 순서: 인사말 → 웹 검색 → 페이지 읽기 → 메모 저장
+// 가짜 CLI 녹화(search_usa.jsonl, web_search.jsonl을 검색 API 도구 모양으로 바꾼 것) 순서: 인사말 → 웹 검색 → 페이지 읽기 → 메모 저장
 test('텍스트 대화: 인사말, 문장 말풍선, 도구 알림, 끝내기', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByRole('status')).toHaveText('서버 연결됨')

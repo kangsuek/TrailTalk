@@ -26,7 +26,7 @@
 | `error` | `code`, `message` | 스트림 도중 오류. 코드는 7절 공통 오류와 같다. 이 뒤에는 이벤트가 오지 않는다 |
 | `transcript` | `text` | 음성 턴에서만 `turn` 바로 앞에 오는 첫 이벤트. 인식한 글(사용자 메시지로 저장된 글)이다 |
 
-**도구 이름(`name`)**: `send_email`(대화를 설정한 이메일 주소로 보내기, FR-21), `save_note`, `search_notes`, `search_conversations`(지난 대화 전체의 주고받은 말 찾기, S3-28. 음성 대화에서 말없이 시작하면 `web_search`처럼 안내 음성 `notice`가 붙는다), `summarize_session`, `pause_session`, `end_session`, `set_nickname`, `set_model`(대화 모델 바꾸기, S3-31), `web_search`(내장 웹 검색 또는 검색 API 도구 `search_web`. 서버가 둘을 같은 이름·같은 `web_search` 요약으로 보내므로 클라이언트는 구분하지 않는다), `web_fetch`.
+**도구 이름(`name`)**: `send_email`(대화를 설정한 이메일 주소로 보내기, FR-21), `save_note`, `search_notes`, `search_conversations`(지난 대화 전체의 주고받은 말 찾기, S3-28. 음성 대화에서 말없이 시작하면 `web_search`처럼 안내 음성 `notice`가 붙는다), `summarize_session`, `pause_session`, `end_session`, `set_nickname`, `set_model`(대화 모델 바꾸기, S3-31), `web_search`(내장 웹 검색 또는 검색 API 도구 `search_USA`. 서버가 둘을 같은 이름·같은 `web_search` 요약으로 보내므로 클라이언트는 구분하지 않는다), `web_fetch`.
 
 **결과 요약(`summary`)**: `end`에서만 오며 `kind`로 종류를 구분한다(OpenAPI `WebSearchSummary`·`WebFetchSummary`·`ToolResultSummary`). 결과 형식을 알 수 없으면 `null`이다. 모르는 `kind`(서버가 나중에 더한 종류)는 `null`처럼 다루고 이벤트를 버리지 않는다(생성한 판별 타입이 역직렬화에 실패하지 않게 한다). 화면의 출처 표시는 서버가 준 호스트 이름을 그대로 쓴다(클라이언트는 URL을 해석하지 않는다).
 

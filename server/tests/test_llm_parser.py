@@ -108,7 +108,7 @@ def test_unknown_tool_result_has_no_summary():
 
 
 def test_search_api_tool_result_becomes_web_search_summary():
-    """검색 API 도구(search_web) 결과는 내장 WebSearch와 같은 요약(링크·출처)이 된다."""
+    """검색 API 도구(search_USA) 결과는 내장 WebSearch와 같은 요약(링크·출처)이 된다."""
     raw = {
         "content": [{"type": "text", "text": "..."}],
         "structuredContent": {

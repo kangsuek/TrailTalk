@@ -3,7 +3,7 @@ import { expectLastBubbleAboveDock } from './helpers.js'
 
 // 음성 대화 흐름(S3-16): 발화 → 답변 → 끼어들기 → 오프라인 보관과 복구 → 끝내기.
 // 가짜 마이크(e2e/fixtures/utterance.wav)는 약 24초마다 한 번 말하고, 서버는 가짜 음성 인식(FAKE_STT_TEXT)과
-// 문장마다 0.3초 무음 MP3 합성을 쓴다. 가짜 CLI 녹화(search_web.jsonl) 순서: 인사말 → 웹 검색 → 페이지 읽기 → 메모 저장.
+// 문장마다 0.3초 무음 MP3 합성을 쓴다. 가짜 CLI 녹화(search_usa.jsonl) 순서: 인사말 → 웹 검색 → 페이지 읽기 → 메모 저장.
 // 오프라인 단계는 Chromium의 오프라인 흉내가 이미 열린 Vite HMR 웹소켓을 끊지 않는 데 기댄다(끊기면 페이지가 새로
 // 고쳐져 상태가 사라진다). 브라우저·Playwright를 올린 뒤 이 단계에서만 실패하면 이것부터 의심한다.
 const HEARD = '오늘 산책하면서 생각난 아이디어가 있어' // 서버 FAKE_STT_TEXT 기본값

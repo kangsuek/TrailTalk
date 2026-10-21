@@ -279,11 +279,11 @@ def test_web_search_tool_event(api, monkeypatch):
     assert reply.sources == [{"title": link.title, "url": link.url} for link in summary.links]
 
 
-def test_search_web_tool_event_looks_like_web_search(api, monkeypatch):
-    """검색 API 도구(MCP search_web)는 내장 검색과 같은 이름·요약으로 나가 출처가 저장된다.
+def test_search_usa_tool_event_looks_like_web_search(api, monkeypatch):
+    """검색 API 도구(MCP search_USA)는 내장 검색과 같은 이름·요약으로 나가 출처가 저장된다.
 
-    녹화 search_web은 web_search 녹화를 MCP 결과 모양(structuredContent)으로 바꾼 것이다."""
-    monkeypatch.setenv("FAKE_CLAUDE_FIXTURE", "search_web")
+    녹화 search_USA는 web_search 녹화를 MCP 결과 모양(structuredContent)으로 바꾼 것이다."""
+    monkeypatch.setenv("FAKE_CLAUDE_FIXTURE", "search_usa")
     session_id = start(api)["session"]["id"]
     events = turn(api, session_id, "Claude Code 최신 소식 알려줘")
     tools = [e for e in events if e.type == "tool"]

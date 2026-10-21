@@ -86,7 +86,7 @@ def test_lists_app_tools(mcp):
         "save_note",
         "search_notes",
         "search_conversations",
-        "search_web",
+        "search_USA",
         "summarize_session",
         "pause_session",
         "set_nickname",
@@ -558,7 +558,7 @@ def test_send_email_accepts_mail_words(mcp, client, mail, text):
     assert len(mail) == 1
 
 
-# 검색 API 도구(search_web, docs/tavily-search-plan.md)
+# 검색 API 도구(search_USA, docs/tavily-search-plan.md)
 class _FakeSearch:
     """어댑터를 대신해 호출 인자를 기록하고 정해 둔 결과(또는 오류)를 돌려준다."""
 
@@ -599,9 +599,9 @@ def web(client):
     return use
 
 
-def test_search_web_text_and_structured_content(mcp, web):
+def test_search_usa_text_and_structured_content(mcp, web):
     search = web(_FakeSearch([_result(1), _result(2, published=None, host=None)]))
-    result = mcp.call("search_web", query="엔비디아 뉴스", topic="news")
+    result = mcp.call("search_USA", query="엔비디아 뉴스", topic="news")
     assert not result.get("isError")
     # 뉴스에서 기간을 생략하면 week
     assert search.calls == [{"query": "엔비디아 뉴스", "topic": "news", "time_range": "week"}]
@@ -619,63 +619,63 @@ def test_search_web_text_and_structured_content(mcp, web):
     assert structured["results"][0]["published"] == "2026-10-20"
 
 
-def test_search_web_passes_recency_and_keeps_general_unbounded(mcp, web):
+def test_search_usa_passes_recency_and_keeps_general_unbounded(mcp, web):
     search = web(_FakeSearch([_result()]))
-    mcp.call("search_web", query="북한산 둘레길")
-    mcp.call("search_web", query="미국 증시", topic="news", recency="month")
+    mcp.call("search_USA", query="북한산 둘레길")
+    mcp.call("search_USA", query="미국 증시", topic="news", recency="month")
     assert [c["time_range"] for c in search.calls] == [None, "month"]
 
 
-def test_search_web_rejects_bad_arguments(mcp, web):
+def test_search_usa_rejects_bad_arguments(mcp, web):
     search = web(_FakeSearch())
-    assert mcp.call("search_web", query="x")["isError"]
-    assert mcp.call("search_web", query="뉴스 검색", recency="year")["isError"]
-    assert mcp.call("search_web", query="뉴스 검색", topic="finance")["isError"]
+    assert mcp.call("search_USA", query="x")["isError"]
+    assert mcp.call("search_USA", query="뉴스 검색", recency="year")["isError"]
+    assert mcp.call("search_USA", query="뉴스 검색", topic="finance")["isError"]
     assert search.calls == []
 
 
-def test_search_web_no_results_asks_for_new_query(mcp, web):
+def test_search_usa_no_results_asks_for_new_query(mcp, web):
     web(_FakeSearch([]))
-    result = mcp.call("search_web", query="없는 이야기", topic="news")
+    result = mcp.call("search_USA", query="없는 이야기", topic="news")
     assert not result.get("isError")
     assert "검색 결과가 없습니다" in text_of(result) and "다시 찾으세요" in text_of(result)
     assert result["structuredContent"]["results"] == []
 
 
 @pytest.mark.parametrize("kind", ["unavailable", "rate_limited", "timeout", "failed"])
-def test_search_web_error_points_to_builtin_search(mcp, web, kind):
+def test_search_usa_error_points_to_builtin_search(mcp, web, kind):
     from app.services.search import SearchError
 
     web(_FakeSearch(error=SearchError(kind, "내부 사정 tvly-secret")))
-    result = mcp.call("search_web", query="미국 증시", topic="news")
+    result = mcp.call("search_USA", query="미국 증시", topic="news")
     assert result["isError"]
     assert "내장 WebSearch" in text_of(result)
     assert "tvly-secret" not in text_of(result)  # 내부 오류 문구를 모델에 넘기지 않는다
 
 
-def test_search_web_blank_query_is_rejected(mcp, web):
+def test_search_usa_blank_query_is_rejected(mcp, web):
     search = web(_FakeSearch())
-    result = mcp.call("search_web", query="   ")
+    result = mcp.call("search_USA", query="   ")
     assert result["isError"] and "비어" in text_of(result)
     assert search.calls == []
 
 
-def test_search_web_without_key_does_not_call_api(mcp):
+def test_search_usa_without_key_does_not_call_api(mcp):
     """키가 없으면(테스트 설정 기본값) 호출하지 않고 폴백을 안내한다."""
-    result = mcp.call("search_web", query="미국 증시", topic="news")
+    result = mcp.call("search_USA", query="미국 증시", topic="news")
     assert result["isError"] and "내장 WebSearch" in text_of(result)
 
 
-def test_search_web_clips_long_fields(mcp, web):
+def test_search_usa_clips_long_fields(mcp, web):
     web(_FakeSearch([_result(title="제" * 400, snippet="내" * 2000)]))
-    result = mcp.call("search_web", query="긴 결과 시험")
+    result = mcp.call("search_USA", query="긴 결과 시험")
     item = result["structuredContent"]["results"][0]
     assert len(item["title"]) <= 150 and item["title"].endswith("…")
     assert len(item["snippet"]) <= 300 and item["snippet"].endswith("…")
     assert len(text_of(result)) < 1000
 
 
-def test_search_web_injected_snippet_cannot_forge_result_entries(mcp, client):
+def test_search_usa_injected_snippet_cannot_forge_result_entries(mcp, client):
     """스니펫에 줄바꿈·제어 문자로 가짜 결과나 지시를 끼워 넣어도 한 줄 데이터로만 전달된다."""
     import json
 
@@ -708,7 +708,7 @@ def test_search_web_injected_snippet_cannot_forge_result_entries(mcp, client):
         timeout_s=5,
         max_results=5,
     )
-    result = mcp.call("search_web", query="인젝션 시험")
+    result = mcp.call("search_USA", query="인젝션 시험")
     text = text_of(result)
     lines = text.splitlines()
     assert len(lines) == 5  # 안내 한 줄 + 결과 한 건(4줄)

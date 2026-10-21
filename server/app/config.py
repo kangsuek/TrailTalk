@@ -102,7 +102,7 @@ class Settings(BaseSettings):
         self.openai_api_key = next((SecretStr(v) for v in values if v), None)
         return self
 
-    # 웹 검색 API(Tavily, docs/tavily-search-plan.md). 키가 없으면 search_web 도구가
+    # 웹 검색 API(Tavily, docs/tavily-search-plan.md). 키가 없으면 search_USA 도구가
     # 내장 WebSearch로 돌리라고 안내한다(서버는 시작한다).
     # fast는 basic보다 1~3초 빠르고 크레딧이 같다
     tavily_api_key: SecretStr | None = None

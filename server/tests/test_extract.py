@@ -738,9 +738,9 @@ def test_search_sources_become_citations(api, monkeypatch):
     assert [n["cites"] for n in detail["notes"] if n["kind"] != "memo"] == [[], []]
 
 
-def test_search_web_sources_become_citations(api, monkeypatch):
+def test_search_usa_sources_become_citations(api, monkeypatch):
     """검색 API 도구로 찾은 링크도 일지 인용이 된다."""
-    monkeypatch.setenv("FAKE_CLAUDE_FIXTURE", "search_web")
+    monkeypatch.setenv("FAKE_CLAUDE_FIXTURE", "search_usa")
     session_id = start(api)["session"]["id"]
     turn(api, session_id, "Claude Code 최신 소식 알려줘")
     end(api, session_id)

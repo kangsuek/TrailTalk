@@ -1,4 +1,4 @@
-"""웹 검색 API(Tavily, docs/tavily-search-plan.md). 캐릭터의 search_web 도구가 쓴다.
+"""웹 검색 API(Tavily, docs/tavily-search-plan.md). 캐릭터의 search_USA 도구가 쓴다.
 
 키는 요청 머리말에만 쓰고 로그에 남기지 않는다. 검색어도 길이만 남긴다. 실패는 SearchError로
 통일하고, 다시 시도하지 않는다(응답이 느려진다). 빈 결과·재검색은 호출하는 쪽과 규칙이 맡는다."""

@@ -423,9 +423,9 @@ def test_search_without_words_gets_notice(fake_cli, home, monkeypatch):
     assert sentences[0].index == 0 and notice.text not in events[-1].text
 
 
-def test_search_web_without_words_gets_notice(fake_cli, home, monkeypatch):
+def test_search_usa_without_words_gets_notice(fake_cli, home, monkeypatch):
     """검색 API 도구도 내장 검색처럼 말없이 시작하면 안내 음성이 붙는다."""
-    monkeypatch.setenv("FAKE_CLAUDE_FIXTURE", "search_web")
+    monkeypatch.setenv("FAKE_CLAUDE_FIXTURE", "search_usa")
     with TestClient(create_app(voice_settings(fake_cli))) as api:
         session_id = start(api, "voice")["session"]["id"]
         api.app.state.tts = FakeTts()

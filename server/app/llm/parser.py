@@ -91,7 +91,7 @@ def _tool_summary(raw: Any) -> dict[str, Any] | None:
             and "query" in content
             and isinstance(content.get("results"), list)
         ):
-            # 검색 API 도구(search_web): 내장 WebSearch와 같은 요약으로 바꾼다
+            # 검색 API 도구(search_USA): 내장 WebSearch와 같은 요약으로 바꾼다
             links = [
                 {
                     "title": r.get("title") if isinstance(r.get("title"), str) else None,
