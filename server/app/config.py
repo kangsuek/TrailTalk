@@ -111,7 +111,15 @@ class Settings(BaseSettings):
     search_timeout_s: float = 8
     search_max_results: int = Field(default=5, ge=1, le=10)
 
-    @field_validator("tavily_api_key")
+    # 네이버 뉴스 검색 API(국내 뉴스, docs/naver-search-plan.md). 키가 없으면 search_naver 도구가
+    # 내장 WebSearch로 돌리라고 안내한다. 기간·매체를 지정하면 날짜순 naver_fetch_count건을
+    # 받아 직접 거른다(네이버에 날짜 필터가 없다)
+    naver_client_id: SecretStr | None = None
+    naver_client_secret: SecretStr | None = None
+    naver_base_url: str = "https://openapi.naver.com"
+    naver_fetch_count: int = Field(default=50, ge=10, le=100)
+
+    @field_validator("tavily_api_key", "naver_client_id", "naver_client_secret")
     @classmethod
     def _blank_search_key(cls, value: SecretStr | None) -> SecretStr | None:
         """공백뿐인 키는 없는 것으로 본다."""

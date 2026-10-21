@@ -73,7 +73,7 @@ def _error_text(response: httpx2.Response) -> str:
 _URL_MAX = 2000
 
 
-def _safe_url(url: str) -> bool:
+def safe_url(url: str) -> bool:
     """http(s) 주소이고 공백·제어·서식 문자가 없다. 아니면 그 결과를 버린다(목록 형식 위조 방지)."""
     return (
         url.startswith(("http://", "https://"))
@@ -82,7 +82,7 @@ def _safe_url(url: str) -> bool:
     )
 
 
-def _text(value: Any) -> str:
+def clean_text(value: Any) -> str:
     """한 줄로 정리한다: 제어·서식 문자(줄바꿈 위조, 방향 전환 문자 등)를 지우고 공백을 접는다."""
     if not isinstance(value, str):
         return ""
@@ -200,13 +200,13 @@ class TavilySearch:
             if not isinstance(item, dict):
                 continue
             url = item.get("url")
-            if not isinstance(url, str) or not _safe_url(url):
+            if not isinstance(url, str) or not safe_url(url):
                 continue
             results.append(
                 SearchResult(
-                    title=_text(item.get("title")),
+                    title=clean_text(item.get("title")),
                     url=url,
-                    snippet=_text(item.get("content")),
+                    snippet=clean_text(item.get("content")),
                     published=parse_published(item.get("published_date")),
                     host=host_of(url),
                 )

@@ -49,7 +49,7 @@
 |---|---|
 | `query` | 검색어(2~200자) |
 | `recency` | `day`/`week`/`month`. 네이버에 날짜 필터가 없어서 `sort=date`로 받아 발행일로 직접 거른다. 생략하면 `sort=sim` |
-| `site` | 선택. 매체 도메인(예: `ytn.co.kr`). 결과의 `originallink` 호스트가 일치하는 것만 남긴다 |
+| `site` | 선택. 매체 도메인(예: `ytn.co.kr`). 결과의 `originallink` 호스트가 일치하는 것만 남긴다. 검색어에 매체 이름도 넣는다(예: "YTN 증시"). 어댑터가 검색어를 두 가지(원래 검색어, 도메인을 붙인 검색어)로 동시에 요청해 합친다(스파이크 5절) |
 
 - `recency` 또는 `site`를 쓰면 `sort=date`, `display=50`으로 받아 거른 뒤 최대 5건을 돌려준다(`day`=최근 24시간, `week`=7일, `month`=30일). 지정이 없으면 `sort=sim` 5건. 근거는 스파이크 3절(date 정렬도 관련도 50/50 유지).
 - 결과 형식은 `search_USA`와 같다(제목·매체(호스트)·발행일·URL·내용). 구조화 결과도 같아서 출처 저장과 화면은 바꾸지 않고, 공개 이름도 `web_search`로 매핑한다.
@@ -59,7 +59,7 @@
 
 | 마일스톤 | 내용 | 작업 | 상태 |
 |---|---|---|---|
-| M1 | 어댑터 | NV-01~03 | 진행(NV-01 완료) |
+| M1 | 어댑터 | NV-01~03 | 완료 |
 | M2 | MCP 도구·화면 연동 | NV-04~06 | 대기 |
 | M3 | 규칙·평가·폰 검증 | NV-07~09 | 대기 |
 
@@ -68,8 +68,8 @@
 | ID | 작업 | 완료 조건 |
 |---|---|---|
 | NV-01 | **스파이크**(완료 2026-10-21): 실제 호출로 `pubDate` 형식, `sort=date` 최신성, 국내 증시·YTN 지정 질의 품질(`display=50` 후 `site` 필터가 충분한 건수를 남기는지), 응답 시간을 `docs/spikes/naver-news.md`에 기록 | 사양 확인 표, 실제 질의 3종 결과 |
-| NV-02 | **설정**: `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET`(`SecretStr`, 공백뿐이면 없음), 시간 초과, 결과 수. `.env.example` 추가. 키가 없어도 서버는 시작 | `test_config.py` |
-| NV-03 | **어댑터**(`services/search.py` 또는 `services/naver.py`): `SearchProvider` 인터페이스(`domains`→`site` 필터, `time_range`→발행일 거름). `<b>` 태그·HTML 엔티티 제거, `pubDate`→날짜(KST), 제어·서식 문자 제거, 안전하지 않은 URL 버림, 오류 매핑(401/403→unavailable, 429→rate_limited, 400/5xx→failed), 키 없으면 호출하지 않음, 검색어·키는 로그에 남기지 않음 | `tests/test_naver.py`: 정상·태그·날짜 거름·site 거름·오류·시간 초과·URL 위조 |
+| NV-02 | **설정**(완료): `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET`(`SecretStr`, 공백뿐이면 없음), 시간 초과, 결과 수. `.env.example` 추가. 키가 없어도 서버는 시작 | `test_config.py` |
+| NV-03 | **어댑터**(완료, `services/naver.py`): `SearchProvider` 인터페이스(`domains`→`site` 필터, `time_range`→발행일 거름). `<b>` 태그·HTML 엔티티 제거, `pubDate`→시각(응답의 오프셋 유지, 오프셋이 없으면 UTC로 가정)·날짜, 제어·서식 문자 제거, 안전하지 않은 URL 버림, 오류 매핑(401/403→unavailable, 429→rate_limited, 400/5xx→failed), 키 없으면 호출하지 않음, 검색어·키는 로그에 남기지 않음 | `tests/test_naver.py`: 정상·태그·날짜 거름·site 거름·오류·시간 초과·URL 위조 |
 
 ### M2. MCP 도구·화면 연동
 
