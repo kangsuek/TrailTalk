@@ -15,6 +15,7 @@ from sqlalchemy import exists, func, select
 from sqlalchemy.orm import defer
 
 from app.db.models import (
+    NOTE_MAX_CHARS,
     ConversationSession,
     ExtractStatus,
     Note,
@@ -120,8 +121,8 @@ class JournalDetail(BaseModel):
 
 def _content(value: str) -> str:
     value = value.strip()
-    if not 1 <= len(value) <= 500:
-        raise ValueError("1~500자로 입력하세요")
+    if not 1 <= len(value) <= NOTE_MAX_CHARS:
+        raise ValueError(f"1~{NOTE_MAX_CHARS}자로 입력하세요")
     return value
 
 

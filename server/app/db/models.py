@@ -224,6 +224,9 @@ class BargeInEvent(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
+NOTE_MAX_CHARS = 500  # 노트 내용 최대 글자 수(저장 도구와 수정 API가 함께 쓴다)
+
+
 class Note(Base):
     __tablename__ = "note"
     __table_args__ = (Index("ix_note_kind_done", "kind", "done"),)

@@ -168,7 +168,7 @@ def test_save_note_without_current_turn(mcp):
     [
         {"kind": "wrong", "content": "x"},
         {"kind": "idea", "content": ""},
-        {"kind": "idea", "content": "가" * 1001},
+        {"kind": "idea", "content": "가" * 501},
         {"kind": "idea", "content": "   "},
         {"content": "종류 없음"},
     ],
@@ -188,6 +188,19 @@ def test_search_and_summarize(mcp):
     summary = text_of(mcp.call("summarize_session"))
     assert "사용자 발화 수: 1" in summary and "저장한 노트: 2개" in summary
     assert "[todo] 지도 API 조사" in summary
+
+
+def test_search_notes_matches_all_words_in_any_order(mcp):
+    mcp.call("save_note", kind="idea", content="동네 장터 이름 후보 정리")
+    mcp.call("save_note", kind="idea", content="장터 일정만 메모")
+    found = text_of(mcp.call("search_notes", keyword="이름 장터"))
+    assert "장터 이름 후보" in found and "일정만" not in found
+
+
+def test_save_note_limit_matches_note_edit_limit(mcp, client):
+    assert not mcp.call("save_note", kind="memo", content="가" * 500)["isError"]
+    note = mcp.notes()[0]
+    assert client.patch(f"/api/notes/{note.id}", json={"content": "나" * 500}).status_code == 200
 
 
 def test_search_treats_wildcards_literally(mcp):
@@ -316,6 +329,16 @@ def test_pause_and_end_set_requested_status(mcp, tool, status):
     assert mcp.runtime_.requested_status is status
     assert mcp.runtime_.pop_requested_status() is status
     assert mcp.runtime_.requested_status is None
+
+
+def test_end_request_is_not_overwritten_by_pause(mcp):
+    mcp.call("end_session")
+    assert not mcp.call("pause_session")["isError"]
+    assert mcp.runtime_.requested_status is SessionStatus.ENDED
+    mcp.runtime_.pop_requested_status()
+    mcp.call("pause_session")
+    mcp.call("end_session")
+    assert mcp.runtime_.requested_status is SessionStatus.ENDED
 
 
 def set_user_text(mcp, client, text: str) -> None:
@@ -543,6 +566,47 @@ def test_send_email_failure_is_not_resent_in_same_turn(mcp, client, mail, monkey
     assert "이미 보내 봤습니다" in text_of(mcp.call("send_email"))
 
 
+def test_send_email_parallel_calls_in_one_turn_send_once(mcp, client, mail, monkeypatch):
+    """같은 턴에 병렬로 불러도 한 번만 보낸다(확인과 기록 사이에 await가 없어야 한다)."""
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.mcp import server
+
+    real = server.compose_session_mail
+
+    async def slow(*args, **kwargs):
+        await asyncio.sleep(0.2)
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(server, "compose_session_mail", slow)
+    with ThreadPoolExecutor(2) as pool:
+        results = list(pool.map(lambda _: mcp.call("send_email"), range(2)))
+    assert sorted(bool(r["isError"]) for r in results) == [False, True]
+    assert len(mail) == 1 and mcp.runtime_.mail_count == 1
+
+
+def test_send_email_failure_before_sending_gives_the_count_back(mcp, client, mail):
+    client.put("/api/profile", json={"email": None})
+    assert mcp.call("send_email")["isError"]
+    assert mcp.runtime_.mail_count == 0 and mcp.runtime_.mailed_turn_ids == set()
+    client.put("/api/profile", json={"email": "me@example.com"})
+    assert not mcp.call("send_email")["isError"]
+    assert len(mail) == 1
+
+
+def test_send_email_unexpected_error_before_sending_gives_the_count_back(
+    mcp, client, mail, monkeypatch
+):
+    async def broken(*args, **kwargs):
+        raise RuntimeError("페르소나 파일 오류")
+
+    monkeypatch.setattr("app.mcp.server.compose_session_mail", broken)
+    assert mcp.call("send_email")["isError"]
+    assert mcp.runtime_.mail_count == 0 and mcp.runtime_.mailed_turn_ids == set()
+    assert mail == []
+
+
 @pytest.mark.parametrize("text", ["gmail 주소 알려줘", "uv 최신 버전 찾아줘"])
 def test_send_email_ignores_words_that_only_contain_mail(mcp, client, mail, text):
     set_user_text(mcp, client, text)
@@ -751,6 +815,23 @@ def test_search_naver_text_and_structured_content(mcp, naver):
         "https://www.cnbc.com/a1",
         "https://www.cnbc.com/a2",
     ]
+
+
+@pytest.mark.parametrize(
+    ("site", "domain"),
+    [("https://www.YTN.co.kr/news/1", "www.ytn.co.kr"), ("yna.co.kr", "yna.co.kr")],
+)
+def test_search_naver_site_is_normalized_to_domain(mcp, naver, site, domain):
+    search = naver(_FakeSearch([_result()]))
+    assert not mcp.call("search_naver", query="코스피 시황", site=site).get("isError")
+    assert search.calls[0]["domains"] == [domain]
+
+
+@pytest.mark.parametrize("site", ["ytn", "a b.com", "ytn.co.kr; drop", "http://"])
+def test_search_naver_rejects_non_domain_site(mcp, naver, site):
+    search = naver(_FakeSearch())
+    assert mcp.call("search_naver", query="코스피 시황", site=site)["isError"]
+    assert search.calls == []
 
 
 def test_search_naver_without_options(mcp, naver):
