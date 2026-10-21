@@ -1,7 +1,6 @@
 import {
   useEffect,
   useImperativeHandle,
-  useLayoutEffect,
   useReducer,
   useRef,
   useState,
@@ -47,7 +46,6 @@ function savedMode(): Mode {
 }
 
 const PREPARE_INTERVAL_MS = 4 * 60 * 1000 // 서버 준비분 만료(5분)보다 짧게
-const COMPOSER_MAX_PX = 140 // 입력창은 내용만큼 늘다가 약 5줄에서 멈추고 안에서 스크롤한다
 
 /** 페이지 맨 아래로 내린다. 아래 고정 패널(입력창·음성 버튼)은 맨 아래에서 제자리에 놓여 말풍선을 가리지 않는다 */
 function scrollToBottom() {
@@ -275,16 +273,6 @@ export function ConversationScreen({
     return () => observer.disconnect()
   }, [dock, visible])
 
-  // 입력창은 한 줄에서 시작해 내용만큼 늘어난다(보내서 비면 다시 한 줄, 새로 그려져도 다시 잰다).
-  // scrollHeight에는 테두리가 빠지므로 더한다(빼면 두 줄부터 안에서 스크롤된다)
-  useLayoutEffect(() => {
-    const el = input.current
-    if (!el) return
-    el.style.height = 'auto'
-    const border = el.offsetHeight - el.clientHeight
-    el.style.height = `${Math.min(el.scrollHeight + border, COMPOSER_MAX_PX)}px`
-  }, [draft, state.status, mode, voiceActive])
-
   // 대화가 시작되면 바로 입력할 수 있게 입력창으로 포커스를 옮긴다
   const previousStatus = useRef(state.status)
   useEffect(() => {
@@ -487,7 +475,7 @@ export function ConversationScreen({
         ref={input}
         aria-label="메시지"
         value={draft}
-        rows={1}
+        rows={2}
         maxLength={4000}
         placeholder={voiceActive ? '말 대신 글로 보내기' : '메시지를 입력하세요'}
         onChange={(e) => setDraft(e.target.value)}
