@@ -88,9 +88,9 @@ function App() {
   const [journalId, setJournalId] = useState<string | null>(null)
   const tabs = useRef<(HTMLButtonElement | null)[]>([])
 
-  // 탭 고르기. 일지 탭에 있을 때 일지 탭을 다시 누르면 목록으로 돌아간다(다른 탭에서 오면 보던 화면 그대로)
+  // 탭 고르기. 일지 탭을 누르면 어디서 오든 항상 목록이 보인다(일지 상세는 목록·대화 탭의 카드·"일지 보기"로만 연다)
   const selectTab = (id: TabId) => {
-    if (id === 'journal' && tab === 'journal') setJournalView('list')
+    if (id === 'journal') setJournalView('list')
     setTab(id)
   }
 

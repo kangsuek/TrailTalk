@@ -124,11 +124,13 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: '목록으로' }))
     expect(await screen.findByRole('heading', { level: 2, name: '일지 목록' })).toBeInTheDocument()
 
-    // 다른 탭에 갔다 오면 보던 상세 그대로, 일지 탭에서 일지 탭을 다시 누르면 목록으로
+    // 일지 탭을 누르면 다른 탭에서 오든 상세에서 다시 누르든 항상 목록
     fireEvent.click(await screen.findByRole('button', { name: /^산책 앱 아이디어/ }))
     expect(await screen.findByRole('heading', { level: 3, name: '산책 앱 아이디어' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('tab', { name: '설정' }))
     fireEvent.click(screen.getByRole('tab', { name: '일지' }))
+    expect(await screen.findByRole('heading', { level: 2, name: '일지 목록' })).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: /^산책 앱 아이디어/ }))
     expect(await screen.findByRole('heading', { level: 3, name: '산책 앱 아이디어' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('tab', { name: '일지' }))
     expect(await screen.findByRole('heading', { level: 2, name: '일지 목록' })).toBeInTheDocument()
