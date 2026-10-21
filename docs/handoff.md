@@ -15,7 +15,8 @@ handoff 1장 "다음 작업"을 확인하고 Plan Mode로 계획을 세우세요
 
 - 안드로이드 포팅은 하지 않고 웹 앱(PWA)으로 마무리한다(2026-10-19). 남은 작업: S3-17(일지 아이디어별 보기)의 기존 일지 분류 실행(사용자 DB, 승인 필요)과 웹 목록의 보기·순서 전환, 3단계 종료 점검, 5단계 S5-02~06. PC 브라우저와 폰(A35, `./run.sh --phone`)에서 음성 대화가 된다.
 - **음성 합성은 `.env`의 `TTS_MODEL=tts-1`로 쓴다**(2026-10-21). 기본 모델 `gpt-4o-mini-tts`는 요청이 무작위로 응답 없이 멈춰 문장이 소리 없이 빠졌다. `tts-1`은 말투 지시(`instructions`)가 적용되지 않는다([tts-reliability.md](tts-reliability.md)).
-- **검색·응답 개선**: 검색 규칙은 반영했고(자동 재검색, 구체적 출처, 7일 규칙, 미국 중심 AI 반도체 규칙, 숫자 읽기), 남은 것은 검색 턴 문장 수 예산, 음성 인식 용어 힌트, 검색 도구 교체([search-response-improvement.md](search-response-improvement.md)).
+- **검색·응답 개선**: 검색 규칙은 반영했고(자동 재검색, 구체적 출처, 7일 규칙, 미국 중심 AI 반도체 규칙, 숫자 읽기), 남은 것은 검색 턴 문장 수 예산, 음성 인식 용어 힌트([search-response-improvement.md](search-response-improvement.md)).
+- **검색 API 도구**(2026-10-21): MCP 도구 `search_USA`(해외·영어권, Tavily)와 `search_naver`(국내 뉴스, 네이버)를 추가했고, 규칙이 국내/해외·사용자 지정에 따라 고르며 오류면 내장 `WebSearch`로 폴백한다. 키는 `.env`의 `TAVILY_API_KEY`, `NAVER_CLIENT_ID`/`NAVER_CLIENT_SECRET`(없어도 서버는 시작한다). 계획과 평가는 [tavily-search-plan.md](tavily-search-plan.md)·[naver-search-plan.md](naver-search-plan.md)·`eval/search-*.md`. **남은 것**: 폰 음성 검증(TS-11·NV-09, 서버를 재시작해 새 코드로), Tavily 검색 깊이 `fast`/`basic` 결정(`SEARCH_DEPTH`, `fast`가 최신 기사를 놓친 사례 있음), TS-12 문서 정리.
 - **응답 시간 단축·끼어들기 개선(V2)은 계획에서 제외**했고 V2 문서는 삭제했다. 지연 계측(`turn_latency`의 세부 단계)·끼어들기 기록(`barge_in_event`, 훅 `window.__tt_metrics`)·지연 평가 스크립트(`server/tests/latency_eval/run_eval.py`)는 코드에 남아 있다. 정의가 필요하면 git 이력의 `docs/V2/metrics-hook.md`를 본다.
 - **사용자 결정 대기**
   - NFR-01 미달: 폰 실측 말 끝 → 첫 소리 중앙값 약 6.0초(목표 3초). 구간: 무음 대기·전송 1.85(무음 1.8초 유지가 사용자 결정) + 인식 0.9 + CLI 첫 글자 약 1.4 + 첫 문장 합성 1.6 등. 후보: 첫 문장을 일찍 끊어 합성, 합성이 끝난 첫 문장을 바로 보내기, 스트리밍 TTS, 맞장구 소리.

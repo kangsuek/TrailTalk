@@ -1,6 +1,6 @@
 # 네이버 뉴스 검색 도구 개발 계획 (NV)
 
-국내 뉴스·증시 질문의 검색 품질을 올리기 위해 네이버 뉴스 검색 API를 MCP 도구 `search_naver`로 추가한다. 배경은 [tavily-search-plan.md](tavily-search-plan.md) M4 폰 검증(2026-10-21)이다. NV-01 스파이크는 완료했다(키 확인, 결과: [spikes/naver-news.md](spikes/naver-news.md)). 구현은 사용자 확인 후 시작한다.
+국내 뉴스·증시 질문의 검색 품질을 올리기 위해 네이버 뉴스 검색 API를 MCP 도구 `search_naver`로 추가한다. 배경은 [tavily-search-plan.md](tavily-search-plan.md) M4 폰 검증(2026-10-21)이다. NV-01 스파이크는 완료했다(키 확인, 결과: [spikes/naver-news.md](spikes/naver-news.md)). M1~M3 구현과 평가를 마쳤고, 남은 것은 폰 음성 검증(NV-09)이다.
 
 ## 1. 배경: 왜 필요한가
 
