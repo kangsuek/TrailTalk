@@ -303,8 +303,7 @@ class OpenIdea(BaseModel):
     starred: bool
     session_id: str  # 이 아이디어가 나온 대화(일지 상세로 연다)
     created_at: datetime
-    idea_count: int  # 그 대화에 저장된 아이디어 수(일지 목록의 counts와 같은 기준)
-    todo_count: int  # 그 대화에 저장된 할 일 수
+    counts: NoteCounts  # 그 대화에 저장된 종류별 개수(일지 목록의 counts와 같은 기준)
 
 
 IDEA_LIST_DEFAULT = 5
@@ -317,7 +316,7 @@ async def open_ideas(
     limit: Annotated[int, Query(ge=1, le=IDEA_LIST_MAX)] = IDEA_LIST_DEFAULT,
 ) -> list[OpenIdea]:
     """대화 시작 화면의 "지난 아이디어 이어 가기" 목록(S3-39). 완료하지 않은 아이디어를
-    만든 날짜의 역순(최신이 먼저)으로 최대 limit개 주고, 항목마다 그 대화의 아이디어·할 일
+    만든 날짜의 역순(최신이 먼저)으로 최대 limit개 주고, 항목마다 그 대화의 종류별 노트
     개수를 붙인다. 없으면 빈 목록.
     """
     notes = list(
@@ -336,8 +335,7 @@ async def open_ideas(
             starred=n.starred,
             session_id=n.session_id,
             created_at=n.created_at,
-            idea_count=counts[n.session_id].get(NoteKind.IDEA, 0),
-            todo_count=counts[n.session_id].get(NoteKind.TODO, 0),
+            counts=NoteCounts(**{k.value: counts[n.session_id].get(k, 0) for k in NoteKind}),
         )
         for n in notes
     ]

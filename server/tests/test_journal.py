@@ -288,7 +288,7 @@ def test_open_ideas_empty(client):
 
 def test_open_ideas_newest_first_open_only(client):
     """S3-39: 시작 화면 목록. 날짜 역순, 완료·다른 종류는 뺀다. 별표는 순서에 영향이 없다.
-    항목마다 그 대화의 아이디어·할 일 개수(완료한 것 포함, 일지 목록 counts와 같다)를 준다.
+    항목마다 그 대화의 종류별 개수(완료한 것 포함, 일지 목록 counts와 같다)를 준다.
     """
     old = add_session(client, kst(2026, 10, 14, 9, 0))
     new = add_session(client, kst(2026, 10, 15, 9, 0))
@@ -305,7 +305,11 @@ def test_open_ideas_newest_first_open_only(client):
     assert [n["content"] for n in body] == ["새 아이디어", "오래된 아이디어", "별표"]
     assert [n["session_id"] for n in body] == [new, old, old]
     assert body[2]["starred"] is True and body[2]["id"] == starred
-    assert [(n["idea_count"], n["todo_count"]) for n in body] == [(2, 1), (2, 0), (2, 0)]
+    assert [n["counts"] for n in body] == [
+        {"idea": 2, "todo": 1, "memo": 0},
+        {"idea": 2, "todo": 0, "memo": 0},
+        {"idea": 2, "todo": 0, "memo": 0},
+    ]
 
     # 개수를 줄일 수 있고, 완료하면 목록에서 빠진다
     assert [n["content"] for n in client.get("/api/notes/open-ideas?limit=1").json()] == [

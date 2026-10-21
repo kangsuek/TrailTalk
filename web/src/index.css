@@ -383,6 +383,10 @@ html:has(.app[data-tab='conversation']) {
   font-size: 0.8125rem;
 }
 
+.idea-card-text .journal-meta {
+  margin-top: 6px; /* 일지 목록과 같은 녹색 알약 */
+}
+
 .idea-card-content {
   overflow: hidden;
   font-weight: 500;

@@ -316,7 +316,7 @@ export interface paths {
         /**
          * Open Ideas
          * @description 대화 시작 화면의 "지난 아이디어 이어 가기" 목록(S3-39). 완료하지 않은 아이디어를
-         *     만든 날짜의 역순(최신이 먼저)으로 최대 limit개 주고, 항목마다 그 대화의 아이디어·할 일
+         *     만든 날짜의 역순(최신이 먼저)으로 최대 limit개 주고, 항목마다 그 대화의 종류별 노트
          *     개수를 붙인다. 없으면 빈 목록.
          */
         get: operations["open_ideas_api_notes_open_ideas_get"];
@@ -722,10 +722,7 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
-            /** Idea Count */
-            idea_count: number;
-            /** Todo Count */
-            todo_count: number;
+            counts: components["schemas"]["NoteCounts"];
         };
         /**
          * PersonaOut

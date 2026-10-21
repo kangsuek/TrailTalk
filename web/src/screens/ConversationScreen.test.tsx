@@ -462,8 +462,8 @@ describe('대화 방식', () => {
 
 describe('지난 아이디어 이어 가기 목록(S3-39)', () => {
   const IDEAS = [
-    { id: 'n2', content: '산책하며 개발 소식 음성으로 듣기', starred: true, session_id: 'new1', created_at: '2026-10-15T01:00:00Z', idea_count: 4, todo_count: 2 },
-    { id: 'n1', content: '주말 완만한 등산 코스 찾기', starred: false, session_id: 'old1', created_at: '2026-10-14T01:00:00Z', idea_count: 1, todo_count: 0 },
+    { id: 'n2', content: '산책하며 개발 소식 음성으로 듣기', starred: true, session_id: 'new1', created_at: '2026-10-15T01:00:00Z', counts: { idea: 4, todo: 2, memo: 1 } },
+    { id: 'n1', content: '주말 완만한 등산 코스 찾기', starred: false, session_id: 'old1', created_at: '2026-10-14T01:00:00Z', counts: { idea: 1, todo: 0, memo: 0 } },
   ]
 
   function stubWithIdeas(ideas: typeof IDEAS) {
@@ -481,8 +481,9 @@ describe('지난 아이디어 이어 가기 목록(S3-39)', () => {
     render(<ConversationScreen onOpenJournal={onOpenJournal} />)
     const cards = await screen.findAllByRole('button', { name: /산책|등산/ })
     expect(cards).toHaveLength(2)
-    expect(cards[0]).toHaveTextContent('아이디어 4 · 할 일 2') // 그 대화의 개수
-    expect(cards[1]).toHaveTextContent('아이디어 1 · 할 일 0')
+    expect(cards[0]).toHaveTextContent('아이디어 4 · 할 일 2 · 메모 1') // 그 대화의 개수(없는 종류는 뺀다)
+    expect(cards[1]).toHaveTextContent('아이디어 1')
+    expect(cards[1]).not.toHaveTextContent('할 일') // 0인 종류는 뺀다
     expect(cards[0]).toHaveTextContent('산책하며 개발 소식 음성으로 듣기')
     expect(cards[1]).toHaveTextContent('주말 완만한 등산 코스 찾기')
     fireEvent.click(cards[1])

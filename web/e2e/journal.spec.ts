@@ -69,7 +69,8 @@ test('일지: 목록 → 상세, 별표·완료(할 일·아이디어) 표시가
   await expect(ideaDone).toHaveAttribute('aria-pressed', 'true')
 
   await page.getByRole('tab', { name: '일지' }).click()
-  await expect(page.getByText(/아이디어 1 · 할 일 1 · 메모 1/).first()).toBeVisible()
+  // 대화 탭의 아이디어 카드(숨김)에도 같은 알약이 있을 수 있어 일지 패널 안에서 찾는다
+  await expect(page.locator('#panel-journal').getByText(/아이디어 1 · 할 일 1 · 메모 1/).first()).toBeVisible()
   await page.screenshot({ path: 'test-results/journal-list.png', fullPage: true })
 })
 

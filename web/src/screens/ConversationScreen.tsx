@@ -16,6 +16,7 @@ import {
   toolNotice,
   type AssistantMessage,
 } from '../core/conversation'
+import { countsLabel } from '../core/journal'
 import { useVoiceConversation } from './useVoiceConversation'
 import { VoiceControls } from './VoiceControls'
 
@@ -530,10 +531,11 @@ export function ConversationScreen({
                     {idea.starred ? <StarIcon /> : <BulbIcon />}
                   </span>
                   <span className="idea-card-text">
-                    <span className="idea-card-label">
-                      {ideaDate(idea.created_at)} · 아이디어 {idea.idea_count} · 할 일 {idea.todo_count}
-                    </span>
+                    <span className="idea-card-label">{ideaDate(idea.created_at)}</span>
                     <span className="idea-card-content">{idea.content}</span>
+                    {countsLabel(idea.counts) && (
+                      <span className="journal-meta">{countsLabel(idea.counts)}</span>
+                    )}
                   </span>
                   <ChevronIcon />
                 </button>
