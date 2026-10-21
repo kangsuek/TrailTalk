@@ -1,6 +1,6 @@
 # 검색 API를 MCP 도구로 추가: 방법·요금·추천
 
-[검색·응답 개선 계획서](search-response-improvement.md)의 SR-08(검색 도구 보강) 선택지 A를 구체화한 문서다. 구현은 아직 시작하지 않았다. 서비스는 결정 대기다.
+[검색·응답 개선 계획서](search-response-improvement.md)의 SR-08(검색 도구 보강, 완료해서 그 문서에서는 지웠다) 선택지 A를 구체화한 문서다. 이 문서는 서비스를 고를 때의 조사다. 해외·영어권은 Tavily(`search_USA`, 검색 깊이 `fast`)로, 국내 뉴스는 네이버 뉴스 검색(`search_naver`)을 추가해 구현을 마쳤다([tavily-search-plan.md](tavily-search-plan.md), [naver-search-plan.md](naver-search-plan.md)). 요금은 2026-10-20 기준 조사값이다.
 
 요금은 2026-10-20에 웹 검색으로 확인한 값이다. 서비스 정책이 자주 바뀌고 일부는 제3자 자료라서, 가입 전에 각 공식 요금 페이지로 다시 확인한다.
 
@@ -45,7 +45,7 @@ Claude CLI ──(MCP)──> app/mcp/server.py  web_search 도구
 
 1. 어댑터 단위 테스트와 `pytest`·`ruff` 통과
 2. 가짜 CLI E2E(`npm run e2e`)에서 도구 호출 경로 확인
-3. 실제 키로 폰 시나리오(계획서 4.1의 1~3번, SR-06 항목) 확인
+3. 실제 키로 폰 시나리오(search-response-improvement.md 3장의 1~3번, SR-06 항목) 확인
 4. 지연 평가로 응답 시간 비교, 톤 평가로 프롬프트 변경 회귀 확인
 
 ## 3. 서비스별 요금
@@ -102,3 +102,4 @@ Claude CLI ──(MCP)──> app/mcp/server.py  web_search 도구
 | 날짜 | 내용 |
 |---|---|
 | 2026-10-20 | 최초 작성 |
+| 2026-10-21 | Tavily로 결정, 구현 완료(해외 `search_USA`)와 국내 뉴스 `search_naver` 추가를 머리말에 반영 |
