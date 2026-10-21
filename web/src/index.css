@@ -326,10 +326,7 @@ html:has(.app[data-tab='conversation']) {
 
 /* "지난 아이디어 이어 가기" 목록(S3-39): 카드를 누르면 그 아이디어가 나온 대화의 일지 상세 */
 .idea-list {
-  margin: 12px -4px 0;
-  padding: 0 4px 2px; /* 스크롤 영역이 포커스 윤곽을 자르지 않게 */
-  max-height: 40vh;
-  overflow-y: auto;
+  margin-top: 12px; /* 목록은 따로 스크롤하지 않고 화면과 함께 스크롤된다 */
 }
 
 .idea-list-title {

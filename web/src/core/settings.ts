@@ -47,7 +47,7 @@ export const RATE_CHOICES: { label: string; value: number | null }[] = [
   { label: '빠르게', value: 1.35 },
 ]
 
-/** 대화 모델 선택지. null은 서버 기본값(화면에 "기본(sonnet)"처럼 보인다) */
+/** 대화 모델 선택지. null은 서버 기본값(화면에 "기본 · 균형(sonnet)"처럼 보이고, 같은 모델 항목은 목록에서 뺀다) */
 export const MODEL_CHOICES: { label: string; value: ChatModel | null }[] = [
   { label: '기본', value: null },
   { label: '빠름(haiku)', value: 'haiku' },

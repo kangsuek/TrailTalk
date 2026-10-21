@@ -316,17 +316,19 @@ async def open_ideas(
     limit: Annotated[int, Query(ge=1, le=IDEA_LIST_MAX)] = IDEA_LIST_DEFAULT,
 ) -> list[OpenIdea]:
     """대화 시작 화면의 "지난 아이디어 이어 가기" 목록(S3-39). 완료하지 않은 아이디어를
-    만든 날짜의 역순(최신이 먼저)으로 최대 limit개 주고, 항목마다 그 대화의 종류별 노트
-    개수를 붙인다. 없으면 빈 목록.
+    만든 날짜의 역순(최신이 먼저)으로 대화당 하나씩(그 대화의 가장 최근 아이디어) 최대 limit개
+    주고, 항목마다 그 대화의 종류별 노트 개수를 붙인다. 없으면 빈 목록.
     """
-    notes = list(
-        await db.scalars(
-            select(Note)
-            .where(Note.kind == NoteKind.IDEA, Note.done.is_(False))
-            .order_by(Note.created_at.desc(), Note.id)
-            .limit(limit)
-        )
+    # 한 대화에 아이디어가 여러 개여도 카드는 대화당 하나(그 대화의 가장 최근 아이디어)다
+    open_notes = await db.scalars(
+        select(Note)
+        .where(Note.kind == NoteKind.IDEA, Note.done.is_(False))
+        .order_by(Note.created_at.desc(), Note.id)
     )
+    newest: dict[str, Note] = {}
+    for note in open_notes:
+        newest.setdefault(note.session_id, note)
+    notes = list(newest.values())[:limit]
     counts = await _counts(db, list({n.session_id for n in notes}))
     return [
         OpenIdea(

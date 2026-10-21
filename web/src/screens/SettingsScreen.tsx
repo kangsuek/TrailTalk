@@ -96,6 +96,15 @@ function SettingsForm({
     setResult(null)
   }
 
+  // 서버 기본 모델은 "기본" 항목 하나로만 보인다(같은 모델의 항목이 따로 또 있으면 헷갈린다).
+  // 기본 모델을 직접 골라 저장해 둔 경우도 "기본" 항목이 선택된 것으로 본다
+  const defaultModel = MODEL_CHOICES.find((c) => c.value !== null && c.value === profile.default_chat_model)
+  const modelChoices = MODEL_CHOICES.filter((c) => c !== defaultModel)
+  const isChosen = (choice: (typeof MODEL_CHOICES)[number]) =>
+    choice.value === null
+      ? draft.chatModel === null || draft.chatModel === defaultModel?.value
+      : draft.chatModel === choice.value
+
   // 화면을 떠나면 미리 듣기를 멈춘다(멈춘 소리의 결과는 아래 핸들러가 무시한다)
   useEffect(
     () => () => {
@@ -251,11 +260,12 @@ function SettingsForm({
           <div className="settings-row">
             <select
               id="settings-voice"
-              value={draft.voice ?? ''}
+              value={draft.voice === voices.default_voice ? '' : (draft.voice ?? '')}
               onChange={(e) => change({ voice: e.target.value || null })}
             >
               <option value="">캐릭터 기본({voices.default_voice})</option>
-              {voices.voices.map((voice) => (
+              {/* 기본 보이스는 위 항목과 같으므로 목록에서 뺀다 */}
+              {voices.voices.filter((voice) => voice !== voices.default_voice).map((voice) => (
                 <option key={voice} value={voice}>
                   {voice}
                 </option>
@@ -292,15 +302,17 @@ function SettingsForm({
         <fieldset className="settings-field">
           <legend className="settings-label">대화 모델</legend>
           <div className="settings-models">
-            {MODEL_CHOICES.map((choice) => (
+            {modelChoices.map((choice) => (
               <label key={choice.label} className="settings-choice">
                 <input
                   type="radio"
                   name="chat-model"
-                  checked={draft.chatModel === choice.value}
+                  checked={isChosen(choice)}
                   onChange={() => change({ chatModel: choice.value })}
                 />
-                {choice.value === null ? `기본(${profile.default_chat_model})` : choice.label}
+                {choice.value === null
+                  ? `기본 · ${defaultModel?.label ?? profile.default_chat_model}`
+                  : choice.label}
               </label>
             ))}
           </div>

@@ -49,7 +49,13 @@ describe('SettingsScreen', () => {
     fireEvent.change(screen.getByRole('combobox', { name: '보이스' }), { target: { value: 'coral' } })
     fireEvent.click(screen.getByRole('radio', { name: '느리게' }))
     fireEvent.click(screen.getByRole('checkbox', { name: /음성 원본 보관/ }))
-    expect(screen.getByRole('radio', { name: '기본(sonnet)' })).toBeChecked() // 서버 기본 모델
+    expect(screen.getByRole('radio', { name: '기본 · 균형(sonnet)' })).toBeChecked() // 서버 기본 모델
+    expect(screen.queryByRole('radio', { name: '균형(sonnet)' })).toBeNull() // 같은 모델을 또 보이지 않는다
+    expect(screen.getAllByRole('radio').filter((r) => r.getAttribute('name') === 'chat-model')).toHaveLength(3)
+    const voiceNames = within(screen.getByRole('combobox', { name: '보이스' }))
+      .getAllByRole('option')
+      .map((o) => o.textContent)
+    expect(voiceNames).toEqual(['캐릭터 기본(nova)', 'coral', 'sage']) // 기본 보이스(nova)는 한 번만
     fireEvent.click(screen.getByRole('radio', { name: '똑똑함(opus)' }))
     fireEvent.click(screen.getByRole('button', { name: '저장' }))
 
