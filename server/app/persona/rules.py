@@ -33,13 +33,15 @@ WEB_SEARCH_RULES = (
     "라고 하면 search_naver를, '해외 사이트에서'라고 하면 search_USA를 쓴다. 지정이 없으면 질문이 "
     "한국과 관련될 때 search_naver를, 그 밖에는 search_USA를 쓴다. 사용자가 사이트를 지정하면 "
     "그 지정이 아래 다른 규칙보다 우선한다.",
-    "search_naver는 recency로 기간을 제한한다(오늘 장처럼 실시간 소식은 day, 그 밖의 최신 소식은 "
-    "week이고, 시점과 무관한 질문은 recency 없이 찾는다). 사용자가 매체를 말하면 site에 그 매체 "
+    "search_naver는 recency로 기간을 제한한다(사용자가 오늘·어제·방금·지금처럼 하루 안의 소식을 "
+    "말했을 때만 day, '최신'·'최근'이나 그 밖의 소식은 week이고, 시점과 무관한 질문은 recency "
+    "없이 찾는다). 사용자가 매체를 말하면 site에 그 매체 "
     "도메인(예: ytn.co.kr)을 넣고 검색어에도 매체 이름을 함께 쓴다(예: 'YTN 증시'). 내용은 짧은 "
     "요약이라 자세히 설명할 때는 WebFetch로 원문을 읽는다.",
-    "search_USA는 뉴스, 시세, 행사처럼 시점에 민감한 검색에 topic=news와 recency=week를 쓰고(오늘·"
-    "어제 소식이면 recency=day), 날씨처럼 뉴스가 아닌 시점 민감 검색은 topic=general에 "
-    "recency=week를 직접 준다. 시점과 무관한 사실 확인은 topic=general로 recency 없이 찾는다.",
+    "search_USA는 뉴스, 시세, 행사처럼 시점에 민감한 검색에 topic=news와 recency=week를 쓴다. "
+    "사용자가 오늘·어제·방금·지금처럼 하루 안의 소식을 말했을 때만 recency=day를 쓰고, '최신'·'최근'은 "
+    "week로 찾는다. 날씨처럼 뉴스가 아닌 시점 민감 검색은 topic=general에 recency=week를 직접 "
+    "준다. 시점과 무관한 사실 확인은 topic=general로 recency 없이 찾는다.",
     "검색 결과에는 매체, 발행일, 주소가 있으니 출처·날짜 규칙에 그대로 쓴다. 선택한 도구가 오류를 "
     "내면 재검색 횟수에 세지 말고 곧바로 같은 검색을 내장 WebSearch로 한다. 결과가 없거나 7일을 "
     "넘긴 자료뿐이면 아래 자동 재검색(최대 두 번)에 따르고, 마지막 재검색은 내장 WebSearch로 "

@@ -26,10 +26,13 @@ from app.services.search import (
     TimeRange,
     Topic,
     clean_text,
+    dedupe_by_title,
     safe_url,
 )
 
 logger = logging.getLogger("trailtalk.search")
+
+_EXTRA_FETCH = 5  # 기간·매체 지정이 없을 때, 같은 기사 중복을 걸러도 건수가 모자라지 않게 더 받는다
 
 _TAG = re.compile(r"<[^>]+>")
 _WINDOWS: dict[str, timedelta] = {
@@ -134,7 +137,7 @@ class NaverNewsSearch:
         if sites and sites[0] not in query.lower():
             queries.append(f"{query} {sites[0]}")
         sort = "date" if filtering else "sim"
-        display = self._fetch_count if filtering else self._max_results
+        display = self._fetch_count if filtering else self._max_results + _EXTRA_FETCH
         started = time.monotonic()
         outcomes = await asyncio.gather(
             *(self._fetch(q, sort, display) for q in queries), return_exceptions=True
@@ -218,7 +221,9 @@ class NaverNewsSearch:
             if sites and not _host_matches(result.host, sites):
                 continue
             kept.append(result)
-        return kept[: self._max_results]
+        # 매체 지정 필터를 거친 뒤에 중복을 거른다(지정한 매체 기사가 다른 매체 기사와 제목이
+        # 같다는 이유로 빠지지 않게)
+        return dedupe_by_title(kept)[: self._max_results]
 
     @staticmethod
     def _results(raw_items: list[Any]) -> list[tuple[SearchResult, datetime | None]]:

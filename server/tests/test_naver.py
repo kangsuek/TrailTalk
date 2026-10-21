@@ -65,7 +65,7 @@ async def test_request_and_parsing(caplog):
         results = await make_search(handler).search("코스피 마감 시황")
 
     assert seen["url"].path == "/v1/search/news.json"
-    assert dict(seen["url"].params) == {"query": "코스피 마감 시황", "sort": "sim", "display": "5"}
+    assert dict(seen["url"].params) == {"query": "코스피 마감 시황", "sort": "sim", "display": "10"}
     assert seen["headers"]["x-naver-client-id"] == CLIENT_ID
     assert seen["headers"]["x-naver-client-secret"] == CLIENT_SECRET
     [r] = results
@@ -399,3 +399,17 @@ async def test_escaped_tags_in_text_are_removed():
         lambda r: ok([item(1, title="&lt;b&gt;굵게&lt;/b&gt; 제목", description="&#x202E;뒤집힘")])
     ).search("코스피")
     assert results[0].title == "굵게 제목" and results[0].snippet == "뒤집힘"
+
+
+async def test_duplicate_titles_dropped_but_site_filter_runs_first():
+    items = [
+        item(1, host="mk.co.kr", title="엔비디아, 보증 221조 <b>공개</b>"),
+        item(2, host="ytn.co.kr", title="엔비디아 보증 221조 공개"),  # 지정한 매체의 같은 제목
+        item(3, host="news1.kr", title="엔비디아, 보증 221조 공개"),
+        item(4, host="news1.kr", title="다른 소식"),
+    ]
+    results = await make_search(lambda r: ok(items)).search("엔비디아")
+    assert [r.title for r in results] == ["엔비디아, 보증 221조 공개", "다른 소식"]
+    # 매체를 지정하면 그 매체 기사가 다른 매체와 제목이 같아도 남는다
+    results = await make_search(lambda r: ok(items)).search("엔비디아", domains=["ytn.co.kr"])
+    assert [r.host for r in results] == ["ytn.co.kr"]

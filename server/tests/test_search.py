@@ -60,7 +60,7 @@ async def test_parses_results_and_sends_request(caplog):
         "query": "미국 증시",
         "topic": "news",
         "search_depth": "fast",
-        "max_results": 5,
+        "max_results": 8,  # 중복을 걸러도 5건이 남도록 3건 더 받는다
         "include_usage": True,
         "time_range": "week",
         "include_domains": ["cnbc.com"],
@@ -250,3 +250,45 @@ async def test_error_body_is_not_logged(caplog):
             await make_search(handler).search("test query")
     assert "Query is too short" in caplog.text
     assert "비밀 검색어" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("a", "host_a", "b", "host_b", "same"),
+    [
+        (
+            "Asian shares fall - Bozeman Daily Chronicle",
+            "bozemandailychronicle.com",
+            "Asian shares fall - Greenwich Time",
+            "greenwichtime.com",
+            True,
+        ),
+        ("Asian shares fall | AP News", "apnews.com", "Asian shares fall", "cnbc.com", True),
+        ("Stocks rally - Yahoo Finance", "finance.yahoo.com", "Stocks rally", "x.com", True),
+        ("코스피, 5700선 회복…반등", "a.kr", "코스피 5700선 회복 반등", "b.kr", True),
+        ("Dow rises", "a.com", "Dow falls", "b.com", False),
+        # 제목 안의 ' - '는 매체명이 아니다: 호스트에 낱말이 없으면 떼지 않는다
+        ("Stocks - up - on earnings", "a.com", "Stocks - up - on oil", "b.com", False),
+        ("Dow rises - oil jumps", "cnbc.com", "Dow rises - oil falls", "cnbc.com", False),
+    ],
+)
+def test_title_key_strips_source_suffix_only_when_it_matches_host(a, host_a, b, host_b, same):
+    from app.services.search import title_key
+
+    assert (title_key(a, host_a) == title_key(b, host_b)) is same
+
+
+async def test_duplicate_titles_are_dropped_and_extra_results_fill_up():
+    items = [
+        {"title": "시황", "url": "https://a.example/1", "content": "c"},
+        {"title": "시황 - Example News", "url": "https://b.example/1", "content": "c"},  # 같은 기사
+        {"title": "다른 기사", "url": "https://c.example/1", "content": "c"},
+        {"title": "", "url": "https://d.example/1", "content": "c"},  # 빈 제목은 중복으로 안 봄
+        {"title": "", "url": "https://d.example/2", "content": "c"},
+    ]
+    results = await make_search(lambda r: ok(items)).search("test query")
+    assert [r.url for r in results] == [
+        "https://a.example/1",
+        "https://c.example/1",
+        "https://d.example/1",
+        "https://d.example/2",
+    ]

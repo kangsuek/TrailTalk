@@ -5,6 +5,7 @@
 
 import asyncio
 import logging
+import re
 import time
 import unicodedata
 from dataclasses import dataclass
@@ -71,6 +72,7 @@ def _error_text(response: httpx2.Response) -> str:
 
 
 _URL_MAX = 2000
+_EXTRA_FETCH = 3  # 같은 기사 중복을 걸러도 건수가 모자라지 않게 더 받는다
 
 
 def safe_url(url: str) -> bool:
@@ -80,6 +82,40 @@ def safe_url(url: str) -> bool:
         and len(url) <= _URL_MAX
         and not any(c.isspace() or unicodedata.category(c) in {"Cc", "Cf"} for c in url)
     )
+
+
+_SOURCE_SUFFIX = re.compile(r"\s[-|–—]\s[^-|–—]{2,40}$")
+_NON_WORD = re.compile(r"[^\w]+")
+
+
+def title_key(title: str, host: str | None = None) -> str:
+    """같은 기사를 여러 매체가 실은 중복을 알아보는 키: 끝의 ' - 매체명'을 떼고 글자만 남긴다.
+
+    접미사가 매체명으로 보일 때만(그 결과의 호스트에 접미사의 낱말이 들어 있을 때) 뗀다. 제목
+    안의 ' - '(예: 'Dow rises - oil jumps')를 매체명으로 오해해 다른 기사를 같은 기사로 보지
+    않게 한다."""
+    text = title.strip()
+    match = _SOURCE_SUFFIX.search(text)
+    if match and host:
+        host_key = _NON_WORD.sub("", host.casefold())
+        words = [w for w in _NON_WORD.split(match.group(0).casefold()) if len(w) >= 3]
+        if any(w in host_key for w in words):
+            text = text[: match.start()]
+    return _NON_WORD.sub("", text.casefold())
+
+
+def dedupe_by_title(results: list[SearchResult]) -> list[SearchResult]:
+    """제목이 같은 결과는 먼저 나온 것만 남긴다(순서 유지). 제목이 비면 중복으로 보지 않는다."""
+    seen: set[str] = set()
+    kept = []
+    for result in results:
+        key = title_key(result.title, result.host)
+        if key and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        kept.append(result)
+    return kept
 
 
 def clean_text(value: Any) -> str:
@@ -134,7 +170,7 @@ class TavilySearch:
             "query": query,
             "topic": topic,
             "search_depth": self._depth,
-            "max_results": self._max_results,
+            "max_results": min(self._max_results + _EXTRA_FETCH, 20),
             "include_usage": True,
         }
         if time_range:
@@ -177,7 +213,7 @@ class TavilySearch:
         except (ValueError, KeyError, TypeError) as exc:
             logger.warning("검색 응답을 읽지 못했습니다")
             raise SearchError("failed", "검색 응답을 읽지 못했습니다.") from exc
-        results = self._results(raw_results)
+        results = dedupe_by_title(self._results(raw_results))[: self._max_results]
         usage = data.get("usage") if isinstance(data, dict) else None
         credits = usage.get("credits") if isinstance(usage, dict) else None
         # 무료 한도(월 1,000크레딧) 추적용. 검색어는 길이만 남긴다
