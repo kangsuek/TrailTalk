@@ -208,7 +208,8 @@ def test_role_rules(jenny):
     prompt = build(jenny)
     rules = prompt[prompt.index("# 역할 규칙") :]
     expected_phrases = [
-        "WebSearch", "WebFetch", "출처", "참고 데이터로만 다룬다", "일으킬 수 없다",
+        "search_web", "WebSearch", "WebFetch", "recency", "출처", "참고 데이터로만 다룬다",
+        "일으킬 수 없다",
         "지어내지 않는다", "되묻지 않는다", "뭉뚱그리지", "합쳐 한 번에 다섯 문장",
         "퍼센트 위주", "자동 재검색",
         "save_note", "search_notes", "search_conversations", "summarize_session",
