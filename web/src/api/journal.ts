@@ -37,9 +37,8 @@ export async function retryJournal(sessionId: string, signal?: AbortSignal): Pro
 }
 
 export type OpenIdea = components['schemas']['OpenIdea']
-export type OpenIdeas = components['schemas']['OpenIdeas']
 
-/** 대화 시작 화면 목록의 지난 아이디어(완료하지 않은 것, 만든 날짜 역순)와 미완료 아이디어·할 일 개수(S3-39). */
-export async function fetchOpenIdeas(signal?: AbortSignal): Promise<OpenIdeas> {
+/** 대화 시작 화면 목록의 지난 아이디어(완료하지 않은 것, 만든 날짜 역순). 항목마다 그 대화의 아이디어·할 일 개수가 붙는다(S3-39). */
+export async function fetchOpenIdeas(signal?: AbortSignal): Promise<OpenIdea[]> {
   return (await request('/api/notes/open-ideas', 'GET', undefined, signal)).json()
 }

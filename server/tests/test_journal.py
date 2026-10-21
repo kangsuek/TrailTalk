@@ -283,15 +283,13 @@ def test_detail_has_citations(client):
 
 
 def test_open_ideas_empty(client):
-    assert client.get("/api/notes/open-ideas").json() == {
-        "items": [],
-        "idea_count": 0,
-        "todo_count": 0,
-    }
+    assert client.get("/api/notes/open-ideas").json() == []
 
 
 def test_open_ideas_newest_first_open_only(client):
-    """S3-39: 시작 화면 목록. 날짜 역순, 완료·다른 종류는 뺀다. 별표는 순서에 영향이 없다."""
+    """S3-39: 시작 화면 목록. 날짜 역순, 완료·다른 종류는 뺀다. 별표는 순서에 영향이 없다.
+    항목마다 그 대화의 아이디어·할 일 개수(완료한 것 포함, 일지 목록 counts와 같다)를 준다.
+    """
     old = add_session(client, kst(2026, 10, 14, 9, 0))
     new = add_session(client, kst(2026, 10, 15, 9, 0))
     starred = add_note(
@@ -303,18 +301,16 @@ def test_open_ideas_newest_first_open_only(client):
     add_note(client, new, NoteKind.IDEA, "끝낸 아이디어", done=True, created_at=done_at)
     add_note(client, new, NoteKind.TODO, "할 일", created_at=kst(2026, 10, 15, 12, 0))
 
-    res = client.get("/api/notes/open-ideas").json()
-    body = res["items"]
-    assert (res["idea_count"], res["todo_count"]) == (3, 1)  # 완료한 아이디어는 세지 않는다
+    body = client.get("/api/notes/open-ideas").json()
     assert [n["content"] for n in body] == ["새 아이디어", "오래된 아이디어", "별표"]
     assert [n["session_id"] for n in body] == [new, old, old]
     assert body[2]["starred"] is True and body[2]["id"] == starred
+    assert [(n["idea_count"], n["todo_count"]) for n in body] == [(2, 1), (2, 0), (2, 0)]
 
     # 개수를 줄일 수 있고, 완료하면 목록에서 빠진다
-    assert [n["content"] for n in client.get("/api/notes/open-ideas?limit=1").json()["items"]] == [
+    assert [n["content"] for n in client.get("/api/notes/open-ideas?limit=1").json()] == [
         "새 아이디어"
     ]
     assert client.patch(f"/api/notes/{starred}", json={"done": True}).status_code == 200
-    res = client.get("/api/notes/open-ideas").json()
-    assert len(res["items"]) == 2 and res["idea_count"] == 2
+    assert len(client.get("/api/notes/open-ideas").json()) == 2
     assert client.get("/api/notes/open-ideas?limit=0").status_code == 422

@@ -303,12 +303,8 @@ class OpenIdea(BaseModel):
     starred: bool
     session_id: str  # 이 아이디어가 나온 대화(일지 상세로 연다)
     created_at: datetime
-
-
-class OpenIdeas(BaseModel):
-    items: list[OpenIdea]
-    idea_count: int  # 완료하지 않은 아이디어 전체 개수(목록 limit과 무관)
-    todo_count: int  # 완료하지 않은 할 일 전체 개수
+    idea_count: int  # 그 대화에 저장된 아이디어 수(일지 목록의 counts와 같은 기준)
+    todo_count: int  # 그 대화에 저장된 할 일 수
 
 
 IDEA_LIST_DEFAULT = 5
@@ -319,37 +315,32 @@ IDEA_LIST_MAX = 20
 async def open_ideas(
     db: DbSession,
     limit: Annotated[int, Query(ge=1, le=IDEA_LIST_MAX)] = IDEA_LIST_DEFAULT,
-) -> OpenIdeas:
+) -> list[OpenIdea]:
     """대화 시작 화면의 "지난 아이디어 이어 가기" 목록(S3-39). 완료하지 않은 아이디어를
-    만든 날짜의 역순(최신이 먼저)으로 최대 limit개 주고, 완료하지 않은 아이디어·할 일의
-    전체 개수를 함께 준다. 없으면 빈 목록과 0.
+    만든 날짜의 역순(최신이 먼저)으로 최대 limit개 주고, 항목마다 그 대화의 아이디어·할 일
+    개수를 붙인다. 없으면 빈 목록.
     """
-    notes = await db.scalars(
-        select(Note)
-        .where(Note.kind == NoteKind.IDEA, Note.done.is_(False))
-        .order_by(Note.created_at.desc(), Note.id)
-        .limit(limit)
+    notes = list(
+        await db.scalars(
+            select(Note)
+            .where(Note.kind == NoteKind.IDEA, Note.done.is_(False))
+            .order_by(Note.created_at.desc(), Note.id)
+            .limit(limit)
+        )
     )
-    rows = await db.execute(
-        select(Note.kind, func.count())
-        .where(Note.kind.in_([NoteKind.IDEA, NoteKind.TODO]), Note.done.is_(False))
-        .group_by(Note.kind)
-    )
-    counts = {kind: n for kind, n in rows}
-    return OpenIdeas(
-        items=[
-            OpenIdea(
-                id=n.id,
-                content=n.content,
-                starred=n.starred,
-                session_id=n.session_id,
-                created_at=n.created_at,
-            )
-            for n in notes
-        ],
-        idea_count=counts.get(NoteKind.IDEA, 0),
-        todo_count=counts.get(NoteKind.TODO, 0),
-    )
+    counts = await _counts(db, list({n.session_id for n in notes}))
+    return [
+        OpenIdea(
+            id=n.id,
+            content=n.content,
+            starred=n.starred,
+            session_id=n.session_id,
+            created_at=n.created_at,
+            idea_count=counts[n.session_id].get(NoteKind.IDEA, 0),
+            todo_count=counts[n.session_id].get(NoteKind.TODO, 0),
+        )
+        for n in notes
+    ]
 
 
 @router.patch("/notes/{note_id}")

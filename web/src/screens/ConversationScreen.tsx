@@ -9,7 +9,7 @@ import {
   type Ref,
 } from 'react'
 import { ApiError, endSession, prepareSession, reopenSession, sendTurn, startSession } from '../api/conversation'
-import { fetchOpenIdeas, type OpenIdeas } from '../api/journal'
+import { fetchOpenIdeas, type OpenIdea } from '../api/journal'
 import {
   conversationReducer,
   initialConversation,
@@ -243,13 +243,13 @@ export function ConversationScreen({
 
   // 시작 화면의 "지난 아이디어 이어 가기" 목록(S3-39). 시작 화면이 보일 때마다 다시 불러온다
   // (일지에서 별표·완료·삭제를 바꾸고 돌아와도 맞게). 못 불러오면 숨긴다(지워진 대화를 열지 않게)
-  const [ideas, setIdeas] = useState<OpenIdeas | null>(null)
+  const [ideas, setIdeas] = useState<OpenIdea[]>([])
   const showingStart = visible && pageVisible && state.status === 'idle'
   useEffect(() => {
     if (!showingStart) return
     const load = new AbortController()
-    fetchOpenIdeas(load.signal).then((res) => setIdeas(Array.isArray(res?.items) ? res : null), () => {
-      if (!load.signal.aborted) setIdeas(null)
+    fetchOpenIdeas(load.signal).then((res) => setIdeas(Array.isArray(res) ? res : []), () => {
+      if (!load.signal.aborted) setIdeas([])
     })
     return () => load.abort()
   }, [showingStart])
@@ -515,15 +515,10 @@ export function ConversationScreen({
             <br />
             같이 이야기해 봐요.
           </p>
-          {ideas && ideas.items.length > 0 && onOpenJournal && (
+          {ideas.length > 0 && onOpenJournal && (
             <section className="idea-list" aria-label="지난 아이디어 이어 가기">
-              <h3 className="idea-list-title">
-                지난 아이디어 이어 가기
-                <span className="idea-list-counts">
-                  아이디어 {ideas.idea_count} · 할 일 {ideas.todo_count}
-                </span>
-              </h3>
-              {ideas.items.map((idea) => (
+              <h3 className="idea-list-title">지난 아이디어 이어 가기</h3>
+              {ideas.map((idea) => (
                 <button
                   key={idea.id}
                   type="button"
@@ -535,7 +530,9 @@ export function ConversationScreen({
                     {idea.starred ? <StarIcon /> : <BulbIcon />}
                   </span>
                   <span className="idea-card-text">
-                    <span className="idea-card-label">{ideaDate(idea.created_at)}</span>
+                    <span className="idea-card-label">
+                      {ideaDate(idea.created_at)} · 아이디어 {idea.idea_count} · 할 일 {idea.todo_count}
+                    </span>
                     <span className="idea-card-content">{idea.content}</span>
                   </span>
                   <ChevronIcon />
