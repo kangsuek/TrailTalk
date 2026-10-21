@@ -77,6 +77,7 @@ from app.mcp.server import mcp_client_config
 from app.persona.loader import LoadedPersona
 from app.persona.memory import load_memory
 from app.persona.prompt import (
+    ATTACHED_TEXT_LIMIT,
     SUMMARY_NOTES_MAX,
     MemoryContext,
     PastNote,
@@ -92,6 +93,8 @@ from app.persona.rules import (
     REOPEN_GREETING_INSTRUCTION,
 )
 from app.persona.schema import VoiceStyle
+from app.services.attachments import Prepared, discard, load_past_texts
+from app.services.attachments import cli_input as attachment_input
 from app.services.profile import profile_chat_model, profile_voice, profile_with_persona
 from app.services.runtime import ConversationRuntime
 from app.voice.audio import AudioFile
@@ -614,25 +617,31 @@ async def stream_turn(
     from_voice: bool = False,
     audio: AudioFile | None = None,
     timing: VoiceTiming | None = None,
+    attachments: list[Prepared] | None = None,
 ) -> AsyncIterator[bytes]:
     """사용자 메시지 한 턴을 처리하며 SSE 바이트를 낸다.
 
     from_voice: 음성 업로드의 인식 결과다. turn 바로 앞에 transcript 이벤트로 알린다.
     audio: 보관할 녹음(프로필 keep_audio가 켜진 음성 턴, S3-05). 사용자 턴에 붙여 저장한다.
     timing: 음성 턴의 지연 측정(S3-07). 단계별 시각을 turn_latency에 남긴다.
+    attachments: 이미 가공해 디스크에 쓴 첨부(FR-22). 사용자 턴과 같은 커밋에 행을 넣고, 턴을
+    저장하지 못하면 파일을 지운다.
 
     클라이언트가 끊기면 이 제너레이터가 닫히고 aclosing이 CLI 턴을 멈춘다. 이때 사용자 턴과
     보낸 문장까지의 답변(interrupted)이 남는다.
     """
     runtime = app.state.runtimes.ensure(session_id)
     if runtime.turn_lock.locked():  # 검사와 획득 사이에 await가 없어 경합하지 않는다
+        _discard_attachments(app, attachments)
         yield _error(TurnBusy())
         return
     async with runtime.turn_lock:
         db = app.state.session_factory()
         try:
             # 안쪽 제너레이터도 바로 닫아야 락을 풀기 전에 CLI 턴 정리(인터럽트)가 끝난다
-            turn = _run_turn(app, db, runtime, session_id, text, from_voice, audio, timing)
+            turn = _run_turn(
+                app, db, runtime, session_id, text, from_voice, audio, timing, attachments
+            )
             async with aclosing(turn) as chunks:
                 async for chunk in chunks:
                     yield chunk
@@ -641,6 +650,11 @@ async def stream_turn(
             # 커넥션이 풀에 남아 다음 요청이 실패한다)
             with anyio.CancelScope(shield=True):
                 await db.close()
+
+
+def _discard_attachments(app: FastAPI, attachments: list[Prepared] | None) -> None:
+    if attachments:
+        discard(app.state.settings.attachments_dir, attachments)
 
 
 # 캐릭터가 아무 말 없이 시작하면 찾는 동안의 침묵을 검색 안내 음성으로 메우는 도구
@@ -656,6 +670,7 @@ async def _run_turn(
     from_voice: bool,
     audio: AudioFile | None = None,
     timing: VoiceTiming | None = None,
+    attachments: list[Prepared] | None = None,
 ) -> AsyncIterator[bytes]:
     """턴 락을 잡은 상태에서 한 턴을 처리한다.
 
@@ -668,14 +683,17 @@ async def _run_turn(
             if convo is not None and convo.status is not SessionStatus.ENDED:
                 seq = await _next_seq(db, session_id)
                 user_turn = Turn(session_id=session_id, seq=seq, role=TurnRole.USER, text=text)
+                user_turn.attachments = [a.to_row() for a in attachments or []]
                 db.add(user_turn)
                 await _set_status(db, session_id, SessionStatus.ACTIVE)  # 쉬기 중이면 이어 감
                 await db.commit()
     except Exception:
         logger.exception("사용자 턴 저장 실패(session=%s)", session_id)
+        _discard_attachments(app, attachments)
         yield _error(AppError("internal_error", "서버 내부 오류가 발생했습니다.", 500))
         return
     if convo is None or convo.status is SessionStatus.ENDED:
+        _discard_attachments(app, attachments)
         app.state.runtimes.discard(session_id)  # 위에서 새로 만든 런타임(토큰)을 남기지 않는다
         yield _error(SessionNotFound() if convo is None else SessionEnded())
         return
@@ -784,12 +802,15 @@ async def _run_turn(
         # 지금 시각과, 직전 답변을 끊었으면 사용자가 어디까지 들었는지를 CLI에만 알린다(기록에는
         # 남기지 않는다)
         now_note = current_time_note(utcnow(), app.state.settings.timezone)
-        cli_text = now_note + (runtime.heard_note or "") + text
+        cli_prefix = now_note + (runtime.heard_note or "")
+        cli_input = (
+            attachment_input(attachments, cli_prefix, text) if attachments else cli_prefix + text
+        )
         runtime.heard_note = None
         # CLI 오류(크래시·시간 초과)로 끝나도 받은 글은 아래에서 마저 보내고 저장한 뒤 다시 던진다
         stream_error: LlmError | None = None
         try:
-            async with aclosing(session.send(cli_text)) as stream:
+            async with aclosing(session.send(cli_input)) as stream:
                 async for event in stream:
                     if isinstance(event, TurnStarted):
                         if event.cli_session_id and event.cli_session_id != convo.cli_session_id:
@@ -1246,6 +1267,12 @@ async def delete_session(app: FastAPI, db: AsyncSession, session_id: str) -> Non
         await asyncio.to_thread(remove_session_audio, app.state.settings.audio_dir, session_id)
     except OSError:
         logger.warning("지운 대화의 녹음 삭제 실패(session=%s)", session_id, exc_info=True)
+    try:
+        await asyncio.to_thread(
+            remove_session_audio, app.state.settings.attachments_dir, session_id
+        )
+    except OSError:
+        logger.warning("지운 대화의 첨부 삭제 실패(session=%s)", session_id, exc_info=True)
 
 
 async def reopen_session(
@@ -1308,7 +1335,20 @@ async def reopen_session(
         rows = await db.scalars(
             select(Turn).where(Turn.session_id == session_id).order_by(Turn.seq)
         )
-        previous = [PastTurn(t.role.value, t.text, t.interrupted) for t in rows if t.text.strip()]
+        past = [t for t in rows if t.text.strip()]
+        texts = await asyncio.to_thread(
+            load_past_texts, app.state.settings.attachments_dir, past, ATTACHED_TEXT_LIMIT
+        )
+        previous = [
+            PastTurn(
+                t.role.value,
+                t.text,
+                t.interrupted,
+                attachments=tuple(a.name for a in t.attachments),
+                attached_texts=tuple((a.name, texts[a.id]) for a in t.attachments if a.id in texts),
+            )
+            for t in past
+        ]
         summary = await _past_summary(db, convo)
         # 상태와 프롬프트를 한 번에 바꾼다(그 사이 서버가 꺼져도 전문 없는 프롬프트가 남지 않게)
         convo.status = SessionStatus.ACTIVE

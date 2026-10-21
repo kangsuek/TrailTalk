@@ -126,7 +126,9 @@ def build_transcript(turns: list[Turn], assistant: str) -> str:
         speaker = "사용자" if t.role is TurnRole.USER else assistant
         mark = " (말이 끊김)" if t.interrupted else ""
         text = _escape_tags(" ".join(t.text.split()))
-        lines.append(f"{speaker}: {text}{mark}")
+        # 첨부 내용은 넣지 않고 이름만 남긴다(추출이 파일 내용을 사용자 발화로 오인하지 않게)
+        files = "".join(f" [첨부: {_escape_tags(' '.join(a.name.split()))}]" for a in t.attachments)
+        lines.append(f"{speaker}: {text}{files}{mark}")
     kept: list[str] = []
     size = 0
     for line in reversed(lines):  # 너무 길면 뒷부분(최근 대화)을 줄 단위로 남긴다

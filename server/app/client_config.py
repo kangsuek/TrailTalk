@@ -10,6 +10,7 @@ from typing import Annotated, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.config import Settings
+from app.services.attachments import IMAGE_EXTENSIONS, TEXT_EXTENSIONS
 
 Probability = Annotated[float, Field(ge=0, le=1)]
 PositiveMs = Annotated[int, Field(gt=0)]
@@ -64,12 +65,27 @@ class AudioConfig(_Strict):
     response: ResponseAudioConfig
 
 
+class AttachmentLimits(_Strict):
+    """파일 첨부 한도(FR-22a). 정본은 서버 설정이고 웹은 보내기 전 안내에만 쓴다."""
+
+    max_files: int
+    image_upload_max_bytes: int
+    image_max_px: int
+    text_max_bytes: int
+    text_max_chars: int
+    session_max_images: int
+    session_max_text_chars: int
+    image_extensions: list[str]
+    text_extensions: list[str]
+
+
 class ClientConfig(_Strict):
     vad: VadConfig
     session: ClientSessionConfig
     audio: AudioConfig
     # 오프라인 보관 때 기기 TTS로 읽는 안내 문구
     offline_notice: Annotated[str, Field(min_length=1)]
+    attachments: AttachmentLimits
 
 
 def load_client_config(settings: Settings) -> ClientConfig:
@@ -77,4 +93,16 @@ def load_client_config(settings: Settings) -> ClientConfig:
     data = json.loads(settings.client_defaults_path.read_text(encoding="utf-8"))
     if isinstance(data, dict) and isinstance(data.get("session"), dict):
         data["session"]["idle_timeout_minutes"] = settings.idle_timeout_s / 60  # 함께 검증한다
+    if isinstance(data, dict):  # 첨부 한도는 서버 설정이 정본이라 JSON에 두지 않는다
+        data["attachments"] = {
+            "max_files": settings.attachment_max_files,
+            "image_upload_max_bytes": settings.attachment_image_upload_max_bytes,
+            "image_max_px": settings.attachment_image_max_px,
+            "text_max_bytes": settings.attachment_text_max_bytes,
+            "text_max_chars": settings.attachment_text_max_chars,
+            "session_max_images": settings.attachment_session_max_images,
+            "session_max_text_chars": settings.attachment_session_max_text_chars,
+            "image_extensions": sorted(IMAGE_EXTENSIONS),
+            "text_extensions": sorted(TEXT_EXTENSIONS),
+        }
     return ClientConfig.model_validate(data)

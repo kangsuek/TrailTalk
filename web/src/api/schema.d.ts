@@ -95,6 +95,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sessions/{session_id}/turns/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Files Turn
+         * @description 질문에 파일(이미지·텍스트)을 붙인 글 턴(FR-22). 텍스트 세션에서만 받는다.
+         *
+         *     순서: 세션·턴 가능 확인 → DB 닫기 → 본문 크기 선검사 → multipart 파싱 → 검증·가공 → SSE.
+         *     잘못된 첨부는 JSON 오류(attachment_invalid 400, attachment_too_large 413)로 나간다.
+         */
+        post: operations["create_files_turn_api_sessions__session_id__turns_files_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sessions/{session_id}/turns/{turn_id}/cancel": {
         parameters: {
             query?: never;
@@ -194,6 +217,26 @@ export interface paths {
          * @description 세션을 끝내고 일지 정리를 띄운 뒤, 정리가 끝나길 잠깐 기다려 마무리 멘트를 준다(멱등).
          */
         post: operations["end_session_api_sessions__session_id__end_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/attachments/{attachment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Attachment
+         * @description 이미지는 바로 보이게(inline), 텍스트는 내려받기(attachment)로 준다. thumb=1은 썸네일.
+         */
+        get: operations["get_attachment_api_attachments__attachment_id__get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -316,8 +359,8 @@ export interface paths {
         /**
          * Open Ideas
          * @description 대화 시작 화면의 "지난 아이디어 이어 가기" 목록(S3-39). 완료하지 않은 아이디어를
-         *     만든 날짜의 역순(최신이 먼저)으로 최대 limit개 주고, 항목마다 그 대화의 종류별 노트
-         *     개수를 붙인다. 없으면 빈 목록.
+         *     만든 날짜의 역순(최신이 먼저)으로 대화당 하나씩(그 대화의 가장 최근 아이디어) 최대 limit개
+         *     주고, 항목마다 그 대화의 종류별 노트 개수를 붙인다. 없으면 빈 목록.
          */
         get: operations["open_ideas_api_notes_open_ideas_get"];
         put?: never;
@@ -429,6 +472,46 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AttachmentLimits
+         * @description 파일 첨부 한도(FR-22a). 정본은 서버 설정이고 웹은 보내기 전 안내에만 쓴다.
+         */
+        AttachmentLimits: {
+            /** Max Files */
+            max_files: number;
+            /** Image Upload Max Bytes */
+            image_upload_max_bytes: number;
+            /** Image Max Px */
+            image_max_px: number;
+            /** Text Max Bytes */
+            text_max_bytes: number;
+            /** Text Max Chars */
+            text_max_chars: number;
+            /** Session Max Images */
+            session_max_images: number;
+            /** Session Max Text Chars */
+            session_max_text_chars: number;
+            /** Image Extensions */
+            image_extensions: string[];
+            /** Text Extensions */
+            text_extensions: string[];
+        };
+        /**
+         * AttachmentOut
+         * @description 턴에 붙은 첨부(FR-22). 파일은 GET /api/attachments/{id}(썸네일은 ?thumb=1).
+         */
+        AttachmentOut: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Mime */
+            mime: string;
+            /** Size */
+            size: number;
+            /** Thumb */
+            thumb: boolean;
+        };
         /** AudioConfig */
         AudioConfig: {
             upload: components["schemas"]["UploadAudioConfig"];
@@ -487,6 +570,7 @@ export interface components {
             audio: components["schemas"]["AudioConfig"];
             /** Offline Notice */
             offline_notice: string;
+            attachments: components["schemas"]["AttachmentLimits"];
         };
         /** ClientSessionConfig */
         ClientSessionConfig: {
@@ -915,6 +999,11 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /**
+             * Attachments
+             * @default []
+             */
+            attachments: components["schemas"]["AttachmentOut"][];
         };
         /** UploadAudioConfig */
         UploadAudioConfig: {
@@ -1358,6 +1447,44 @@ export interface operations {
             };
         };
     };
+    create_files_turn_api_sessions__session_id__turns_files_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    text: string;
+                    files: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description 턴 이벤트 스트림(turn → sentence·tool → done 또는 error) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": components["schemas"]["StreamEvent"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     cancel_turn_api_sessions__session_id__turns__turn_id__cancel_post: {
         parameters: {
             query?: never;
@@ -1523,6 +1650,37 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SessionClosed"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_attachment_api_attachments__attachment_id__get: {
+        parameters: {
+            query?: {
+                thumb?: boolean;
+            };
+            header?: never;
+            path: {
+                attachment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

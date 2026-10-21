@@ -62,6 +62,7 @@ MVP는 P1(핸즈프리 대화, 제니 페르소나, 브레인스토밍, 대화 �
 | FR-18 | 확장 | 주간 트렌드·행사 브리핑을 미리 만들어 세션 시작 때 들려 준다 | P2 |
 | FR-19 | 확장 | Claude Code에서 대화 일지를 조회하는 MCP 서버를 제공한다 | P2 |
 | FR-20 | 대화 | 최신 정보나 사실 확인이 필요한 질문은 웹 검색 후 답하고, 출처를 짧게 밝힌다 | P1 |
+| FR-22 | 대화 | 글 대화에서 이미지(png·jpg·webp·gif)·텍스트(txt·md·csv·json) 파일을 메시지당 3개까지 첨부해 질문하면 캐릭터가 내용을 보고 답한다. 말풍선·일지 전문에 첨부를 남기고 대화를 지우면 파일도 지운다. 음성 세션·PDF는 범위 밖(상세: [attachment-plan.md](attachment-plan.md)) | P1 |
 | FR-21 | 대화 기록 | "이메일로 보내줘"라고 하면 설정에 저장한 본인 이메일 주소로 대화의 요약·노트·전문을 보낸다 | P2 |
 
 **비기능 요구사항**
@@ -73,7 +74,7 @@ MVP는 P1(핸즈프리 대화, 제니 페르소나, 브레인스토밍, 대화 �
 | NFR-03 | 인식 품질 | 바람·숨소리 속에서도 발화 인식률 90% 이상(실제 등산로 테스트 기준) |
 | NFR-04 | 통신 불안정 | 음영지에서는 발화를 기기에 보관하고, 연결 회복 시 전송·기록한다. 기록 유실 0건 |
 | NFR-05 | 배터리 | 1시간 대화 세션 중 소모 배터리 10% 이내(화면을 켠 웹 앱 기준 참고 지표, 측정값 기록) |
-| NFR-06 | 개인정보 | 대화·음성은 본인 서버에만 저장, 전송 구간 HTTPS, Whisper·TTS 키와 Claude CLI 로그인 토큰, 메일 서버(SMTP) 비밀번호는 서버에만 보관. 예외는 FR-21: 사용자가 요청하면 본인 이메일 주소로만 대화 내용이 나간다 |
+| NFR-06 | 개인정보 | 대화·음성은 본인 서버에만 저장, 전송 구간 HTTPS, Whisper·TTS 키와 Claude CLI 로그인 토큰, 메일 서버(SMTP) 비밀번호는 서버에만 보관. 첨부 파일도 본인 서버(폴더 0700·파일 0600)에만 둔다. 예외는 FR-21: 사용자가 요청하면 본인 이메일 주소로만 대화 내용이 나간다 |
 | NFR-07 | 페르소나 일관성 | 제니 답변 샘플 20개 중 18개 이상이 톤 체크리스트를 통과한다 |
 | NFR-08 | 설정 분리 | 캐릭터 이름·성격·말투·보이스는 코드가 아닌 설정 파일로 바꾼다 |
 
@@ -228,6 +229,7 @@ voice:
 |---|---|
 | conversation_session | id, started_at, ended_at, status(active/paused/ended), title, summary, tags, topics(아이디어 주제), 요약·메모 인용(summary_cites, citations, checks), extract_status, system_prompt(시작 때 고정), cli_session_id(Claude CLI `--resume`용) |
 | turn | id, session_id, seq, role(user/assistant), text, audio_path(nullable), interrupted, greeting, created_at |
+| attachment | id, turn_id(CASCADE), name, mime, size, path, thumb_path, chars(텍스트), created_at. 파일은 `attachments_dir/{session_id}/` |
 | turn_latency | turn_id, session_id, 서버 단계별 ms, 클라이언트 보고 ms(NFR-01 측정) |
 | note | id, session_id, turn_id, kind(idea/todo/memo), content, cites, starred, done, created_at |
 | pending_upload (기기 로컬) | id, session_id, audio_file, recorded_at, retry_count |
@@ -246,6 +248,8 @@ ID는 UUID 문자열(`persona`는 이름 키, `user_profile`은 단일 행 1), �
 | POST | /sessions/prepare | 대화 화면이 열릴 때 다음 세션의 CLI를 미리 띄움(인사말 대기 단축, 사용량 없음) |
 | POST | /sessions | 세션 시작, 제니 인사말(텍스트+오디오) 반환 |
 | POST | /sessions/{id}/turns | 글 턴: 텍스트 업로드 → 제니 답변(문장별 텍스트+오디오)을 SSE로 스트리밍 |
+| POST | /sessions/{id}/turns/files | 파일 첨부 글 턴(multipart: text, files[]) → 같은 SSE. 글 대화만 |
+| GET | /attachments/{id} | 첨부 파일(이미지 inline, 텍스트 attachment), `?thumb=1` 썸네일 |
 | POST | /sessions/{id}/turns/audio | 음성 턴: 발화 오디오 업로드 → STT 결과와 제니 답변을 SSE로 스트리밍 |
 | POST | /sessions/{id}/turns/audio/record | 오프라인에서 보관했던 발화를 인식만 해 기록(답변 없음) |
 | POST | /sessions/{id}/turns/{turn_id}/latency | 클라이언트가 잰 지연(말 끝 → 첫 소리) 보고 |
@@ -404,6 +408,7 @@ trailtalk/
 | 제니가 너무 많이 말함 | 걸으며 듣기 피곤 | 음성 모드 5문장 제한(2026-10-15 톤 평가 후 4에서 조정), 질문은 한 번에 하나 |
 | 배터리 소모 | 긴 등산에서 배터리 부족 | VAD는 가벼운 모델, 쉬기 상태에서는 마이크 끄기 |
 | 웹에서 화면이 꺼지거나 탭이 백그라운드로 가면 듣기 중단 | 산책 중 화면을 켜 둬야 해 불편, 배터리 소모 | Screen Wake Lock으로 화면 유지. 백그라운드 동작은 웹의 한계로 받아들임 |
+| 첨부 파일 노출·인젝션 | 앱에 로그인이 없어 `/api/attachments/{id}`는 UUID 추측 불가성과 네트워크 경계(Tailscale)로만 보호됨. 첨부 속 지시를 모델이 따름 | 단일 사용자 앱의 기존 보안 모델과 같음(`<img>`는 헤더를 못 붙여 토큰 불가). 서버가 이미지를 재인코딩(EXIF 제거)·텍스트를 `<attachment>` 래퍼로 감싸고 규칙으로 안의 지시를 따르지 않게 함. `set_nickname`·`set_model`·`send_email`은 첨부가 아닌 사용자 발화를 확인함 |
 | 대화·음성 데이터 민감성 | 서비스화 시 법적 책임 | 본인용은 개인 서버, 음성 원본 기본 미저장, 서비스화 전 동의·보관 정책 수립 |
 
 **결정 필요 사항**

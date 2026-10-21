@@ -79,6 +79,18 @@ class Settings(BaseSettings):
     audio_dir: Path = SERVER_DIR / "data" / "audio"
     audio_retention_days: int = Field(default=30, gt=0)
 
+    # 파일 첨부(FR-22, docs/attachment-plan.md). 한도의 정본이며 /api/profile의 client로 내려간다
+    attachments_dir: Path = SERVER_DIR / "data" / "attachments"
+    attachment_max_files: int = Field(default=3, gt=0)  # 메시지당
+    attachment_image_upload_max_bytes: int = 5 * 1024 * 1024  # 업로드 원본
+    attachment_image_max_px: int = Field(
+        default=1024, gt=0
+    )  # 긴 변(M0: 1568이면 이미지당 약 2,150토큰)
+    attachment_text_max_bytes: int = 200 * 1024  # 파일당
+    attachment_text_max_chars: int = 10_000  # 메시지 합계(M0: 한글은 글자당 약 1토큰)
+    attachment_session_max_images: int = 10
+    attachment_session_max_text_chars: int = 30_000
+
     @field_validator("timezone")
     @classmethod
     def _valid_timezone(cls, value: str) -> str:

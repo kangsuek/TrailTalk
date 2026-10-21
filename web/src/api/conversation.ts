@@ -98,12 +98,19 @@ export async function sendTurn(
   text: string,
   onEvent: (event: StreamEvent) => void,
   signal?: AbortSignal,
+  files: File[] = [],
 ): Promise<void> {
-  const response = await post(
-    `/api/sessions/${encodeURIComponent(sessionId)}/turns`,
-    { text },
-    signal,
-  )
+  const base = `/api/sessions/${encodeURIComponent(sessionId)}/turns`
+  let response: Response
+  if (files.length > 0) {
+    // 파일 첨부(FR-22)는 새 경로로 multipart 전송한다. Content-Type은 fetch가 경계와 함께 정한다
+    const form = new FormData()
+    form.append('text', text)
+    for (const file of files) form.append('files', file, file.name)
+    response = await request(`${base}/files`, 'POST', form, signal)
+  } else {
+    response = await post(base, { text }, signal)
+  }
   await readTurnStream(response, onEvent, signal)
 }
 

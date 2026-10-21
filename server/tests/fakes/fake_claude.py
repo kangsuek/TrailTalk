@@ -11,6 +11,8 @@
 (여러 문장 답변용).
 "__say_then_crash__:<글>"은 글을 보낸 뒤 죽고, "__say_then_hang__:<글>"은 글을 보낸 뒤
 "__hang_until_interrupt__"처럼 멈춘다(답변 도중 끊김·서버 강제 종료 시험용).
+content가 블록 배열(파일 첨부)이면 텍스트 블록에서 지시어를 뽑고 <attachment> 래퍼는 건너뛴다.
+FAKE_CLAUDE_CONTENT_LOG 파일에는 받은 블록을 JSON 한 줄로 남긴다(이미지는 길이·sha256만).
 서버가 메시지 앞에 붙이는 앱 안내 문단("(앱 안내: …)\n\n", 지금 시각·끼어들기)은 건너뛰고 판단한다.
 
 단발 모드: 인자에 --json-schema가 있으면(세션 종료 추출 등) stdin 전체를 프롬프트로 읽고
@@ -22,8 +24,11 @@ FAKE_CLAUDE_ONESHOT 파일의 첫 줄(CLI JSON 출력)을 낸다. 줄이 여러 
 stdin은 파일 객체 버퍼를 쓰지 않고 fd에서 직접 줄 단위로 읽는다(select와 섞어도 줄을 놓치지 않게).
 """
 
+import base64
+import hashlib
 import json
 import os
+import re
 import select
 import sys
 import time
@@ -54,6 +59,39 @@ def strip_app_notes(content: str) -> str:
     while content.startswith(APP_NOTE) and "\n\n" in content:
         content = content.split("\n\n", 1)[1]
     return content
+
+
+def plain_content(content) -> str:
+    """content가 블록 배열이면 텍스트 블록만 모으고, 첨부 래퍼를 떼어 지시어를 찾기 쉽게 한다."""
+    if isinstance(content, list):
+        content = "\n".join(b.get("text", "") for b in content if b.get("type") == "text")
+        content = strip_app_notes(content)
+        content = re.sub(r"<attachment name=[^>]*>.*?</attachment>\n?", "", content, flags=re.S)
+    return content
+
+
+def log_content(content) -> None:
+    path = os.environ.get("FAKE_CLAUDE_CONTENT_LOG")
+    if not path:
+        return
+    if isinstance(content, list):
+        blocks = []
+        for block in content:
+            if block.get("type") == "image":
+                data = base64.b64decode(block["source"]["data"])
+                blocks.append(
+                    {
+                        "type": "image",
+                        "media_type": block["source"]["media_type"],
+                        "bytes": len(data),
+                        "sha256": hashlib.sha256(data).hexdigest(),
+                    }
+                )
+            else:
+                blocks.append(block)
+        content = blocks
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(content, ensure_ascii=False) + "\n")
 
 
 def emit(event: dict) -> None:
@@ -205,7 +243,9 @@ def main() -> None:
         message = json.loads(line)
         if message.get("type") == "control_request":
             continue  # 턴 밖의 인터럽트는 무시
-        content = strip_app_notes(message.get("message", {}).get("content", ""))
+        raw = message.get("message", {}).get("content", "")
+        log_content(raw)
+        content = strip_app_notes(plain_content(raw))
         if content == "__crash__":
             print("fake crash", file=sys.stderr, flush=True)
             sys.exit(3)

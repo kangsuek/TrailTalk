@@ -14,6 +14,7 @@ TABLES = {
     "conversation_session",
     "turn",
     "turn_latency",
+    "attachment",
     "barge_in_event",
     "note",
     "persona",

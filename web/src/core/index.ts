@@ -3,3 +3,4 @@
 export * from './sessionMachine'
 export * from './audio'
 export * from './localQueue'
+export * from './attachments'

@@ -17,10 +17,19 @@ export interface ToolState {
   isError: boolean
 }
 
+/** 사용자 말풍선에 붙은 첨부. 방금 보낸 것은 브라우저 임시 주소(previewUrl), 서버에서 온 것은 id로 보인다 */
+export interface MessageAttachment {
+  id?: string
+  name: string
+  thumb: boolean
+  previewUrl?: string
+}
+
 export interface UserMessage {
   role: 'user'
   id: string
   text: string
+  attachments?: MessageAttachment[]
 }
 
 export interface AssistantMessage {
@@ -40,6 +49,7 @@ export interface PastTurn {
   role: 'user' | 'assistant'
   text: string
   interrupted: boolean
+  attachments?: { id: string; name: string; thumb: boolean }[]
 }
 
 export type SessionStatus = 'idle' | 'starting' | 'active' | 'paused' | 'ended'
@@ -67,7 +77,7 @@ export type ConversationAction =
       // 다시 연 대화(S3-26): 재개 인사말까지 포함한 전체 전문. 있으면 이것으로 말풍선을 채운다
       history?: PastTurn[]
     }
-  | { type: 'send'; id: string; text: string }
+  | { type: 'send'; id: string; text: string; attachments?: MessageAttachment[] }
   | { type: 'event'; event: StreamEvent }
   // code: 서버 오류 코드(세션이 이미 끝났으면 대화를 끝낸다), unsentId: 서버가 받기 전에 실패해
   // 입력창으로 되돌린 사용자 메시지(목록에서 뺀다)
@@ -183,7 +193,10 @@ function applyEvent(state: ConversationState, event: StreamEvent): ConversationS
 }
 
 function pastMessage(turn: PastTurn): Message {
-  if (turn.role === 'user') return { role: 'user', id: turn.id, text: turn.text }
+  if (turn.role === 'user') {
+    const attachments = turn.attachments?.map((a) => ({ id: a.id, name: a.name, thumb: a.thumb }))
+    return { role: 'user', id: turn.id, text: turn.text, ...(attachments?.length ? { attachments } : {}) }
+  }
   return {
     role: 'assistant',
     id: turn.id,
@@ -226,7 +239,15 @@ export function conversationReducer(
         ...state,
         sending: true,
         error: null,
-        messages: [...state.messages, { role: 'user', id: action.id, text: action.text }],
+        messages: [
+          ...state.messages,
+          {
+            role: 'user',
+            id: action.id,
+            text: action.text,
+            ...(action.attachments?.length ? { attachments: action.attachments } : {}),
+          },
+        ],
       }
     case 'event':
       return applyEvent(state, action.event)

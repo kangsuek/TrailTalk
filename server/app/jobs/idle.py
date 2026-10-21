@@ -20,7 +20,7 @@ from app.db.models import ConversationSession, ExtractStatus, SessionStatus, Tur
 from app.db.types import utcnow
 from app.jobs import audio, extract
 from app.llm.claude_cli import delete_cli_session_file
-from app.services import conversation
+from app.services import attachments, conversation
 
 logger = logging.getLogger("trailtalk.idle")
 
@@ -132,4 +132,10 @@ async def run(app: FastAPI) -> None:
             raise
         except Exception:
             logger.exception("음성 원본 정리 실패")
+        try:
+            await attachments.purge_orphans(app)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("고아 첨부 정리 실패")
         await asyncio.sleep(app.state.settings.idle_check_interval_s)

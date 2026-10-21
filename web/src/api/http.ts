@@ -27,7 +27,7 @@ export class RawBody {
 const NETWORK_ERROR = '서버에 연결할 수 없어요.'
 const GATEWAY_STATUSES = new Set([502, 503, 504])
 
-/** 서버 API 요청(본문은 JSON, RawBody면 바이트 그대로). 응답이 실패면 ApiError를 던진다. */
+/** 서버 API 요청(본문은 JSON, RawBody면 바이트 그대로, FormData면 multipart). 응답이 실패면 ApiError를 던진다. */
 export async function request(
   path: string,
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
@@ -37,18 +37,22 @@ export async function request(
   let response: Response
   try {
     const raw = body instanceof RawBody ? body : null
+    const form = body instanceof FormData ? body : null
     response = await fetch(path, {
       method,
+      // FormData는 Content-Type(경계 포함)을 브라우저가 정하게 둔다
       headers:
-        body === undefined
+        body === undefined || form
           ? undefined
           : { 'Content-Type': raw ? raw.contentType : 'application/json' },
       body:
         body === undefined
           ? undefined
-          : raw
-            ? raw.bytes
-            : JSON.stringify(body),
+          : form
+            ? form
+            : raw
+              ? raw.bytes
+              : JSON.stringify(body),
       signal,
     })
   } catch (error) {

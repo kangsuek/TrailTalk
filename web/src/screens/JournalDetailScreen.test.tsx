@@ -27,9 +27,13 @@ const DETAIL = {
     { id: 'n3', kind: 'memo', content: '구청에 문의 가능', starred: false, done: false, created_at: '' },
   ],
   turns: [
-    { id: 't0', seq: 0, role: 'assistant', text: '안녕하세요!', interrupted: false, created_at: '' },
-    { id: 't1', seq: 1, role: 'user', text: '지도 앱 어때?', interrupted: false, created_at: '' },
-    { id: 't2', seq: 2, role: 'assistant', text: '좋아요.', interrupted: true, created_at: '' },
+    { id: 't0', seq: 0, role: 'assistant', text: '안녕하세요!', interrupted: false, created_at: '', attachments: [] },
+    { id: 't1', seq: 1, role: 'user', text: '지도 앱 어때?', interrupted: false, created_at: '',
+      attachments: [
+        { id: 'a1', name: '지도.png', mime: 'image/png', size: 10, thumb: true },
+        { id: 'a2', name: '메모.txt', mime: 'text/plain', size: 5, thumb: false },
+      ] },
+    { id: 't2', seq: 2, role: 'assistant', text: '좋아요.', interrupted: true, created_at: '', attachments: [] },
   ],
 }
 
@@ -68,6 +72,10 @@ describe('JournalDetailScreen', () => {
     expect(transcript.open).toBe(false)
     expect(within(transcript).getAllByText('도우미')).toHaveLength(2) // 화자 이름은 서버가 준다
     expect(within(transcript).getByText('(말이 끊김)', { exact: false })).toBeInTheDocument()
+    // 첨부(FR-22): 이미지는 썸네일 주소로, 텍스트 파일은 이름으로 보이고 누르면 원본을 연다
+    expect(within(transcript).getByAltText('지도.png')).toHaveAttribute('src', '/api/attachments/a1?thumb=1')
+    expect(within(transcript).getByRole('link', { name: '지도.png' })).toHaveAttribute('href', '/api/attachments/a1')
+    expect(within(transcript).getByRole('link', { name: '메모.txt' })).toHaveAttribute('href', '/api/attachments/a2')
   })
 
   it('아이디어 별표와 할 일 완료를 바꾸면 저장한다', async () => {

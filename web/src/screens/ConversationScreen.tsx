@@ -10,17 +10,33 @@ import {
 } from 'react'
 import { ApiError, endSession, prepareSession, reopenSession, sendTurn, startSession } from '../api/conversation'
 import { fetchOpenIdeas, type OpenIdea } from '../api/journal'
+import { getProfile } from '../api/profile'
+import {
+  DEFAULT_ATTACHMENT_LIMITS,
+  attachmentHint,
+  attachmentKind,
+  attachmentUrl,
+  checkAttachments,
+  type AttachmentLimits,
+} from '../core/attachments'
 import {
   conversationReducer,
   initialConversation,
   toolNotice,
   type AssistantMessage,
+  type MessageAttachment,
 } from '../core/conversation'
 import { countsLabel } from '../core/journal'
 import { useVoiceConversation } from './useVoiceConversation'
 import { VoiceControls } from './VoiceControls'
 
 type Mode = 'text' | 'voice'
+
+/** 입력줄에 붙인 파일. 이미지는 고를 때 만든 임시 썸네일 주소(preview)를 말풍선까지 이어 쓴다 */
+interface PendingFile {
+  file: File
+  preview: string | null
+}
 
 /** 이어서 하기 결과: 시작함(또는 이미 그 대화 중), 다른 대화가 진행 중, 음성 기능을 불러오는 중·못 씀 */
 export type ContinueResult = 'ok' | 'busy' | 'voice_loading' | 'voice_unavailable'
@@ -111,6 +127,15 @@ function ideaDate(createdAt: string): string {
   return new Date(createdAt).toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' })
 }
 
+function ClipIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l9-9a3.3 3.3 0 0 1 4.7 4.7l-9 9a1.7 1.7 0 0 1-2.4-2.4l8.3-8.3" />
+    </svg>
+  )
+}
+
 function SendIcon() {
   return (
     <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor"
@@ -185,6 +210,34 @@ function AssistantBubble({ message, name }: { message: AssistantMessage; name: s
   )
 }
 
+/** 말풍선 안의 첨부(이미지는 썸네일, 누르면 원본. 텍스트 파일은 이름) */
+function AttachmentList({ items }: { items: MessageAttachment[] }) {
+  return (
+    <ul className="message-attachments" aria-label="첨부 파일">
+      {items.map((a, i) => {
+        const src = a.previewUrl ?? (a.id && a.thumb ? attachmentUrl(a.id, true) : null)
+        const href = a.id ? attachmentUrl(a.id) : (a.previewUrl ?? null)
+        const body = src ? (
+          <img src={src} alt={a.name} loading="lazy" />
+        ) : (
+          <span className="attachment-file">{a.name}</span>
+        )
+        return (
+          <li key={a.id ?? `${a.name}-${i}`} className="message-attachment" data-kind={src ? 'image' : 'text'}>
+            {href ? (
+              <a href={href} target="_blank" rel="noreferrer" title={a.name}>
+                {body}
+              </a>
+            ) : (
+              body
+            )}
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
 function VoiceUnavailable() {
   return <p className="conversation-note">음성 기능을 불러오지 못했어요. 글로 대화하거나 새로 고침해 주세요.</p>
 }
@@ -203,6 +256,11 @@ export function ConversationScreen({
 }) {
   const [state, dispatch] = useReducer(conversationReducer, initialConversation)
   const [draft, setDraft] = useState('')
+  const [files, setFiles] = useState<PendingFile[]>([])
+  const [attachError, setAttachError] = useState<string | null>(null)
+  const [limits, setLimits] = useState<AttachmentLimits>(DEFAULT_ATTACHMENT_LIMITS)
+  const fileInput = useRef<HTMLInputElement>(null)
+  const bubbleUrls = useRef<string[]>([]) // 보낸 말풍선의 임시 썸네일 주소(화면을 떠날 때 해제)
   const controller = useRef<AbortController | null>(null)
   const nextId = useRef(0)
   const input = useRef<HTMLTextAreaElement>(null)
@@ -214,6 +272,7 @@ export function ConversationScreen({
 
   const chooseMode = (next: Mode) => {
     setMode(next)
+    if (next !== 'text') setFiles([]) // 첨부는 글 대화에서만 받는다(보이지 않는 첨부가 남지 않게)
     try {
       localStorage.setItem(MODE_KEY, next)
     } catch {
@@ -223,6 +282,41 @@ export function ConversationScreen({
 
   // 화면을 떠나면 진행 중인 요청을 멈춘다(서버는 연결이 끊기면 CLI 턴을 정리한다)
   useEffect(() => () => controller.current?.abort(), [])
+  useEffect(() => () => bubbleUrls.current.forEach((url) => URL.revokeObjectURL(url)), [])
+
+  // 첨부 한도는 서버가 정본이다. 글 대화가 시작되면 한 번 받아 오고, 못 받으면 기본값으로 안내한다
+  const limitsLoaded = useRef(false)
+  useEffect(() => {
+    if (mode !== 'text' || state.status !== 'active' || limitsLoaded.current) return
+    limitsLoaded.current = true
+    getProfile().then(
+      (profile) => {
+        if (profile.client?.attachments) setLimits(profile.client.attachments)
+      },
+      () => {
+        limitsLoaded.current = false // 다음 대화에서 다시 시도
+      },
+    )
+  }, [mode, state.status])
+
+  const pickFiles = (picked: File[]) => {
+    if (picked.length === 0) return
+    const problem = checkAttachments([...files.map((f) => f.file), ...picked], limits)
+    setAttachError(problem)
+    if (problem !== null) return
+    const added = picked.map((file) => {
+      const preview = attachmentKind(file.name, limits) === 'image' ? URL.createObjectURL(file) : null
+      if (preview) bubbleUrls.current.push(preview) // 화면을 떠날 때 해제
+      return { file, preview }
+    })
+    setFiles((current) => [...current, ...added])
+  }
+  const removeFile = (index: number) => {
+    const removed = files[index]?.preview
+    if (removed) URL.revokeObjectURL(removed)
+    setFiles((current) => current.filter((_, i) => i !== index))
+    setAttachError(null)
+  }
 
   // 대화 탭이 보이고 대화 시작 전·끝난 뒤이면 서버가 다음 대화의 CLI를 미리 띄워 두게 한다
   // (인사말 대기 단축). 서버는 쓰지 않으면 5분 뒤 닫으므로, 화면이 열려 있는 동안 4분마다 다시
@@ -393,10 +487,28 @@ export function ConversationScreen({
     const text = draft.trim()
     if (!text || !canSend || state.sessionId === null) return
     const sessionId = state.sessionId
+    const sentFiles = files
+    const problem = checkAttachments(sentFiles.map((f) => f.file), limits)
+    if (problem) {
+      setAttachError(problem)
+      return
+    }
     setDraft('')
+    setFiles([])
+    setAttachError(null)
     stickToBottom.current = true
     const id = `local-${nextId.current++}`
-    dispatch({ type: 'send', id, text })
+    const attachments: MessageAttachment[] = sentFiles.map(({ file, preview }) => ({
+      name: file.name,
+      thumb: preview !== null,
+      previewUrl: preview ?? undefined,
+    }))
+    dispatch({ type: 'send', id, text, attachments })
+    // 서버가 받기 전에 실패했으면 쓴 글과 첨부를 입력창에 되돌린다
+    const restore = () => {
+      setDraft((current) => current || text)
+      setFiles((current) => (current.length ? current : sentFiles))
+    }
     let answered = false
     let endedByTool = false // 끝내기 도구로 대화가 끝났다(마무리 멘트를 받으러 끝내기를 부른다)
     void run(
@@ -417,7 +529,7 @@ export function ConversationScreen({
             }
             if (streamEvent.type === 'error' && !answered) {
               // 서버가 사용자 메시지를 받기 전에 실패했다: 말풍선을 빼고 쓴 글을 되살린다
-              setDraft((current) => current || text)
+              restore()
               dispatch({
                 type: 'failed',
                 message: streamEvent.message,
@@ -429,10 +541,11 @@ export function ConversationScreen({
             dispatch({ type: 'event', event: streamEvent })
           },
           signal,
+          sentFiles.map((f) => f.file),
         )
       } catch (error) {
-        // 서버가 받기 전에 실패했으면(네트워크·409 등) 쓴 글을 되살려 다시 보낼 수 있게 한다
-        if (!answered && !signal.aborted) setDraft((current) => current || text)
+        // 서버가 받기 전에 실패했으면(네트워크·409·첨부 거절 등) 쓴 글과 첨부를 되살려 다시 보낼 수 있게 한다
+        if (!answered && !signal.aborted) restore()
         throw error
       }
       if (endedByTool) await finish(sessionId, signal)
@@ -483,24 +596,73 @@ export function ConversationScreen({
     void run((signal) => finish(sessionId, signal))
   }
 
-  // 메신저형 입력줄(자동 높이 입력창 + 둥근 보내기). 글 대화와 음성 대화가 같이 쓴다
-  const composerRow = (locked: boolean) => (
-    <div className="composer-row">
-      <textarea
-        ref={input}
-        aria-label="메시지"
-        value={draft}
-        rows={2}
-        maxLength={4000}
-        placeholder={voiceActive ? '말 대신 글로 보내기' : '메시지를 입력하세요'}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={onKeyDown}
-      />
-      <button type="submit" className="send-button" aria-label="보내기" disabled={locked || !draft.trim()}>
-        <SendIcon />
-      </button>
-    </div>
-  )
+  // 메신저형 입력줄(자동 높이 입력창 + 둥근 보내기). 글 대화와 음성 대화가 같이 쓴다.
+  // 첨부는 글 대화에서만 받는다(음성 세션은 서버가 거절한다)
+  const composerRow = (locked: boolean, attachable = false) => {
+    const hint = attachable ? (attachError ?? attachmentHint(draft, files.length)) : null
+    return (
+      <>
+        {attachable && files.length > 0 && (
+          <ul className="attachment-tray" aria-label="붙인 파일">
+            {files.map(({ file, preview }, i) => (
+              <li key={`${file.name}-${i}`} className="attachment-chip">
+                {preview ? <img src={preview} alt="" /> : null}
+                <span className="attachment-name">{file.name}</span>
+                <button type="button" className="attachment-remove" aria-label={`${file.name} 빼기`} onClick={() => removeFile(i)}>
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {hint && (
+          <p className="attachment-hint" role="status">
+            {hint}
+          </p>
+        )}
+        <div className="composer-row">
+          {attachable && (
+            <>
+              <input
+                ref={fileInput}
+                type="file"
+                multiple
+                hidden
+                data-testid="attach-input"
+                accept={[...limits.image_extensions, ...limits.text_extensions].map((e) => `.${e}`).join(',')}
+                onChange={(e) => {
+                  pickFiles(Array.from(e.target.files ?? []))
+                  e.target.value = '' // 같은 파일을 다시 고를 수 있게
+                }}
+              />
+              <button
+                type="button"
+                className="attach-button"
+                aria-label="파일 붙이기"
+                disabled={locked || files.length >= limits.max_files}
+                onClick={() => fileInput.current?.click()}
+              >
+                <ClipIcon />
+              </button>
+            </>
+          )}
+          <textarea
+            ref={input}
+            aria-label="메시지"
+            value={draft}
+            rows={2}
+            maxLength={4000}
+            placeholder={voiceActive ? '말 대신 글로 보내기' : '메시지를 입력하세요'}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={onKeyDown}
+          />
+          <button type="submit" className="send-button" aria-label="보내기" disabled={locked || !draft.trim()}>
+            <SendIcon />
+          </button>
+        </div>
+      </>
+    )
+  }
 
   const name = state.personaName ?? ''
   const inConversation = state.status === 'active' || state.status === 'paused'
@@ -574,6 +736,7 @@ export function ConversationScreen({
           message.role === 'user' ? (
             <li key={message.id} className="message user">
               <span className="speaker">나</span>
+              {message.attachments && <AttachmentList items={message.attachments} />}
               <p className="bubble">{message.text}</p>
             </li>
           ) : (
@@ -623,7 +786,7 @@ export function ConversationScreen({
               대화 끝내기
             </button>
           </div>
-          {composerRow(!canSend)}
+          {composerRow(!canSend, true)}
         </form>
       )}
 

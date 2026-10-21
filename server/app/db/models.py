@@ -150,6 +150,35 @@ class Turn(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
     session: Mapped[ConversationSession] = relationship(back_populates="turns")
+    attachments: Mapped[list["Attachment"]] = relationship(
+        back_populates="turn",
+        order_by="Attachment.created_at",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        lazy="selectin",
+    )
+
+
+class Attachment(Base):
+    """사용자 턴에 붙인 첨부 파일(FR-22). 파일은 attachments_dir 아래 상대 경로에 둔다.
+
+    name은 화면에 보일 정제된 이름이고, 이미지는 가공(축소·재인코딩)한 결과를 저장하며
+    thumb_path에 썸네일이 있다. 텍스트는 UTF-8로 바꿔 저장하고 chars에 글자 수를 둔다.
+    """
+
+    __tablename__ = "attachment"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    turn_id: Mapped[str] = mapped_column(ForeignKey("turn.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    mime: Mapped[str] = mapped_column(String(100))
+    size: Mapped[int] = mapped_column(Integer)
+    path: Mapped[str] = mapped_column(String(500))
+    thumb_path: Mapped[str | None] = mapped_column(String(500))
+    chars: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+    turn: Mapped[Turn] = relationship(back_populates="attachments")
 
 
 class TurnLatency(Base):

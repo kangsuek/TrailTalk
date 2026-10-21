@@ -1827,3 +1827,110 @@ fieldset.settings-field > legend + * {
 .settings .settings-actions button.secondary {
   color: var(--text);
 }
+
+/* 파일 첨부(FR-22): 입력줄 미리보기·말풍선·일지 전문 */
+.attachment-tray {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.attachment-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  max-width: 100%;
+  padding: 4px 4px 4px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.attachment-chip img {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.attachment-name {
+  overflow: hidden;
+  max-width: 11rem;
+  font-size: 0.85rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation button.attachment-remove {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.conversation button.attach-button {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 44px;
+  height: 48px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+
+.attachment-hint {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.message-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.message-attachment a {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  color: inherit;
+}
+
+.message-attachment img {
+  display: block;
+  max-width: 160px;
+  max-height: 160px;
+  border-radius: 12px;
+  object-fit: cover;
+}
+
+.attachment-file {
+  padding: 8px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.journal-transcript .message-attachments {
+  justify-content: flex-start;
+}

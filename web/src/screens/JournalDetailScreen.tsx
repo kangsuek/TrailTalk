@@ -1,3 +1,4 @@
+import { attachmentUrl } from '../core/attachments'
 import { useEffect, useRef, useState } from 'react'
 import { endSession } from '../api/conversation'
 import { ApiError } from '../api/http'
@@ -540,6 +541,21 @@ function Detail({
           {turns.map((turn) => (
             <li key={turn.id} className={turn.role}>
               <span className="speaker">{turn.role === 'user' ? '나' : detail.persona_name}</span>
+              {turn.attachments.length > 0 && (
+                <ul className="message-attachments" aria-label="첨부 파일">
+                  {turn.attachments.map((a) => (
+                    <li key={a.id} className="message-attachment" data-kind={a.thumb ? 'image' : 'text'}>
+                      <a href={attachmentUrl(a.id)} target="_blank" rel="noreferrer" title={a.name}>
+                        {a.thumb ? (
+                          <img src={attachmentUrl(a.id, true)} alt={a.name} loading="lazy" />
+                        ) : (
+                          <span className="attachment-file">{a.name}</span>
+                        )}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              )}
               <p>
                 {turn.text}
                 {turn.interrupted && <span className="journal-cut"> (말이 끊김)</span>}

@@ -24,7 +24,9 @@ def test_get_creates_default_profile_and_syncs_persona(make_settings):
 def _check_default_profile(client):
     response = client.get("/api/profile")
     assert response.status_code == 200
-    assert response.json() == {
+    body = response.json()
+    assert body["client"].pop("attachments")["max_files"] == 3  # 한도 정본은 서버 설정
+    assert body == {
         "nickname": None,
         "interests": [],
         "persona_id": "jenny",

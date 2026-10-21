@@ -89,6 +89,16 @@ class NoteOut(BaseModel):
         )
 
 
+class AttachmentOut(BaseModel):
+    """턴에 붙은 첨부(FR-22). 파일은 GET /api/attachments/{id}(썸네일은 ?thumb=1)."""
+
+    id: str
+    name: str
+    mime: str
+    size: int
+    thumb: bool  # 썸네일이 있다(이미지)
+
+
 class TurnOut(BaseModel):
     id: str
     seq: int
@@ -96,6 +106,24 @@ class TurnOut(BaseModel):
     text: str
     interrupted: bool  # 끝까지 말하지 못한 답변(연결 끊김·끼어들기 등)
     created_at: datetime
+    attachments: list[AttachmentOut] = []
+
+    @classmethod
+    def of(cls, turn: Turn) -> "TurnOut":
+        return cls(
+            id=turn.id,
+            seq=turn.seq,
+            role=turn.role.value,
+            text=turn.text,
+            interrupted=turn.interrupted,
+            created_at=turn.created_at,
+            attachments=[
+                AttachmentOut(
+                    id=a.id, name=a.name, mime=a.mime, size=a.size, thumb=a.thumb_path is not None
+                )
+                for a in turn.attachments
+            ],
+        )
 
 
 class CitationOut(BaseModel):
@@ -259,17 +287,7 @@ async def get_journal(session_id: str, request: Request, db: DbSession) -> Journ
         checks=list(convo.checks) if convo.checks is not None else None,
         persona_name=loaded.persona.name,
         notes=[NoteOut.of(n, note_ids.get(n.id)) for n in note_rows],
-        turns=[
-            TurnOut(
-                id=t.id,
-                seq=t.seq,
-                role=t.role.value,
-                text=t.text,
-                interrupted=t.interrupted,
-                created_at=t.created_at,
-            )
-            for t in turns.scalars()
-        ],
+        turns=[TurnOut.of(t) for t in turns.scalars()],
     )
 
 

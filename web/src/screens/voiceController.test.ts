@@ -1051,8 +1051,8 @@ describe('createVoiceController', () => {
       ...STARTED,
       greeting: { turn_id: 'g2', text: '이어서 할까요?', audio: 'R1JFRVQ=' },
       turns: [
-        { id: 'g1', seq: 0, role: 'assistant', text: '안녕하세요', interrupted: false, created_at: '' },
-        { id: 'g2', seq: 1, role: 'assistant', text: '이어서 할까요?', interrupted: false, created_at: '' },
+        { id: 'g1', seq: 0, role: 'assistant', text: '안녕하세요', interrupted: false, created_at: '', attachments: [] },
+        { id: 'g2', seq: 1, role: 'assistant', text: '이어서 할까요?', interrupted: false, created_at: '', attachments: [] },
       ],
     }
     const t = setup({ reopenSession: vi.fn(async () => reopened) as VoiceDeps['reopenSession'] })

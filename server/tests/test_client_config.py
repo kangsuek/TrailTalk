@@ -14,7 +14,9 @@ DEFAULTS = REPO_DIR / "shared" / "client-defaults.json"
 
 def test_repo_defaults_are_valid(make_settings):
     config = load_client_config(make_settings(idle_timeout_s=1800))
-    assert config.model_dump() == json.loads(DEFAULTS.read_text(encoding="utf-8"))
+    dumped = config.model_dump()
+    assert dumped.pop("attachments")["max_files"] == 3  # 첨부 한도는 서버 설정이 정본(파일에 없음)
+    assert dumped == json.loads(DEFAULTS.read_text(encoding="utf-8"))
 
 
 def test_file_idle_timeout_matches_server_default():

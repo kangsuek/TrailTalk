@@ -307,8 +307,10 @@ class ClaudeCliSession:
         assert self._proc and self._proc.stdout
         return await asyncio.wait_for(self._proc.stdout.readline(), timeout)
 
-    async def send(self, text: str) -> AsyncIterator[LlmEvent]:
-        """사용자 메시지를 보내고 TurnFinished까지 이벤트를 낸다. aclosing으로 감싸 쓴다."""
+    async def send(self, content: str | list[dict]) -> AsyncIterator[LlmEvent]:
+        """사용자 메시지를 보내고 TurnFinished까지 이벤트를 낸다. aclosing으로 감싸 쓴다.
+
+        content는 글이거나 이미지·글 블록 배열(파일 첨부, FR-22)이다."""
         if self._lock.locked():
             raise TurnInProgressError()
         async with self._lock:
@@ -319,7 +321,7 @@ class ClaudeCliSession:
                 self._turn_active = True
                 try:
                     await self._write(
-                        {"type": "user", "message": {"role": "user", "content": text}}
+                        {"type": "user", "message": {"role": "user", "content": content}}
                     )
                 except LlmProcessError:
                     self._turn_active = False

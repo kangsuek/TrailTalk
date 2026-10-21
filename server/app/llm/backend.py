@@ -46,8 +46,8 @@ class LlmSession(Protocol):
     @property
     def busy(self) -> bool: ...
 
-    def send(self, text: str) -> AsyncIterator[LlmEvent]:
-        """사용자 메시지를 보내고 TurnFinished까지 이벤트를 낸다.
+    def send(self, content: "str | list[dict]") -> AsyncIterator[LlmEvent]:
+        """사용자 메시지(글 또는 content 블록 배열)를 보내고 TurnFinished까지 이벤트를 낸다.
 
         반드시 contextlib.aclosing(session.send(...))으로 감싸 끝까지 읽거나 닫는다.
         """

@@ -526,4 +526,80 @@ describe('지난 아이디어 이어 가기 목록(S3-39)', () => {
     await screen.findByText('안녕하세요, 오늘 어떤 이야기를 할까요?')
     expect(screen.queryByText('지난 아이디어 이어 가기')).toBeNull()
   })
+  describe('파일 첨부(FR-22)', () => {
+    function stubFiles(files: () => Response) {
+      const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+        if (url === '/api/sessions') return new Response(JSON.stringify(STARTED), { status: 201 })
+        if (url === '/api/sessions/prepare') return new Response(null, { status: 204 })
+        if (url.endsWith('/turns/files')) return files()
+        if (url.endsWith('/turns')) return sseResponse(TURN)
+        if (url === '/api/profile') throw new Error('offline') // 기본 한도로 안내한다
+        throw new Error(`unexpected ${url} ${init?.method}`)
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:preview'), revokeObjectURL: vi.fn() }))
+      return fetchMock
+    }
+    const pick = (...files: File[]) =>
+      fireEvent.change(screen.getByTestId('attach-input'), { target: { files } })
+    const png = () => new File([new Uint8Array(10)], '지도.png', { type: 'image/png' })
+
+    it('파일을 붙이면 미리보기와 힌트를 보이고, 글과 함께 새 경로로 보낸다', async () => {
+      const fetchMock = stubFiles(() => sseResponse(TURN))
+      await startConversation()
+      pick(png())
+      const tray = screen.getByRole('list', { name: '붙인 파일' })
+      expect(within(tray).getByText('지도.png')).toBeInTheDocument()
+      expect(screen.getByText('파일과 함께 보낼 질문을 적어 주세요.')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: '보내기' })).toBeDisabled() // 글이 비면 보내지 않는다
+
+      fireEvent.change(screen.getByRole('textbox', { name: '메시지' }), { target: { value: '이 지도 봐줘' } })
+      fireEvent.click(screen.getByRole('button', { name: '보내기' }))
+      await screen.findByText('저장했어요!')
+      const call = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/turns/files'))!
+      const form = (call[1] as RequestInit).body as FormData
+      expect(form.get('text')).toBe('이 지도 봐줘')
+      expect((form.getAll('files')[0] as File).name).toBe('지도.png')
+      expect(screen.queryByRole('list', { name: '붙인 파일' })).toBeNull()
+      const log = screen.getByRole('log', { name: '대화 내용' })
+      expect(within(log).getByAltText('지도.png')).toHaveAttribute('src', 'blob:preview')
+    })
+
+    it('지원하지 않는 형식과 개수 초과는 붙이지 않고 이유를 알린다', async () => {
+      stubFiles(() => sseResponse(TURN))
+      await startConversation()
+      pick(new File(['x'], '프로그램.exe'))
+      expect(screen.getByText(/지원하지 않는 형식/)).toBeInTheDocument()
+      expect(screen.queryByRole('list', { name: '붙인 파일' })).toBeNull()
+      const four = ['a', 'b', 'c', 'd'].map((n) => new File(['x'], `${n}.txt`))
+      pick(...four)
+      expect(screen.getByText(/3개까지/)).toBeInTheDocument()
+    })
+
+    it('서버가 첨부를 거절하면 말풍선을 빼고 글과 첨부를 입력창에 되돌린다', async () => {
+      stubFiles(
+        () =>
+          new Response(JSON.stringify({ error: { code: 'attachment_invalid', message: '이미지를 열지 못했어요.' } }), {
+            status: 400,
+          }),
+      )
+      await startConversation()
+      pick(png())
+      fireEvent.change(screen.getByRole('textbox', { name: '메시지' }), { target: { value: '봐줘' } })
+      fireEvent.click(screen.getByRole('button', { name: '보내기' }))
+      expect(await screen.findByRole('alert')).toHaveTextContent('이미지를 열지 못했어요.')
+      expect(screen.getByRole('textbox', { name: '메시지' })).toHaveValue('봐줘')
+      expect(within(screen.getByRole('list', { name: '붙인 파일' })).getByText('지도.png')).toBeInTheDocument()
+      expect(within(screen.getByRole('log', { name: '대화 내용' })).queryByText('봐줘')).toBeNull()
+    })
+
+    it('붙인 파일을 하나씩 뺄 수 있다', async () => {
+      stubFiles(() => sseResponse(TURN))
+      await startConversation()
+      pick(png())
+      fireEvent.click(screen.getByRole('button', { name: '지도.png 빼기' }))
+      expect(screen.queryByRole('list', { name: '붙인 파일' })).toBeNull()
+    })
+  })
+
 })
