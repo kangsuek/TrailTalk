@@ -33,6 +33,7 @@ export interface SessionState {
 export type SessionEvent =
   | { type: 'tap' }
   | { type: 'long_press' }
+  | { type: 'pause' } // 일시 중단 버튼(듣기에서만 받는다)
   // 인사말 턴. 인사말은 SSE가 아니라 시작 응답으로 오므로 플랫폼이 재생을 시작하며 보낸다
   // (재생할 소리가 없으면 바로 playback_idle을 보낸다)
   | { type: 'session_started'; turnId: string }
@@ -216,6 +217,8 @@ export function transition(
       return unchanged(state)
 
     case 'listening':
+      // 일시 중단 버튼: 마이크를 끄고 쉰다(말하던 중이면 그 말은 버린다). 큰 버튼으로 다시 듣는다
+      if (event.type === 'pause') return enterPaused(state, config)
       if (event.type === 'speech_end') {
         if (state.queued > 0) {
           // 앞선 발화가 큐에 남아 있으면 순서를 지키려고 이 발화도 큐 뒤에 넣고, 연결돼 있으면

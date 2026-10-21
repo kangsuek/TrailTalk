@@ -1,5 +1,5 @@
 // 음성 대화의 큰 버튼과 상태 표시(계획서 S3-13, 설계서 4.1 웹 열).
-// 한 번 누르기 = 시작·끼어들기·쉬기 재개(tap), 길게 누르기 = 종료(long_press).
+// 한 번 누르기 = 시작·끼어들기·쉬기 재개(tap), 길게 누르기 = 종료(long_press), 듣는 중 일시 중단 버튼 = 쉬기(pause).
 import { useRef, type PointerEvent, type ReactNode, type Ref } from 'react'
 import type { SessionStateName } from '../core'
 
@@ -7,7 +7,7 @@ const LONG_PRESS_MS = 700
 
 const STATUS: Record<SessionStateName, { label: string; hint: string }> = {
   idle: { label: '대기', hint: '' },
-  listening: { label: '듣고 있어요', hint: '말씀하세요. 길게 누르면 대화를 마쳐요.' },
+  listening: { label: '듣고 있어요', hint: '말씀하세요. 잠시 쉬려면 일시 중단, 길게 누르면 대화를 마쳐요.' },
   processing: { label: '생각하는 중…', hint: '누르면 이번 답변을 그만 듣고 다시 말할 수 있어요.' },
   speaking: { label: '말하는 중', hint: '누르거나 말을 시작하면 끊고 말할 수 있어요.' },
   paused: { label: '쉬는 중', hint: '누르면 다시 들어요. 30분 동안 말이 없으면 대화를 마쳐요.' },
@@ -24,6 +24,7 @@ export function VoiceControls({
   connected = true,
   onTap,
   onLongPress,
+  onPause,
 }: {
   dockRef?: Ref<HTMLDivElement> // 화면 아래 고정 패널(대화 화면이 높이를 보고 스크롤을 맞춘다)
   children?: ReactNode // 상태 문구 아래·끝내기 위에 둘 것(글 입력줄)
@@ -33,6 +34,7 @@ export function VoiceControls({
   connected?: boolean // 서버에 닿는가(보관한 말 안내 문구가 달라진다)
   onTap: () => void
   onLongPress: () => void
+  onPause: () => void
 }) {
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const longFired = useRef(false)
@@ -97,9 +99,17 @@ export function VoiceControls({
       )}
       {children}
       {/* 정리 중에는 끝내기 응답을 기다리지 않고 나오는 탈출구(서버 끝내기는 멱등이다) */}
-      <button type="button" className="secondary small" onClick={onLongPress}>
-        {state === 'closing' ? '그만 기다리기' : '대화 끝내기'}
-      </button>
+      <div className="voice-actions">
+        {/* 듣는 중에만 쉴 수 있다. 쉬는 중에는 큰 버튼을 눌러 다시 듣는다 */}
+        {state === 'listening' && (
+          <button type="button" className="secondary small" onClick={onPause}>
+            일시 중단
+          </button>
+        )}
+        <button type="button" className="secondary small" onClick={onLongPress}>
+          {state === 'closing' ? '그만 기다리기' : '대화 끝내기'}
+        </button>
+      </div>
     </div>
   )
 }

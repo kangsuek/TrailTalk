@@ -164,6 +164,8 @@ export interface VoiceController {
   tap(): void
   /** 길게 누르기(종료) */
   longPress(): void
+  /** 일시 중단 버튼(듣기에서만 받는다): 마이크를 끄고 쉰다. 큰 버튼 한 번으로 다시 듣는다 */
+  pause(): void
   /**
    * 끝난 대화를 다시 열어 이어서 한다(S3-26). 대기 중일 때만 받고, 시작 버튼처럼 사용자 동작 안에서
    * 불러야 소리가 난다. 받지 못하면 false
@@ -819,6 +821,9 @@ export function createVoiceController({
     },
     longPress() {
       send({ type: 'long_press' })
+    },
+    pause() {
+      send({ type: 'pause' })
     },
     resume(id) {
       if (disposed || state.name !== 'idle') return false

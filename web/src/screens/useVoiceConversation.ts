@@ -86,6 +86,7 @@ export function useVoiceConversation(
 
   const tap = useCallback(() => controller.current?.tap(), [])
   const longPress = useCallback(() => controller.current?.longPress(), [])
+  const pause = useCallback(() => controller.current?.pause(), [])
   const resume = useCallback((sessionId: string) => controller.current?.resume(sessionId) ?? false, [])
   const sendText = useCallback(
     (text: string, onUnsent?: (text: string) => void) => controller.current?.sendText(text, onUnsent) ?? false,
@@ -94,5 +95,5 @@ export function useVoiceConversation(
   const active = machine.name !== 'idle'
   useWakeLock(active)
   useMediaSession(active, tap)
-  return { machine, tap, longPress, sendText, resume, ready }
+  return { machine, tap, longPress, pause, sendText, resume, ready }
 }

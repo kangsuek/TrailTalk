@@ -57,14 +57,15 @@
 
 ## 4. 세션 상태 머신
 
-음성 대화는 아래 상태를 오가는 하나의 루프다(설계서 4.1). 상태 머신은 이벤트를 받아 다음 상태와 **명령**을 돌려주는 순수 함수이고(웹 `web/src/core/sessionMachine.ts`), 마이크·재생·서버 호출·타이머는 화면·플랫폼 계층이 명령을 받아 실행한다. 전이 표 `shared/fixtures/transitions.json`(S3-09, version 1, 사례 30개)을 웹 테스트(Vitest)가 읽는다. 각 사례는 대기에서 시작해 단계마다 이벤트를 넣고 상태 이름·명령 목록(순서 포함)·지정한 context 값을 확인한다.
+음성 대화는 아래 상태를 오가는 하나의 루프다(설계서 4.1). 상태 머신은 이벤트를 받아 다음 상태와 **명령**을 돌려주는 순수 함수이고(웹 `web/src/core/sessionMachine.ts`), 마이크·재생·서버 호출·타이머는 화면·플랫폼 계층이 명령을 받아 실행한다. 전이 표 `shared/fixtures/transitions.json`(S3-09, version 1, 사례 33개)을 웹 테스트(Vitest)가 읽는다. 각 사례는 대기에서 시작해 단계마다 이벤트를 넣고 상태 이름·명령 목록(순서 포함)·지정한 context 값을 확인한다.
 
 - **상태**(코드 이름): 대기 `idle`, 듣기 `listening`, 처리 중 `processing`, 말하기 `speaking`, 쉬기 `paused`, 오프라인 보관 `offline`, 정리 `closing`.
-- **이벤트**: 버튼 `tap`·`long_press`, 시작 `session_started`(인사말 재생 시작)·`start_failed`, 발화 감지 `speech_start`·`speech_end`, 턴 스트림 `turn`·`sentence`·`turn_done`·`turn_error`·`note_saved`, 재생 `sentence_played`·`playback_idle`, 오프라인 `send_failed`·`offline_notice_done`·`online`·`queue_sent`·`queue_send_failed`, 그 밖 `idle_timeout`·`session_closed`·`end_failed`.
+- **이벤트**: 버튼 `tap`·`long_press`·`pause`(일시 중단), 시작 `session_started`(인사말 재생 시작)·`start_failed`, 발화 감지 `speech_start`·`speech_end`, 턴 스트림 `turn`·`sentence`·`turn_done`·`turn_error`·`note_saved`, 재생 `sentence_played`·`playback_idle`, 오프라인 `send_failed`·`offline_notice_done`·`online`·`queue_sent`·`queue_send_failed`, 그 밖 `idle_timeout`·`session_closed`·`end_failed`.
 - **명령**: `startSession`, `sendTurn`, `cancelTurn`(턴 ID와 마지막으로 다 들려준 문장 번호), `endSession`, `micOn`·`micOff`, `setVadMode`(재생 중 `playback`으로 임계값 상향), `stopPlayback`, `queueUtterance`, `speakOfflineNotice`, `sendQueued`, `playSound`(`listen`·`saved`·`offline`), `notifyError`, `startIdleTimer`·`clearIdleTimer`.
 - **규칙 요약**
   - 한 번 누르기: 대기에서는 시작, 말하기·처리 중에는 끼어들기(재생을 멈추고 취소 뒤 듣기. 처리 중에도 검색 안내 음성이 나오고 있을 수 있다), 쉬기에서는 다시 듣기.
   - 길게 누르기: 대기 외 어디서나 종료(정리 중이면 끝내기 응답을 기다리지 않고 대기로).
+  - 일시 중단(`pause`, 화면의 "일시 중단" 버튼): 듣기에서만 받아 쉬기로 간다. 마이크를 끄고(`micOff`) 무발화 타이머를 다시 시작하며, 말하던 중이면 그 말은 버린다. 서버 호출은 없다(서버 세션은 그대로 진행 중이고 무발화 감시가 같은 30분 기준으로 정리한다). 다시 듣기는 쉬기의 `tap`이다. 다른 상태에서는 무시한다.
   - 답변 문장을 다 들려주고 턴이 끝나면 `done`의 `session_status`에 따라 듣기·쉬기·정리로 간다.
   - 듣기·쉬기에서 30분(`idle_timeout_minutes`) 동안 말이 없으면 정리로 간다. 서버 안전망과 같은 기준이다.
   - 오프라인 큐(S3-12): 새 말을 보내다 서버에 닿지 않으면(`send_failed`) 큐에 넣고 오프라인 안내 뒤 듣는다(`connected=false`). 연결되면(`online`) 큐의 말을 가장 오래된 것부터 보통 턴으로 보내(`sendQueued`) 캐릭터가 차례로 대답한다. 턴을 다 들려주고 끝났을 때·오프라인 안내가 끝났을 때·쉬기에서 다시 들을 때·오류 뒤에도 연결돼 있고 큐가 있으면 듣기 대신 큐부터 보낸다(끼어들기는 사용자가 말하려는 것이므로 바로 듣는다). 큐가 남아 있는 동안 한 새 말은 큐 뒤에 넣어 순서를 지킨다. 처리 중(답변을 기다리는 중, 보관한 말을 보내는 중 `sendingQueued` 모두)에 들어온 발화(`speech_end`)도 버리지 않고 큐 뒤에 넣어(`queueUtterance`) 턴이 끝나면 연결돼 있는 한 차례로 보낸다(잠깐 쉬었다 이어 말한 뒷말을 잃지 않게). 끼어든 뒤 큐가 남아 있으면 다음 턴이 끝날 때(또는 다음 말) 이어서 보낸다. 큐의 말을 서버가 받으면 `queue_sent {remaining}`, 보내다 서버에 닿지 않으면 `queue_send_failed`(안내 없이 듣기, 말은 큐에 그대로)다. 상태에는 `connected`(서버에 닿는가)가 있다.

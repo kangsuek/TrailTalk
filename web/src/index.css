@@ -1215,6 +1215,13 @@ html:has(.app[data-tab='conversation']) {
   }
 }
 
+.voice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
 .conversation button.voice-button {
   position: relative;
   display: grid;

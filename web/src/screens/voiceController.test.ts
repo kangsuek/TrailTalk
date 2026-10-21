@@ -355,6 +355,30 @@ describe('createVoiceController', () => {
     expect(t.actions.at(-1)).toEqual({ type: 'ended' })
   })
 
+  it('일시 중단하면 마이크를 끄고 쉬며, 큰 버튼으로 다시 듣는다', async () => {
+    const t = setup()
+    await startListening(t)
+    expect(t.input.stop).not.toHaveBeenCalled()
+    t.controller.pause()
+    expect(t.state()).toBe('paused')
+    expect(t.input.stop).toHaveBeenCalledTimes(1)
+    t.controller.tap()
+    expect(t.state()).toBe('listening')
+    expect(t.input.start).toHaveBeenCalledTimes(2)
+  })
+
+  it('일시 중단은 듣는 중에만 받는다', async () => {
+    const t = setup()
+    t.controller.pause() // 대기
+    expect(t.state()).toBe('idle')
+    t.controller.tap()
+    t.controller.pause() // 처리 중
+    expect(t.state()).toBe('processing')
+    await tick()
+    t.controller.pause() // 말하는 중
+    expect(t.state()).toBe('speaking')
+  })
+
   it('시작에 실패하면 알리고 대기로 돌아간다', async () => {
     const t = setup({
       startSession: vi.fn(async () => {

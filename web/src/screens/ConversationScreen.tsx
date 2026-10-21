@@ -592,6 +592,7 @@ export function ConversationScreen({
           connected={voice.machine.connected}
           onTap={voice.tap}
           onLongPress={voice.longPress}
+          onPause={voice.pause}
         >
           {state.sessionId !== null && (
             <form className="voice-composer" onSubmit={sendVoiceText}>

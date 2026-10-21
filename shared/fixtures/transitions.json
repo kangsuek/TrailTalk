@@ -4477,6 +4477,278 @@
           }
         }
       ]
+    },
+    {
+      "name": "일시 중단 버튼: 듣다가 쉬고, 버튼으로 다시 듣기",
+      "steps": [
+        {
+          "event": {
+            "type": "tap"
+          },
+          "expect": {
+            "state": "processing",
+            "commands": [
+              {
+                "type": "startSession"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "session_started",
+            "turnId": "t0"
+          },
+          "expect": {
+            "state": "speaking",
+            "commands": [
+              {
+                "type": "setVadMode",
+                "mode": "playback"
+              }
+            ],
+            "context": {
+              "turnId": "t0"
+            }
+          }
+        },
+        {
+          "event": {
+            "type": "playback_idle"
+          },
+          "expect": {
+            "state": "listening",
+            "commands": [
+              {
+                "type": "micOn"
+              },
+              {
+                "type": "setVadMode",
+                "mode": "normal"
+              },
+              {
+                "type": "playSound",
+                "name": "listen"
+              },
+              {
+                "type": "startIdleTimer",
+                "minutes": 30
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "pause"
+          },
+          "expect": {
+            "state": "paused",
+            "commands": [
+              {
+                "type": "micOff"
+              },
+              {
+                "type": "startIdleTimer",
+                "minutes": 30
+              }
+            ],
+            "context": {
+              "userSpeaking": false
+            }
+          }
+        },
+        {
+          "event": {
+            "type": "speech_end",
+            "utteranceId": "u1"
+          },
+          "expect": {
+            "state": "paused",
+            "commands": []
+          }
+        },
+        {
+          "event": {
+            "type": "tap"
+          },
+          "expect": {
+            "state": "listening",
+            "commands": [
+              {
+                "type": "micOn"
+              },
+              {
+                "type": "setVadMode",
+                "mode": "normal"
+              },
+              {
+                "type": "playSound",
+                "name": "listen"
+              },
+              {
+                "type": "startIdleTimer",
+                "minutes": 30
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "일시 중단 버튼: 말하던 중이면 그 말은 버리고 쉰다",
+      "steps": [
+        {
+          "event": {
+            "type": "tap"
+          },
+          "expect": {
+            "state": "processing",
+            "commands": [
+              {
+                "type": "startSession"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "session_started",
+            "turnId": "t0"
+          },
+          "expect": {
+            "state": "speaking",
+            "commands": [
+              {
+                "type": "setVadMode",
+                "mode": "playback"
+              }
+            ],
+            "context": {
+              "turnId": "t0"
+            }
+          }
+        },
+        {
+          "event": {
+            "type": "playback_idle"
+          },
+          "expect": {
+            "state": "listening",
+            "commands": [
+              {
+                "type": "micOn"
+              },
+              {
+                "type": "setVadMode",
+                "mode": "normal"
+              },
+              {
+                "type": "playSound",
+                "name": "listen"
+              },
+              {
+                "type": "startIdleTimer",
+                "minutes": 30
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "speech_start"
+          },
+          "expect": {
+            "state": "listening",
+            "commands": [],
+            "context": {
+              "userSpeaking": true
+            }
+          }
+        },
+        {
+          "event": {
+            "type": "pause"
+          },
+          "expect": {
+            "state": "paused",
+            "commands": [
+              {
+                "type": "micOff"
+              },
+              {
+                "type": "startIdleTimer",
+                "minutes": 30
+              }
+            ],
+            "context": {
+              "userSpeaking": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "일시 중단 버튼: 듣기 밖에서는 받지 않는다",
+      "steps": [
+        {
+          "event": {
+            "type": "pause"
+          },
+          "expect": {
+            "state": "idle",
+            "commands": []
+          }
+        },
+        {
+          "event": {
+            "type": "tap"
+          },
+          "expect": {
+            "state": "processing",
+            "commands": [
+              {
+                "type": "startSession"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "pause"
+          },
+          "expect": {
+            "state": "processing",
+            "commands": []
+          }
+        },
+        {
+          "event": {
+            "type": "session_started",
+            "turnId": "t0"
+          },
+          "expect": {
+            "state": "speaking",
+            "commands": [
+              {
+                "type": "setVadMode",
+                "mode": "playback"
+              }
+            ],
+            "context": {
+              "turnId": "t0"
+            }
+          }
+        },
+        {
+          "event": {
+            "type": "pause"
+          },
+          "expect": {
+            "state": "speaking",
+            "commands": []
+          }
+        }
+      ]
     }
   ]
 }
