@@ -316,7 +316,8 @@ export interface paths {
         /**
          * Open Ideas
          * @description 대화 시작 화면의 "지난 아이디어 이어 가기" 목록(S3-39). 완료하지 않은 아이디어를
-         *     만든 날짜의 역순(최신이 먼저)으로 최대 limit개 준다. 없으면 빈 목록.
+         *     만든 날짜의 역순(최신이 먼저)으로 최대 limit개 주고, 완료하지 않은 아이디어·할 일의
+         *     전체 개수를 함께 준다. 없으면 빈 목록과 0.
          */
         get: operations["open_ideas_api_notes_open_ideas_get"];
         put?: never;
@@ -721,6 +722,15 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+        };
+        /** OpenIdeas */
+        OpenIdeas: {
+            /** Items */
+            items: components["schemas"]["OpenIdea"][];
+            /** Idea Count */
+            idea_count: number;
+            /** Todo Count */
+            todo_count: number;
         };
         /**
          * PersonaOut
@@ -1783,7 +1793,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OpenIdea"][];
+                    "application/json": components["schemas"]["OpenIdeas"];
                 };
             };
             /** @description Validation Error */

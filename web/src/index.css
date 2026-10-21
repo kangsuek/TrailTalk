@@ -333,10 +333,17 @@ html:has(.app[data-tab='conversation']) {
 }
 
 .idea-list-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
   margin: 0 0 4px;
   color: var(--muted);
   font-size: 0.8125rem;
   font-weight: 500;
+}
+
+.idea-list-counts {
+  flex: none;
 }
 
 .conversation button.idea-card {

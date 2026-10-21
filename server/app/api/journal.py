@@ -305,6 +305,12 @@ class OpenIdea(BaseModel):
     created_at: datetime
 
 
+class OpenIdeas(BaseModel):
+    items: list[OpenIdea]
+    idea_count: int  # 완료하지 않은 아이디어 전체 개수(목록 limit과 무관)
+    todo_count: int  # 완료하지 않은 할 일 전체 개수
+
+
 IDEA_LIST_DEFAULT = 5
 IDEA_LIST_MAX = 20
 
@@ -313,9 +319,10 @@ IDEA_LIST_MAX = 20
 async def open_ideas(
     db: DbSession,
     limit: Annotated[int, Query(ge=1, le=IDEA_LIST_MAX)] = IDEA_LIST_DEFAULT,
-) -> list[OpenIdea]:
+) -> OpenIdeas:
     """대화 시작 화면의 "지난 아이디어 이어 가기" 목록(S3-39). 완료하지 않은 아이디어를
-    만든 날짜의 역순(최신이 먼저)으로 최대 limit개 준다. 없으면 빈 목록.
+    만든 날짜의 역순(최신이 먼저)으로 최대 limit개 주고, 완료하지 않은 아이디어·할 일의
+    전체 개수를 함께 준다. 없으면 빈 목록과 0.
     """
     notes = await db.scalars(
         select(Note)
@@ -323,16 +330,26 @@ async def open_ideas(
         .order_by(Note.created_at.desc(), Note.id)
         .limit(limit)
     )
-    return [
-        OpenIdea(
-            id=n.id,
-            content=n.content,
-            starred=n.starred,
-            session_id=n.session_id,
-            created_at=n.created_at,
-        )
-        for n in notes
-    ]
+    rows = await db.execute(
+        select(Note.kind, func.count())
+        .where(Note.kind.in_([NoteKind.IDEA, NoteKind.TODO]), Note.done.is_(False))
+        .group_by(Note.kind)
+    )
+    counts = {kind: n for kind, n in rows}
+    return OpenIdeas(
+        items=[
+            OpenIdea(
+                id=n.id,
+                content=n.content,
+                starred=n.starred,
+                session_id=n.session_id,
+                created_at=n.created_at,
+            )
+            for n in notes
+        ],
+        idea_count=counts.get(NoteKind.IDEA, 0),
+        todo_count=counts.get(NoteKind.TODO, 0),
+    )
 
 
 @router.patch("/notes/{note_id}")

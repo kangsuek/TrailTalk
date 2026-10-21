@@ -466,21 +466,22 @@ describe('지난 아이디어 이어 가기 목록(S3-39)', () => {
     { id: 'n1', content: '주말 완만한 등산 코스 찾기', starred: false, session_id: 'old1', created_at: '2026-10-14T01:00:00Z' },
   ]
 
-  function stubWithIdeas(ideas: typeof IDEAS) {
+  function stubWithIdeas(ideas: typeof IDEAS, idea_count = ideas.length, todo_count = 0) {
     const fetchMock = stubServer()
     const base = fetchMock.getMockImplementation()!
     fetchMock.mockImplementation(async (url: string) =>
-      url === '/api/notes/open-ideas' ? new Response(JSON.stringify(ideas)) : base(url),
+      url === '/api/notes/open-ideas' ? new Response(JSON.stringify({ items: ideas, idea_count, todo_count })) : base(url),
     )
     return fetchMock
   }
 
   it('시작 화면에 지난 아이디어를 목록으로 보이고, 누르면 그 대화의 일지를 연다', async () => {
-    stubWithIdeas(IDEAS)
+    stubWithIdeas(IDEAS, 7, 3)
     const onOpenJournal = vi.fn()
     render(<ConversationScreen onOpenJournal={onOpenJournal} />)
     const cards = await screen.findAllByRole('button', { name: /산책|등산/ })
     expect(cards).toHaveLength(2)
+    expect(screen.getByText('아이디어 7 · 할 일 3')).toBeInTheDocument() // 목록에 안 보이는 것까지 센 전체 개수
     expect(cards[0]).toHaveTextContent('산책하며 개발 소식 음성으로 듣기')
     expect(cards[1]).toHaveTextContent('주말 완만한 등산 코스 찾기')
     fireEvent.click(cards[1])
