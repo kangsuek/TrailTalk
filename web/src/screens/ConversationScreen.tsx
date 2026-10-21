@@ -629,7 +629,7 @@ export function ConversationScreen({
                 multiple
                 hidden
                 data-testid="attach-input"
-                accept={[...limits.image_extensions, ...limits.text_extensions].map((e) => `.${e}`).join(',')}
+                accept={[...limits.image_extensions, ...limits.text_extensions, ...limits.pdf_extensions].map((e) => `.${e}`).join(',')}
                 onChange={(e) => {
                   pickFiles(Array.from(e.target.files ?? []))
                   e.target.value = '' // 같은 파일을 다시 고를 수 있게

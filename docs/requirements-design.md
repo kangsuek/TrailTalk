@@ -62,7 +62,7 @@ MVP는 P1(핸즈프리 대화, 제니 페르소나, 브레인스토밍, 대화 �
 | FR-18 | 확장 | 주간 트렌드·행사 브리핑을 미리 만들어 세션 시작 때 들려 준다 | P2 |
 | FR-19 | 확장 | Claude Code에서 대화 일지를 조회하는 MCP 서버를 제공한다 | P2 |
 | FR-20 | 대화 | 최신 정보나 사실 확인이 필요한 질문은 웹 검색 후 답하고, 출처를 짧게 밝힌다 | P1 |
-| FR-22 | 대화 | 글 대화에서 이미지(png·jpg·webp·gif)·텍스트(txt·md·csv·json) 파일을 메시지당 3개까지 첨부해 질문하면 캐릭터가 내용을 보고 답한다. 말풍선·일지 전문에 첨부를 남기고 대화를 지우면 파일도 지운다. 음성 세션·PDF는 범위 밖(상세: [attachment-plan.md](attachment-plan.md)) | P1 |
+| FR-22 | 대화 | 글 대화에서 이미지(png·jpg·webp·gif)·텍스트(txt·md·csv·json)·PDF(메시지당 1개, 10쪽) 파일을 메시지당 3개까지 첨부해 질문하면 캐릭터가 내용을 보고 답한다. 말풍선·일지 전문에 첨부를 남기고 대화를 지우면 파일도 지운다. 음성 세션은 범위 밖(상세: [attachment-plan.md](attachment-plan.md)) | P1 |
 | FR-21 | 대화 기록 | "이메일로 보내줘"라고 하면 설정에 저장한 본인 이메일 주소로 대화의 요약·노트·전문을 보낸다 | P2 |
 
 **비기능 요구사항**
@@ -229,7 +229,7 @@ voice:
 |---|---|
 | conversation_session | id, started_at, ended_at, status(active/paused/ended), title, summary, tags, topics(아이디어 주제), 요약·메모 인용(summary_cites, citations, checks), extract_status, system_prompt(시작 때 고정), cli_session_id(Claude CLI `--resume`용) |
 | turn | id, session_id, seq, role(user/assistant), text, audio_path(nullable), interrupted, greeting, created_at |
-| attachment | id, turn_id(CASCADE), name, mime, size, path, thumb_path, chars(텍스트), created_at. 파일은 `attachments_dir/{session_id}/` |
+| attachment | id, turn_id(CASCADE), name, mime, size, path, thumb_path, chars(텍스트), pages(PDF), created_at. 파일은 `attachments_dir/{session_id}/` |
 | turn_latency | turn_id, session_id, 서버 단계별 ms, 클라이언트 보고 ms(NFR-01 측정) |
 | note | id, session_id, turn_id, kind(idea/todo/memo), content, cites, starred, done, created_at |
 | pending_upload (기기 로컬) | id, session_id, audio_file, recorded_at, retry_count |

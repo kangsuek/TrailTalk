@@ -90,6 +90,11 @@ class Settings(BaseSettings):
     attachment_text_max_chars: int = 10_000  # 메시지 합계(M0: 한글은 글자당 약 1토큰)
     attachment_session_max_images: int = 10
     attachment_session_max_text_chars: int = 30_000
+    # PDF(P0 실측: 쪽당 약 2,000~3,500토큰이라 쪽수로 제한한다)
+    attachment_max_pdfs: int = Field(default=1, gt=0)  # 메시지당
+    attachment_pdf_max_bytes: int = 5 * 1024 * 1024
+    attachment_pdf_max_pages: int = Field(default=10, gt=0)  # 파일당
+    attachment_session_max_pdf_pages: int = 20
 
     @field_validator("timezone")
     @classmethod

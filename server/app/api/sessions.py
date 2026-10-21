@@ -220,7 +220,8 @@ async def create_files_turn(session_id: str, request: Request, db: DbSession) ->
         raise attachments.invalid("파일은 글 대화에서만 보낼 수 있어요.")
     used = await attachments.session_usage(db, session_id)
     await db.close()  # 업로드를 받는 동안 커넥션을 쥐지 않는다
-    limit = settings.attachment_max_files * settings.attachment_image_upload_max_bytes
+    per_file = max(settings.attachment_image_upload_max_bytes, settings.attachment_pdf_max_bytes)
+    limit = settings.attachment_max_files * per_file
     length = request.headers.get("content-length")
     if length is None or not length.isdigit():
         # 크기를 모르는 업로드는 받지 않는다(파싱 전에 디스크를 채울 수 있다)
@@ -243,7 +244,10 @@ async def create_files_turn(session_id: str, request: Request, db: DbSession) ->
         for item in files:
             if not isinstance(item, UploadFile):
                 raise attachments.invalid("파일 형식이 올바르지 않아요.")
-            data = await item.read(settings.attachment_image_upload_max_bytes + 1)
+            data = await item.read(
+                max(settings.attachment_image_upload_max_bytes, settings.attachment_pdf_max_bytes)
+                + 1
+            )
             uploads.append(attachments.Upload(item.filename or "", data))
     finally:
         await form.close()

@@ -176,6 +176,7 @@ class Attachment(Base):
     path: Mapped[str] = mapped_column(String(500))
     thumb_path: Mapped[str | None] = mapped_column(String(500))
     chars: Mapped[int | None] = mapped_column(Integer)
+    pages: Mapped[int | None] = mapped_column(Integer)  # PDF 쪽수
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
     turn: Mapped[Turn] = relationship(back_populates="attachments")

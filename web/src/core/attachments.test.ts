@@ -30,6 +30,15 @@ describe('attachments', () => {
     expect(checkAttachments([{ name: 'a.txt', size: 201 * 1024 }], L)).toContain('200KB')
   })
 
+  it('handles PDF: kind, size and one-per-message', () => {
+    expect(attachmentKind('약관.PDF', L)).toBe('pdf')
+    expect(checkAttachments([{ name: 'a.pdf', size: 1000 }], L)).toBeNull()
+    expect(checkAttachments([{ name: 'a.pdf', size: 6 * 1024 * 1024 }], L)).toContain('5MB')
+    expect(
+      checkAttachments([{ name: 'a.pdf', size: 1 }, { name: 'b.pdf', size: 1 }], L),
+    ).toContain('PDF는 한 번에 1개')
+  })
+
   it('hints when files are attached without a question', () => {
     expect(attachmentHint('  ', 1)).not.toBeNull()
     expect(attachmentHint('질문', 1)).toBeNull()

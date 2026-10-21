@@ -491,10 +491,20 @@ export interface components {
             session_max_images: number;
             /** Session Max Text Chars */
             session_max_text_chars: number;
+            /** Max Pdfs */
+            max_pdfs: number;
+            /** Pdf Max Bytes */
+            pdf_max_bytes: number;
+            /** Pdf Max Pages */
+            pdf_max_pages: number;
+            /** Session Max Pdf Pages */
+            session_max_pdf_pages: number;
             /** Image Extensions */
             image_extensions: string[];
             /** Text Extensions */
             text_extensions: string[];
+            /** Pdf Extensions */
+            pdf_extensions: string[];
         };
         /**
          * AttachmentOut

@@ -77,11 +77,11 @@ def log_content(content) -> None:
     if isinstance(content, list):
         blocks = []
         for block in content:
-            if block.get("type") == "image":
+            if block.get("type") in ("image", "document"):
                 data = base64.b64decode(block["source"]["data"])
                 blocks.append(
                     {
-                        "type": "image",
+                        "type": block["type"],
                         "media_type": block["source"]["media_type"],
                         "bytes": len(data),
                         "sha256": hashlib.sha256(data).hexdigest(),

@@ -21,7 +21,8 @@ async def get_attachment(
     row = await db.get(Attachment, attachment_id)
     if row is None:
         raise AppError("attachment_not_found", "첨부를 찾지 못했어요.", 404)
-    is_image = row.thumb_path is not None
+    is_image = row.mime.startswith("image/")
+    is_pdf = row.mime == "application/pdf"
     relative = row.thumb_path if thumb and row.thumb_path else row.path
     path = attachments.resolve(request.app.state.settings.attachments_dir, relative)
     if path is None or not path.is_file():
@@ -30,6 +31,10 @@ async def get_attachment(
     if is_image:
         media_type = "image/jpeg" if thumb else row.mime
         disposition = "inline"
+    elif is_pdf:
+        # 브라우저 내장 뷰어로 렌더하지 않고 내려받게 한다
+        media_type = "application/pdf"
+        disposition = "attachment"
     else:
         media_type = "text/plain; charset=utf-8"
         disposition = "attachment"

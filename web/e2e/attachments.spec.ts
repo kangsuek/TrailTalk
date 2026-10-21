@@ -91,3 +91,61 @@ test('첨부: 붙이고 보내면 말풍선·일지에 남고, 거절되면 되�
   await page.getByRole('button', { name: '이 대화 삭제' }).click()
   await expect.poll(async () => (await page.request.get(`/api/attachments/${text.id}`)).status()).toBe(404)
 })
+
+test('PDF 첨부: 이름 칩으로 보내고 일지에서 내려받는다(쪽수 초과는 거절하고 되돌린다)', async ({ page }) => {
+  // 1쪽·11쪽짜리 최소 PDF(쪽 트리만 있는 문서). 서버가 pypdf로 쪽수를 읽는다
+  const pdf = (pages: number) => {
+    const kids = Array.from({ length: pages }, (_, i) => `${3 + i} 0 R`).join(' ')
+    const objects = [
+      '<< /Type /Catalog /Pages 2 0 R >>',
+      `<< /Type /Pages /Kids [${kids}] /Count ${pages} >>`,
+      ...Array.from({ length: pages }, () => '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>'),
+    ]
+    let body = '%PDF-1.4\n'
+    const offsets: number[] = []
+    objects.forEach((o, i) => {
+      offsets.push(body.length)
+      body += `${i + 1} 0 obj\n${o}\nendobj\n`
+    })
+    const xref = body.length
+    body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`
+    for (const off of offsets) body += `${String(off).padStart(10, '0')} 00000 n \n`
+    body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`
+    return Buffer.from(body, 'latin1')
+  }
+  await page.goto('/')
+  await page.getByRole('button', { name: '글로 대화' }).click()
+  const log = page.getByRole('log', { name: '대화 내용' })
+  await expect(log.locator('.message.assistant').first()).toBeVisible()
+  const attach = page.getByTestId('attach-input')
+  const input = page.getByRole('textbox', { name: '메시지' })
+
+  await attach.setInputFiles({ name: '긴문서.pdf', mimeType: 'application/pdf', buffer: pdf(11) })
+  await input.fill('읽어줘')
+  await page.getByRole('button', { name: '보내기' }).click()
+  await expect(page.getByRole('alert')).toContainText('10쪽까지')
+  await expect(input).toHaveValue('읽어줘')
+  await page.getByRole('button', { name: '긴문서.pdf 빼기' }).click()
+
+  await attach.setInputFiles({ name: '약관.pdf', mimeType: 'application/pdf', buffer: pdf(2) })
+  await expect(page.getByRole('list', { name: '붙인 파일' }).getByText('약관.pdf')).toBeVisible()
+  await page.getByRole('button', { name: '보내기' }).click()
+  await expect(log.locator('.message.assistant')).toHaveCount(2)
+  await expect(log.locator('.message.user').last().getByText('약관.pdf')).toBeVisible()
+
+  const ended = page.waitForResponse((r) => r.url().endsWith('/end'))
+  await page.getByRole('button', { name: '대화 끝내기' }).click()
+  const sessionId: string = (await (await ended).json()).session.id
+  const detail = page.waitForResponse((r) => r.url().endsWith(`/api/journal/${sessionId}`))
+  await page.getByRole('button', { name: '일지 보기' }).click()
+  const att = (await (await detail).json()).turns.flatMap((t: { attachments: { id: string }[] }) => t.attachments)[0]
+  await page.getByText(/대화 전문 보기/).click()
+  await expect(page.locator('.journal-transcript').getByRole('link', { name: '약관.pdf' })).toHaveAttribute(
+    'href',
+    `/api/attachments/${att.id}`,
+  )
+  const file = await page.request.get(`/api/attachments/${att.id}`)
+  expect(file.headers()['content-type']).toBe('application/pdf')
+  expect(file.headers()['content-disposition']).toMatch(/^attachment;/)
+  expect((await file.body()).subarray(0, 5).toString()).toBe('%PDF-')
+})

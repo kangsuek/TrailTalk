@@ -378,3 +378,144 @@ def test_extraction_transcript_has_names_only():
     turn.attachments = [Attachment(name="a.txt", mime="text/plain", size=1, path="x")]
     out = build_transcript([turn], "제니")
     assert out == "사용자: 질문 [첨부: a.txt]"
+
+
+# --- PDF 첨부(docs/pdf-attachment-plan.md) --------------------------------------------------
+
+
+def pdf_bytes(pages: int = 1) -> bytes:
+    """pypdf로 만든 빈 쪽 PDF."""
+    from pypdf import PdfWriter
+
+    writer = PdfWriter()
+    for _ in range(pages):
+        writer.add_blank_page(200, 200)
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+def test_pdf_is_stored_as_is_and_sent_as_document_block(api, att_dir, content_log):
+    data = pdf_bytes(3)
+    sid = start(api)["session"]["id"]
+    response = send(api, sid, [("약관.pdf", data, "application/pdf")], text="요약해줘")
+    assert events_of(response)[-1].type == "done"
+    (row,) = rows(api)
+    assert (row.mime, row.pages, row.thumb_path, row.chars) == ("application/pdf", 3, None, None)
+    assert (att_dir / row.path).read_bytes() == data  # 재인코딩하지 않는다
+    content = logged(content_log)[-1]
+    assert [b["type"] for b in content] == ["document", "text"]
+    assert content[0]["media_type"] == "application/pdf" and content[0]["bytes"] == len(data)
+
+
+def test_pdf_with_image_orders_blocks_image_first(api, content_log):
+    sid = start(api)["session"]["id"]
+    files = [("a.pdf", pdf_bytes(), "application/pdf"), ("p.png", image_bytes("PNG", (9, 9)), "")]
+    assert send(api, sid, files).status_code == 200
+    assert [b["type"] for b in logged(content_log)[-1]] == ["image", "document", "text"]
+
+
+def test_pdf_served_as_download_with_nosniff(api):
+    sid = start(api)["session"]["id"]
+    assert send(api, sid, [("a.pdf", pdf_bytes(), "application/pdf")]).status_code == 200
+    (row,) = rows(api)
+    r = api.get(f"/api/attachments/{row.id}")
+    assert r.headers["content-type"] == "application/pdf"
+    assert r.headers["content-disposition"].startswith("attachment;")
+    assert r.headers["x-content-type-options"] == "nosniff"
+    detail = api.get(f"/api/journal/{sid}").json()
+    att = [a for t in detail["turns"] for a in t["attachments"]][0]
+    assert att["mime"] == "application/pdf" and att["thumb"] is False
+
+
+def encrypted_pdf() -> bytes:
+    from pypdf import PdfWriter
+
+    writer = PdfWriter()
+    writer.add_blank_page(100, 100)
+    writer.encrypt("secret")
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+@pytest.mark.parametrize(
+    ("files", "status", "code"),
+    [
+        ([("a.pdf", b"not a pdf", "application/pdf")], 400, "attachment_invalid"),
+        ([("a.pdf", b"%PDF-1.4 garbage", "application/pdf")], 400, "attachment_invalid"),
+        ([("a.pdf", pdf_bytes(11), "application/pdf")], 400, "attachment_invalid"),
+        ([("a.pdf", encrypted_pdf(), "application/pdf")], 400, "attachment_invalid"),
+        (
+            [("a.pdf", pdf_bytes(), "application/pdf"), ("b.pdf", pdf_bytes(), "application/pdf")],
+            400,
+            "attachment_invalid",
+        ),
+        (
+            [("a.pdf", b"%PDF-" + b"0" * (5 * 1024 * 1024), "application/pdf")],
+            413,
+            "attachment_too_large",
+        ),
+    ],
+)
+def test_invalid_pdfs_are_rejected_and_leave_nothing(api, att_dir, files, status, code):
+    sid = start(api)["session"]["id"]
+    response = send(api, sid, files)
+    assert response.status_code == status, response.text
+    assert response.json()["error"]["code"] == code
+    assert files_in(att_dir) == [] and rows(api) == []
+
+
+def test_pdf_session_page_limit(api):
+    sid = start(api)["session"]["id"]
+    for _ in range(2):
+        assert send(api, sid, [("a.pdf", pdf_bytes(10), "application/pdf")]).status_code == 200
+    response = send(api, sid, [("a.pdf", pdf_bytes(1), "application/pdf")])
+    assert response.status_code == 400  # 누적 20쪽을 넘는다
+    assert len(rows(api)) == 2
+
+
+def test_pdf_counts_are_not_images_in_session_usage(api):
+    from app.services.attachments import session_usage
+
+    sid = start(api)["session"]["id"]
+    assert send(api, sid, [("a.pdf", pdf_bytes(2), "application/pdf")]).status_code == 200
+
+    async def usage():
+        async with api.app.state.session_factory() as db:
+            return await session_usage(db, sid)
+
+    assert api.portal.call(usage) == (0, 0, 2)
+
+
+def test_reopen_keeps_pdf_name_only(api):
+    sid = start(api)["session"]["id"]
+    assert (
+        send(api, sid, [("약관.pdf", pdf_bytes(), "application/pdf")], text="읽어줘").status_code
+        == 200
+    )
+    assert api.post(f"/api/sessions/{sid}/end").status_code == 200
+    assert api.post(f"/api/sessions/{sid}/reopen", json={"mode": "text"}).status_code == 200
+
+    async def prompt():
+        async with api.app.state.session_factory() as db:
+            from app.db.models import ConversationSession
+
+            return (await db.get(ConversationSession, sid)).system_prompt
+
+    text = api.portal.call(prompt)
+    assert "[첨부: 약관.pdf]" in text and "<첨부기록>" not in text
+
+
+REAL_PDF = next(iter(sorted(Path.home().joinpath("Downloads").glob("*.pdf"))), None)
+
+
+@pytest.mark.skipif(REAL_PDF is None, reason="다운로드 폴더에 PDF 없음")
+def test_real_pdf_from_downloads_is_accepted(api, att_dir):
+    sid = start(api)["session"]["id"]
+    assert (
+        send(api, sid, [(REAL_PDF.name, REAL_PDF.read_bytes(), "application/pdf")]).status_code
+        == 200
+    )
+    (row,) = rows(api)
+    assert row.pages and 1 <= row.pages <= 10

@@ -10,7 +10,7 @@ from typing import Annotated, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.config import Settings
-from app.services.attachments import IMAGE_EXTENSIONS, TEXT_EXTENSIONS
+from app.services.attachments import IMAGE_EXTENSIONS, PDF_EXTENSIONS, TEXT_EXTENSIONS
 
 Probability = Annotated[float, Field(ge=0, le=1)]
 PositiveMs = Annotated[int, Field(gt=0)]
@@ -75,8 +75,13 @@ class AttachmentLimits(_Strict):
     text_max_chars: int
     session_max_images: int
     session_max_text_chars: int
+    max_pdfs: int
+    pdf_max_bytes: int
+    pdf_max_pages: int
+    session_max_pdf_pages: int
     image_extensions: list[str]
     text_extensions: list[str]
+    pdf_extensions: list[str]
 
 
 class ClientConfig(_Strict):
@@ -104,5 +109,10 @@ def load_client_config(settings: Settings) -> ClientConfig:
             "session_max_text_chars": settings.attachment_session_max_text_chars,
             "image_extensions": sorted(IMAGE_EXTENSIONS),
             "text_extensions": sorted(TEXT_EXTENSIONS),
+            "max_pdfs": settings.attachment_max_pdfs,
+            "pdf_max_bytes": settings.attachment_pdf_max_bytes,
+            "pdf_max_pages": settings.attachment_pdf_max_pages,
+            "session_max_pdf_pages": settings.attachment_session_max_pdf_pages,
+            "pdf_extensions": sorted(PDF_EXTENSIONS),
         }
     return ClientConfig.model_validate(data)

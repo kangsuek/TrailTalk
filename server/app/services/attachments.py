@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Literal
 
 from PIL import Image, ImageOps, UnidentifiedImageError
+from pypdf import PdfReader
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,6 +31,7 @@ logger = logging.getLogger("trailtalk.attachments")
 
 IMAGE_EXTENSIONS = {"png": "PNG", "jpg": "JPEG", "jpeg": "JPEG", "webp": "WEBP", "gif": "GIF"}
 TEXT_EXTENSIONS = {"txt", "md", "csv", "json"}
+PDF_EXTENSIONS = {"pdf"}
 MAX_IMAGE_PIXELS = 40_000_000  # 열자마자 검사해 넘으면 거절한다(디컴프레션 폭탄)
 THUMB_PX = 320
 DECODE_TIMEOUT_S = 10
@@ -67,10 +69,12 @@ class Prepared:
     size: int
     path: str  # attachments_dir 기준 상대 경로
     thumb_path: str | None
-    kind: Literal["image", "text"]
+    kind: Literal["image", "text", "pdf"]
     image: bytes | None = None  # 가공한 이미지 바이트(CLI에 base64로 넘긴다)
     text: str | None = None
     chars: int | None = None
+    pdf: bytes | None = None  # 원본 PDF(CLI에 document 블록으로 넘긴다)
+    pages: int | None = None
 
     def to_row(self) -> Attachment:
         return Attachment(
@@ -81,6 +85,7 @@ class Prepared:
             path=self.path,
             thumb_path=self.thumb_path,
             chars=self.chars,
+            pages=self.pages,
         )
 
 
@@ -157,18 +162,34 @@ def _process_image(data: bytes, name: str, ext: str, max_px: int) -> tuple[bytes
     return out.getvalue(), mime, thumb_out.getvalue()
 
 
-async def session_usage(db: AsyncSession, session_id: str) -> tuple[int, int]:
-    """세션에 이미 붙은 (이미지 수, 텍스트 글자 수)."""
+async def session_usage(db: AsyncSession, session_id: str) -> tuple[int, int, int]:
+    """세션에 이미 붙은 (이미지 수, 텍스트 글자 수, PDF 쪽수)."""
     rows = await db.execute(
         select(
-            func.count().filter(Attachment.chars.is_(None)),
+            func.count().filter(Attachment.mime.like("image/%")),
             func.coalesce(func.sum(Attachment.chars), 0),
+            func.coalesce(func.sum(Attachment.pages), 0),
         )
         .join(Turn, Turn.id == Attachment.turn_id)
         .where(Turn.session_id == session_id)
     )
-    images, chars = rows.one()
-    return int(images), int(chars)
+    images, chars, pages = rows.one()
+    return int(images), int(chars), int(pages)
+
+
+def _inspect_pdf(data: bytes, name: str) -> int:
+    """PDF를 검사하고 쪽수를 돌려준다(동기, 스레드에서). 손상·암호화는 거절한다."""
+    if not data.lstrip()[:5] == b"%PDF-":
+        raise invalid(f"{name}: PDF 파일이 아닌 것 같아요.")
+    try:
+        reader = PdfReader(io.BytesIO(data))
+        if reader.is_encrypted:
+            raise invalid(f"{name}: 암호가 걸린 PDF는 읽을 수 없어요.")
+        return len(reader.pages)
+    except AppError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - 손상 PDF는 pypdf가 갖가지 예외를 낸다(모두 400으로)
+        raise invalid(f"{name}: PDF를 열지 못했어요.") from exc
 
 
 def check_count(settings: Settings, count: int) -> None:
@@ -206,17 +227,19 @@ def discard(root: Path, items: list[Prepared]) -> None:
 
 
 async def prepare(
-    settings: Settings, session_id: str, uploads: list[Upload], used: tuple[int, int]
+    settings: Settings, session_id: str, uploads: list[Upload], used: tuple[int, int, int]
 ) -> list[Prepared]:
     """업로드를 검증·가공해 디스크에 쓴다. 하나라도 실패하면 쓴 파일을 지우고 AppError를 던진다.
 
-    used: 세션에 이미 붙은 (이미지 수, 텍스트 글자 수). 세션 누적 한도를 검사한다.
+    used: 세션에 이미 붙은 (이미지 수, 텍스트 글자 수, PDF 쪽수). 세션 누적 한도를 검사한다.
     """
     check_count(settings, len(uploads))
     root = settings.attachments_dir
     result: list[Prepared] = []
     images = used[0]
     text_chars = 0
+    pdf_count = 0
+    pdf_pages = used[2]
     try:
         for upload in uploads:
             name = clean_name(upload.name)
@@ -282,10 +305,46 @@ async def prepare(
                 )
                 await asyncio.to_thread(_write, root, item.path, data)
                 result.append(item)
+            elif ext in PDF_EXTENSIONS:
+                if len(upload.data) > settings.attachment_pdf_max_bytes:
+                    mb = settings.attachment_pdf_max_bytes // (1024 * 1024)
+                    raise too_large(f"{name}: PDF는 {mb}MB까지 보낼 수 있어요.")
+                pdf_count += 1
+                if pdf_count > settings.attachment_max_pdfs:
+                    raise invalid(
+                        f"PDF는 한 번에 {settings.attachment_max_pdfs}개까지 보낼 수 있어요."
+                    )
+                try:
+                    pages = await asyncio.wait_for(
+                        asyncio.to_thread(_inspect_pdf, upload.data, name), DECODE_TIMEOUT_S
+                    )
+                except TimeoutError:
+                    raise invalid(f"{name}: PDF를 처리하지 못했어요.") from None
+                if pages < 1 or pages > settings.attachment_pdf_max_pages:
+                    raise invalid(
+                        f"{name}: PDF는 {settings.attachment_pdf_max_pages}쪽까지 보낼 수 있어요"
+                        f"(이 파일은 {pages}쪽)."
+                    )
+                pdf_pages += pages
+                if pdf_pages > settings.attachment_session_max_pdf_pages:
+                    raise invalid("이 대화에 붙인 PDF가 너무 많아요. 새 대화에서 이어 주세요.")
+                item = Prepared(
+                    id=attachment_id,
+                    name=name,
+                    mime="application/pdf",
+                    size=len(upload.data),
+                    path=f"{session_id}/{attachment_id}.pdf",
+                    thumb_path=None,
+                    kind="pdf",
+                    pdf=upload.data,
+                    pages=pages,
+                )
+                await asyncio.to_thread(_write, root, item.path, upload.data)
+                result.append(item)
             else:
                 raise invalid(
                     f"{name}: 지원하지 않는 형식이에요(이미지 png·jpg·webp·gif, "
-                    "텍스트 txt·md·csv·json)."
+                    "텍스트 txt·md·csv·json, PDF)."
                 )
     except BaseException:
         discard(root, result)
@@ -346,10 +405,23 @@ def text_wrapper(name: str, content: str) -> str:
 def cli_input(items: list[Prepared], prefix: str, text: str) -> str | list[dict]:
     """CLI에 보낼 사용자 입력: 앱 안내(prefix) + 텍스트 첨부 래퍼 + 사용자 글.
 
-    이미지가 있으면 [이미지 블록…, 텍스트 블록] 배열(질문이 이미지 뒤, M0)이고 없으면 문자열이다.
+    이미지·PDF가 있으면 [이미지 블록…, document 블록…, 텍스트 블록] 배열(질문이 뒤, M0),
+    없으면 문자열이다.
     """
     wrappers = [text_wrapper(i.name, i.text or "") for i in items if i.kind == "text"]
     full = prefix + "\n".join([*wrappers, text])
+    documents: list[dict] = [
+        {
+            "type": "document",
+            "source": {
+                "type": "base64",
+                "media_type": "application/pdf",
+                "data": base64.b64encode(i.pdf or b"").decode("ascii"),
+            },
+        }
+        for i in items
+        if i.kind == "pdf"
+    ]
     blocks: list[dict] = [
         {
             "type": "image",
@@ -362,9 +434,9 @@ def cli_input(items: list[Prepared], prefix: str, text: str) -> str | list[dict]
         for i in items
         if i.kind == "image"
     ]
-    if not blocks:
+    if not blocks and not documents:
         return full
-    return [*blocks, {"type": "text", "text": full}]
+    return [*blocks, *documents, {"type": "text", "text": full}]
 
 
 def load_past_texts(root: Path, turns: list[Turn], budget: int) -> dict[str, str]:
