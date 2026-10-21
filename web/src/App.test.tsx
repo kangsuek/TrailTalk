@@ -62,6 +62,15 @@ describe('App', () => {
     expect(await screen.findByText('서버 연결됨')).toBeInTheDocument()
   })
 
+  it('헤더의 TrailTalk을 누르면 메인(대화) 화면으로 돌아간다', () => {
+    stubHealth(true)
+    render(<App />)
+    fireEvent.click(screen.getByRole('tab', { name: '설정' }))
+    expect(screen.getByRole('tab', { name: '설정' })).toHaveAttribute('aria-selected', 'true')
+    fireEvent.click(screen.getByRole('button', { name: 'TrailTalk' }))
+    expect(screen.getByRole('tab', { name: '대화' })).toHaveAttribute('aria-selected', 'true')
+  })
+
   it('지금 탭을 앱 뿌리에 표시한다(대화 탭에서는 헤더가 함께 스크롤된다)', () => {
     stubHealth(true)
     const { container } = render(<App />)

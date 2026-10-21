@@ -103,6 +103,25 @@ html:has(.app[data-tab='conversation']) {
   letter-spacing: -0.3px;
 }
 
+/* 제목을 누르면 메인(대화) 화면으로. 터치 영역 44px */
+.app h1 .app-home {
+  min-height: 44px;
+  margin: 0 -8px;
+  padding: 0 8px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+
+.app h1 .app-home:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 8px;
+}
+
 /* 연결 상태 알약: 점 + 문구 */
 .server-status {
   display: inline-flex;

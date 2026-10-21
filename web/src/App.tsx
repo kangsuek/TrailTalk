@@ -158,7 +158,12 @@ function App() {
           넓게 보도록 함께 스크롤된다 */}
       <div className="app-top">
         <header>
-          <h1>TrailTalk</h1>
+          <h1>
+            {/* 누르면 메인(대화) 화면으로. 진행 중인 대화는 그대로 둔다 */}
+            <button type="button" className="app-home" onClick={() => setTab('conversation')}>
+              TrailTalk
+            </button>
+          </h1>
           <span className="server-status" data-state={server} role="status">
             {SERVER_LABELS[server]}
           </span>
