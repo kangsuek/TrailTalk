@@ -9,7 +9,7 @@ import {
   type Ref,
 } from 'react'
 import { ApiError, endSession, prepareSession, reopenSession, sendTurn, startSession } from '../api/conversation'
-import { fetchLatestIdea, type LatestIdea } from '../api/journal'
+import { fetchOpenIdeas, type OpenIdea } from '../api/journal'
 import {
   conversationReducer,
   initialConversation,
@@ -82,6 +82,15 @@ function StarIcon() {
   )
 }
 
+function BulbIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z" />
+    </svg>
+  )
+}
+
 function ChevronIcon() {
   return (
     <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor"
@@ -94,6 +103,11 @@ function ChevronIcon() {
 /** 시작 화면 위쪽의 오늘 날짜(예: 10월 18일 일요일) */
 function today(): string {
   return new Date().toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'long' })
+}
+
+/** 아이디어를 만든 날(예: 10월 18일) */
+function ideaDate(createdAt: string): string {
+  return new Date(createdAt).toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' })
 }
 
 function SendIcon() {
@@ -227,15 +241,15 @@ export function ConversationScreen({
     }
   }, [waitingToStart, mode])
 
-  // 시작 화면의 "지난 아이디어 이어 가기" 카드(S3-39). 시작 화면이 보일 때마다 다시 불러온다
+  // 시작 화면의 "지난 아이디어 이어 가기" 목록(S3-39). 시작 화면이 보일 때마다 다시 불러온다
   // (일지에서 별표·완료·삭제를 바꾸고 돌아와도 맞게). 못 불러오면 숨긴다(지워진 대화를 열지 않게)
-  const [idea, setIdea] = useState<LatestIdea | null>(null)
+  const [ideas, setIdeas] = useState<OpenIdea[]>([])
   const showingStart = visible && pageVisible && state.status === 'idle'
   useEffect(() => {
     if (!showingStart) return
     const load = new AbortController()
-    fetchLatestIdea(load.signal).then(setIdea, () => {
-      if (!load.signal.aborted) setIdea(null)
+    fetchOpenIdeas(load.signal).then(setIdeas, () => {
+      if (!load.signal.aborted) setIdeas([])
     })
     return () => load.abort()
   }, [showingStart])
@@ -501,22 +515,28 @@ export function ConversationScreen({
             <br />
             같이 이야기해 봐요.
           </p>
-          {idea && onOpenJournal && (
-            <button
-              type="button"
-              className="idea-card"
-              onClick={() => onOpenJournal(idea.session_id)}
-              disabled={state.status === 'starting'}
-            >
-              <span className="idea-card-icon">
-                <StarIcon />
-              </span>
-              <span className="idea-card-text">
-                <span className="idea-card-label">지난 아이디어 이어 가기</span>
-                <span className="idea-card-content">{idea.content}</span>
-              </span>
-              <ChevronIcon />
-            </button>
+          {ideas.length > 0 && onOpenJournal && (
+            <section className="idea-list" aria-label="지난 아이디어 이어 가기">
+              <h3 className="idea-list-title">지난 아이디어 이어 가기</h3>
+              {ideas.map((idea) => (
+                <button
+                  key={idea.id}
+                  type="button"
+                  className="idea-card"
+                  onClick={() => onOpenJournal(idea.session_id)}
+                  disabled={state.status === 'starting'}
+                >
+                  <span className="idea-card-icon">
+                    {idea.starred ? <StarIcon /> : <BulbIcon />}
+                  </span>
+                  <span className="idea-card-text">
+                    <span className="idea-card-label">{ideaDate(idea.created_at)}</span>
+                    <span className="idea-card-content">{idea.content}</span>
+                  </span>
+                  <ChevronIcon />
+                </button>
+              ))}
+            </section>
           )}
           <div className="start-actions">
             <button

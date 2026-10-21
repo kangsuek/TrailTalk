@@ -460,62 +460,67 @@ describe('대화 방식', () => {
   })
 })
 
-describe('지난 아이디어 이어 가기 카드(S3-39)', () => {
-  const IDEA = { id: 'n1', content: '산책하며 개발 소식 음성으로 듣기', starred: true, session_id: 'old1' }
+describe('지난 아이디어 이어 가기 목록(S3-39)', () => {
+  const IDEAS = [
+    { id: 'n2', content: '산책하며 개발 소식 음성으로 듣기', starred: true, session_id: 'new1', created_at: '2026-10-15T01:00:00Z' },
+    { id: 'n1', content: '주말 완만한 등산 코스 찾기', starred: false, session_id: 'old1', created_at: '2026-10-14T01:00:00Z' },
+  ]
 
-  function stubWithIdea(idea: typeof IDEA | null) {
+  function stubWithIdeas(ideas: typeof IDEAS) {
     const fetchMock = stubServer()
     const base = fetchMock.getMockImplementation()!
     fetchMock.mockImplementation(async (url: string) =>
-      url === '/api/notes/latest-idea' ? new Response(JSON.stringify(idea)) : base(url),
+      url === '/api/notes/open-ideas' ? new Response(JSON.stringify(ideas)) : base(url),
     )
     return fetchMock
   }
 
-  it('시작 화면에 지난 아이디어를 보이고, 누르면 그 대화의 일지를 연다', async () => {
-    stubWithIdea(IDEA)
+  it('시작 화면에 지난 아이디어를 목록으로 보이고, 누르면 그 대화의 일지를 연다', async () => {
+    stubWithIdeas(IDEAS)
     const onOpenJournal = vi.fn()
     render(<ConversationScreen onOpenJournal={onOpenJournal} />)
-    const card = await screen.findByRole('button', { name: /지난 아이디어 이어 가기/ })
-    expect(card).toHaveTextContent('산책하며 개발 소식 음성으로 듣기')
-    fireEvent.click(card)
+    const cards = await screen.findAllByRole('button', { name: /산책|등산/ })
+    expect(cards).toHaveLength(2)
+    expect(cards[0]).toHaveTextContent('산책하며 개발 소식 음성으로 듣기')
+    expect(cards[1]).toHaveTextContent('주말 완만한 등산 코스 찾기')
+    fireEvent.click(cards[1])
     expect(onOpenJournal).toHaveBeenCalledWith('old1')
   })
 
-  it('아이디어가 없거나 불러오지 못하면 카드를 숨긴다', async () => {
-    const fetchMock = stubWithIdea(null)
+  it('아이디어가 없거나 불러오지 못하면 목록을 숨긴다', async () => {
+    const fetchMock = stubWithIdeas([])
     render(<ConversationScreen onOpenJournal={vi.fn()} />)
-    await waitFor(() => expect(calls(fetchMock, '/latest-idea')).toBe(1))
-    expect(screen.queryByRole('button', { name: /지난 아이디어/ })).toBeNull()
+    await waitFor(() => expect(calls(fetchMock, '/open-ideas')).toBe(1))
+    expect(screen.queryByText('지난 아이디어 이어 가기')).toBeNull()
     cleanup()
 
-    stubServer() // latest-idea 요청이 실패한다
+    stubServer() // open-ideas 요청이 실패한다
     render(<ConversationScreen onOpenJournal={vi.fn()} />)
     await screen.findByRole('button', { name: '글로 대화' })
-    expect(screen.queryByRole('button', { name: /지난 아이디어/ })).toBeNull()
+    expect(screen.queryByText('지난 아이디어 이어 가기')).toBeNull()
   })
 
-  it('대화를 시작하면 카드가 사라지고, 시작 화면이 다시 보일 때 새로 불러온다', async () => {
-    const fetchMock = stubWithIdea(IDEA)
+  it('대화를 시작하면 목록이 사라지고, 시작 화면이 다시 보일 때 새로 불러온다', async () => {
+    const fetchMock = stubWithIdeas(IDEAS)
     const { rerender } = render(<ConversationScreen onOpenJournal={vi.fn()} />)
-    await screen.findByRole('button', { name: /지난 아이디어/ })
+    await screen.findByText('주말 완만한 등산 코스 찾기')
     rerender(<ConversationScreen visible={false} onOpenJournal={vi.fn()} />)
     rerender(<ConversationScreen visible onOpenJournal={vi.fn()} />)
-    await waitFor(() => expect(calls(fetchMock, '/latest-idea')).toBe(2))
-    expect(screen.getByRole('button', { name: /지난 아이디어/ })).toBeInTheDocument()
+    await waitFor(() => expect(calls(fetchMock, '/open-ideas')).toBe(2))
+    expect(screen.getByText('주말 완만한 등산 코스 찾기')).toBeInTheDocument()
 
-    // 다시 불러오다 실패하면 앞의 카드를 숨긴다(그사이 지운 대화를 열지 않게)
+    // 다시 불러오다 실패하면 앞의 목록을 숨긴다(그사이 지운 대화를 열지 않게)
     const base = fetchMock.getMockImplementation()!
     fetchMock.mockImplementation(async (url: string) =>
-      url === '/api/notes/latest-idea' ? new Response('{}', { status: 500 }) : base(url),
+      url === '/api/notes/open-ideas' ? new Response('{}', { status: 500 }) : base(url),
     )
     rerender(<ConversationScreen visible={false} onOpenJournal={vi.fn()} />)
     rerender(<ConversationScreen visible onOpenJournal={vi.fn()} />)
-    await waitFor(() => expect(screen.queryByRole('button', { name: /지난 아이디어/ })).toBeNull())
+    await waitFor(() => expect(screen.queryByText('주말 완만한 등산 코스 찾기')).toBeNull())
     fetchMock.mockImplementation(base)
 
     fireEvent.click(screen.getByRole('button', { name: '글로 대화' }))
     await screen.findByText('안녕하세요, 오늘 어떤 이야기를 할까요?')
-    expect(screen.queryByRole('button', { name: /지난 아이디어/ })).toBeNull()
+    expect(screen.queryByText('지난 아이디어 이어 가기')).toBeNull()
   })
 })

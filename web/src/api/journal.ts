@@ -36,9 +36,9 @@ export async function retryJournal(sessionId: string, signal?: AbortSignal): Pro
   return (await request(`/api/journal/${encodeURIComponent(sessionId)}/retry`, 'POST', undefined, signal)).json()
 }
 
-export type LatestIdea = components['schemas']['LatestIdea']
+export type OpenIdea = components['schemas']['OpenIdea']
 
-/** 대화 시작 화면 카드의 지난 아이디어(완료하지 않은 것 중 별표 먼저, 최신순). 없으면 null(S3-39). */
-export async function fetchLatestIdea(signal?: AbortSignal): Promise<LatestIdea | null> {
-  return (await request('/api/notes/latest-idea', 'GET', undefined, signal)).json()
+/** 대화 시작 화면 목록의 지난 아이디어(완료하지 않은 것, 만든 날짜 역순). 없으면 빈 목록(S3-39). */
+export async function fetchOpenIdeas(signal?: AbortSignal): Promise<OpenIdea[]> {
+  return (await request('/api/notes/open-ideas', 'GET', undefined, signal)).json()
 }

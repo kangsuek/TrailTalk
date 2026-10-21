@@ -258,7 +258,7 @@ ID는 UUID 문자열(`persona`는 이름 키, `user_profile`은 단일 행 1), �
 | DELETE | /journal/{session_id} | 대화 삭제(노트·전문·녹음 포함, 진행 중이면 409) |
 | POST | /journal/{session_id}/retry | 정리에 실패한(또는 정리 기록이 없거나 예전 형식인) 끝난 대화를 다시 정리 |
 | PATCH | /notes/{id} | 별표·완료·내용 수정 |
-| GET | /notes/latest-idea | 대화 시작 화면 "지난 아이디어 이어 가기" 카드용 완료하지 않은 아이디어 1개(별표 먼저, 최신순, 없으면 null) |
+| GET | /notes/open-ideas | 대화 시작 화면 "지난 아이디어 이어 가기" 목록용 완료하지 않은 아이디어(날짜 역순, limit 기본 5, 없으면 빈 목록) |
 | GET | /journal/{session_id}/export.md | Markdown 내보내기(5단계 S5-03 예정, 아직 없음) |
 | GET/PUT | /profile | 호칭·이메일 주소·관심사·보이스·말 속도·대화 모델·음성 원본 보관·페르소나 설정, 클라이언트 설정값(`client`, 읽기 전용) |
 | GET | /voices, /voices/{voice}/sample | 선택 가능한 보이스 목록, 보이스 미리 듣기 MP3 |

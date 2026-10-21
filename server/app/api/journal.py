@@ -297,29 +297,42 @@ async def delete_journal(session_id: str, request: Request, db: DbSession) -> No
     await conversation.delete_session(request.app, db, session_id)
 
 
-class LatestIdea(BaseModel):
+class OpenIdea(BaseModel):
     id: str
     content: str
     starred: bool
     session_id: str  # 이 아이디어가 나온 대화(일지 상세로 연다)
+    created_at: datetime
 
 
-@router.get("/notes/latest-idea")
-async def latest_idea(db: DbSession) -> LatestIdea | None:
-    """대화 시작 화면의 "지난 아이디어 이어 가기" 카드(S3-39). 완료하지 않은 아이디어 하나를
-    기억 블록과 같은 순서(별표 먼저, 최신순)로 고른다. 없으면 null.
+IDEA_LIST_DEFAULT = 5
+IDEA_LIST_MAX = 20
+
+
+@router.get("/notes/open-ideas")
+async def open_ideas(
+    db: DbSession,
+    limit: Annotated[int, Query(ge=1, le=IDEA_LIST_MAX)] = IDEA_LIST_DEFAULT,
+) -> list[OpenIdea]:
+    """대화 시작 화면의 "지난 아이디어 이어 가기" 목록(S3-39). 완료하지 않은 아이디어를
+    만든 날짜의 역순(최신이 먼저)으로 최대 limit개 준다. 없으면 빈 목록.
     """
-    note = await db.scalar(
+    notes = await db.scalars(
         select(Note)
         .where(Note.kind == NoteKind.IDEA, Note.done.is_(False))
-        .order_by(Note.starred.desc(), Note.created_at.desc(), Note.id)
-        .limit(1)
+        .order_by(Note.created_at.desc(), Note.id)
+        .limit(limit)
     )
-    if note is None:
-        return None
-    return LatestIdea(
-        id=note.id, content=note.content, starred=note.starred, session_id=note.session_id
-    )
+    return [
+        OpenIdea(
+            id=n.id,
+            content=n.content,
+            starred=n.starred,
+            session_id=n.session_id,
+            created_at=n.created_at,
+        )
+        for n in notes
+    ]
 
 
 @router.patch("/notes/{note_id}")

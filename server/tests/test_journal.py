@@ -282,30 +282,32 @@ def test_detail_has_citations(client):
     assert edited["cites"] == [2, 1]
 
 
-def test_latest_idea_none(client):
-    assert client.get("/api/notes/latest-idea").json() is None
+def test_open_ideas_empty(client):
+    assert client.get("/api/notes/open-ideas").json() == []
 
 
-def test_latest_idea_prefers_starred_then_newest_open(client):
-    """S3-39: 시작 화면 카드. 기억 블록과 같은 순서(별표 먼저, 최신순), 완료·다른 종류는 뺀다."""
+def test_open_ideas_newest_first_open_only(client):
+    """S3-39: 시작 화면 목록. 날짜 역순, 완료·다른 종류는 뺀다. 별표는 순서에 영향이 없다."""
     old = add_session(client, kst(2026, 10, 14, 9, 0))
     new = add_session(client, kst(2026, 10, 15, 9, 0))
+    starred = add_note(
+        client, old, NoteKind.IDEA, "별표", starred=True, created_at=kst(2026, 10, 13, 9, 0)
+    )
     add_note(client, old, NoteKind.IDEA, "오래된 아이디어", created_at=kst(2026, 10, 14, 10, 0))
     add_note(client, new, NoteKind.IDEA, "새 아이디어", created_at=kst(2026, 10, 15, 10, 0))
     done_at = kst(2026, 10, 15, 11, 0)
     add_note(client, new, NoteKind.IDEA, "끝낸 아이디어", done=True, created_at=done_at)
     add_note(client, new, NoteKind.TODO, "할 일", created_at=kst(2026, 10, 15, 12, 0))
 
-    body = client.get("/api/notes/latest-idea").json()
-    assert body["content"] == "새 아이디어"
-    assert body["session_id"] == new
-    assert body["starred"] is False
+    body = client.get("/api/notes/open-ideas").json()
+    assert [n["content"] for n in body] == ["새 아이디어", "오래된 아이디어", "별표"]
+    assert [n["session_id"] for n in body] == [new, old, old]
+    assert body[2]["starred"] is True and body[2]["id"] == starred
 
-    star_at = kst(2026, 10, 13, 9, 0)
-    starred = add_note(client, old, NoteKind.IDEA, "별표", starred=True, created_at=star_at)
-    body = client.get("/api/notes/latest-idea").json()
-    assert body == {"id": starred, "content": "별표", "starred": True, "session_id": old}
-
-    # 완료하면 다음 아이디어로 넘어간다
+    # 개수를 줄일 수 있고, 완료하면 목록에서 빠진다
+    assert [n["content"] for n in client.get("/api/notes/open-ideas?limit=1").json()] == [
+        "새 아이디어"
+    ]
     assert client.patch(f"/api/notes/{starred}", json={"done": True}).status_code == 200
-    assert client.get("/api/notes/latest-idea").json()["content"] == "새 아이디어"
+    assert len(client.get("/api/notes/open-ideas").json()) == 2
+    assert client.get("/api/notes/open-ideas?limit=0").status_code == 422
